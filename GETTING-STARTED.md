@@ -12,11 +12,14 @@ Groovy rules, workflows, mail and PDF templates — **directly as a `.mrjun` exp
 You then import that file into a running Dokie/NCT project and get a working system.
 
 ```
-PRD  →  Claude Code + this library  →  project.mrjun  →  import  →  drive it  →  fix  →  re-import
+PRD  →  Claude Code + this library  →  project.mrjun + test-scenarios.md   ← the AI stops here
+                                    →  YOU import  →  drive it  →  fix  →  re-import
 ```
 
-**The output is a `.mrjun`. The deliverable is a system that has been imported and driven.** Those are not
-the same thing, and the difference is where most of the quality lives — see §7.
+**The AI hands you two files and stops.** It has no access to your platform, does not ask for one, and never
+imports anything — so what you get is an export whose FILES are gated four ways, plus a `test-scenarios.md`
+telling you what to click. Importing and driving it is your half, and it is where most of the remaining
+quality lives — see §7.
 
 ---
 
@@ -27,8 +30,8 @@ the same thing, and the difference is where most of the quality lives — see §
 | **curl + tar** | to download this library (both are standard) |
 | **python3 ≥ 3.9** | `tools/mrjun.py` is stdlib-only — there is nothing to `pip install` |
 | **Claude Code** (or an equivalent agent that can read files and run commands) | it does the building |
-| **A Dokie/NCT project you can import into**, `type == REPORT` | ⛔ the finish line. Create it from the **Empty project** template; any other type makes the import **silently skip** the whole rep-objects block and the database |
-| **A way to read that project's logs** (or at least import errors) | the one diagnostic for the silent-failure class in §8 |
+| **A Dokie/NCT project you can import into**, `type == REPORT` | ⛔ YOURS to provide, at the end — the AI never touches it. Create it from the **Empty project** template; any other type makes the import **silently skip** the whole rep-objects block and the database |
+| **A way to read that project's logs** (or at least import errors) | the one diagnostic for the silent-failure class in §8 — again, yours to read |
 | **A PRD** | you write it; see §3 |
 | *optional but wanted:* `psql` on PATH, docker | for `crud verify --db`, the only gate that actually executes your SQL |
 
@@ -106,16 +109,20 @@ The first thing the AI does is read the **operating contract** at the `CONTRACT:
 download this library into `./builder` itself, so §2 above is optional for you: do it if you want the docs on
 disk to read, skip it if you don't.
 
-**It will then ask you four things. Answer precisely; a wrong answer re-touches every entity:**
+**It will then ask you three things. Answer precisely; a wrong answer re-touches every entity:**
 
 | | |
 |---|---|
 | **Locales** | list them all **and name the default**. If it is one language, say so explicitly — that switches off per-locale fields everywhere |
 | **Branding** | customer name + the logo file |
 | **Scope** | which modules are in this pass, which are not |
-| **Target platform** | the project URL, a test login, and where the logs are. Without these the build can never be driven live, and the deliverable is labelled UNVERIFIED |
 
 It will also ask before deleting anything, and it will ask who opens a case when your PRD does not say.
+
+**It will NOT ask where to test.** No project URL, no realm, no client, no login, no localhost port. It does
+not import and does not drive the UI, so those answers would change nothing it can do — and being asked
+"where should I test this?" is a sign of an out-of-date CONTRACT, not a question worth answering. Point it at
+the current `system_prompt.txt`.
 
 ---
 
@@ -193,7 +200,12 @@ load-bearing and fail in ways no offline gate can see:
 8. **The project log** — look for `MismatchedInputException` / `InvalidFormatException`
 
 Fix in `./work` → `validate` → re-pack → re-import (**Rebuild**) → re-drive the fixed screens **and their
-neighbours**. Repeat until clean. A build that was never imported is a candidate, not a deliverable.
+neighbours**. Repeat until clean.
+
+This loop is yours, and the AI knows it: `test-scenarios.md` opens by saying that none of its scenarios has
+been executed. Hand it back the specific failures (screen, what you pressed, what you saw, and the
+`log/ui.log` line if there is one) and it fixes them in the workdir and re-packs. "It doesn't work" is not
+enough to act on; one screen with one symptom is.
 
 ---
 

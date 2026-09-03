@@ -8,7 +8,10 @@ huge PRD too fast: authoring everything, running `validate` once, seeing green, 
 imported project shows wrong-language menus, empty charts, a bare-`<div>` email, zero workflows, and a blank Home.
 
 > **The one sentence.** `validate` proves the files are *shaped* right; it does **not** prove the project *works*.
-> Depth over speed: decompose → build+test each module → integrate+re-test → **live import + drive the UI** → done.
+> Depth over speed: decompose → build+test each module → integrate+re-test → **four offline gates green +
+> a hand-over someone else can drive** → done. The live import and the UI drive are the USER's step, from the
+> `test-scenarios.md` you ship beside the export — you are not given a platform and do not ask for one
+> (`system_prompt.txt` OP 0/1).
 
 ---
 
@@ -22,7 +25,7 @@ imported project shows wrong-language menus, empty charts, a bare-`<div>` email,
 | Bare/ugly mail & PDF | scaffold shipped as-is; no branding | §2 template rows carry a "branded, seed-quality" gate; [15](15-pdf-and-mail.md) |
 | Home redirects to a blank shell | redirect target renders empty; never opened | §5 live-drive Home first; [21](21-homepage-and-redirect.md) |
 | One import-abort hides 200 edits | whole project authored, validated once at the end | §4 build+validate **per module**, not once |
-| "Done" that was never imported | `validate` green treated as the finish line | §5 the live run **is** the finish line |
+| "Done" that was never imported | `validate` green treated as the finish line | §5 — `validate` is one of FOUR gates, and the export must ship with a `test-scenarios.md` that says it was never run |
 | White cards / unreadable text on the dark themes | a custom component's CSS was written once, against the light skin, and only ever looked at under that skin | §3 tier **T4b render under each SKIN**; [24a](24a-theming-and-dark-mode.md) |
 | A custom screen that is fast on demo data and unusable on real data | a hand-built table fetched every row (`rowsInPage: 5000`) because paging was never decided | §2 inventory row per custom component names its page source; [24c](24c-html-data-tables-and-paging.md) |
 
@@ -286,8 +289,8 @@ for each MODULE (an epic's worth of tasks, in dependency order):
 # whole-project acceptance:
     T3 crud verify --db  (§3a — spin up a throwaway PG; then TRIAGE every FAIL)
     mrjun.py coverage --plan build-plan/plan.json          # §6a — MUST pass: every PRD item built + done
-    T5 LIVE import + drive every screen                    # §5 — the finish line
-    fix, re-pack, re-drive until clean
+    T5 write test-scenarios.md + the independent re-derivation  # §5 — the hand-over IS the finish line
+    (the import + drive is the USER's step, from that file)
 ```
 
 Why per-module validate matters: authoring 200 nodes then validating once means a single import-abort (a mis-typed
@@ -443,7 +446,7 @@ itself drive the browser — §5). A typical shape (what the harness encodes):
 phase 'Research'   : parallel readers → shapes for {db, cruds, forms/tables, rules, templates, workflow, charts}
 phase 'Build'      : SEQUENTIAL (main loop): decompose → author module by module, T1/T2 each unit
 phase 'Verify'     : parallel per-module T4 renders + independent re-checks; collect defects
-phase 'Live'       : import + drive (§5); fix; repeat until clean
+phase 'Handover'   : test-scenarios.md + independent re-derivation (§5). The user imports and drives.
 ```
 
 Prefer a declarative **generator** (a small Python script that turns one schema/spec into DB + CRUDs + queries, or
@@ -511,9 +514,11 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       the verifier's own substitution, not left unread.
 - [ ] Rendered under **each** `tenant.json.locales` — labels change with the locale (no one-language-under-all bug);
       a single-language project has **no** `localized` fields.
-- [ ] **Live import done**: Home renders charts; nav resolves in the selected language; every form opens with fields
-      + populated dropdowns; actions run; every writing row action submitted **and its row re-opened showing the new value**
-      (a success toast is not evidence — §5 step 4); workflow starts run; mail/PDF render branded; `log/ui.log` clean.
+- [ ] **Written down for the tester, because no gate can reach it**: Home renders charts; nav resolves in the
+      selected language; every form opens with fields + populated dropdowns; actions run; every writing row
+      action submitted **and its row re-opened showing the new value** (a success toast is not evidence —
+      §5 step 4); workflow starts run; mail/PDF render branded; `log/ui.log` clean. Each of these is a
+      numbered scenario in `test-scenarios.md`, not something you tick off yourself.
 - [ ] **Every workflow was driven end to end, one case per branch** — start it, and on EVERY user task read the
       form before pressing the button: a form whose fields are blank is a binding fault, not a data gap. Take
       each gateway branch at least once (a predicate that is silently false looks exactly like "the flow went

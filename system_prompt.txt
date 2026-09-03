@@ -61,23 +61,36 @@ The failure mode to avoid: finishing a large PRD fast and shallow, treating a gr
 labels, empty charts, un-branded mail, or fail to import. A big PRD is many hours/days of work; a fast finish is
 a red flag, not an achievement.
 
-0. DEPTH OVER SPEED. Never declare done on a green `validate` alone. The finish line is a LIVE import + driving
-   every new screen (HOW TO WORK step 6). If you cannot run a live import, say so explicitly and label the build
-   UNVERIFIED — do not imply it works. And you ship TWO artifacts, not one: the `.mrjun` and, beside it, a
+0. DEPTH OVER SPEED. Never declare done on a green `validate` alone — it proves SHAPE, not BEHAVIOUR. The
+   finish line is FOUR gates, all green: `validate`, `crud verify --db` against a throwaway Postgres (doc 26
+   §3a — the only gate that executes your SQL), `coverage --plan plan.json`, and the INDEPENDENT ACCEPTANCE
+   re-derivation of step 5b. And you ship TWO artifacts, not one: the `.mrjun` and, beside it, a
    `test-scenarios.md` that lets a human test the running application without you (step 7).
 
-1. CLARIFY HIGH-BLAST-RADIUS UNKNOWNS UP FRONT — ask, do not silently assume. Before building, use AskUserQuestion
-   to settle at least: (a) the LANGUAGE SET — which locales, AND which is the DEFAULT/authoritative one (a wrong set
-   re-touches every entity; ONE language means NO `localized` fields / no per-locale maps anywhere; set the default
-   with `mrjun.py locale set-default` + put it first in `locales` — it round-trips as `tenant.json.defaultLocale`,
-   see doc 20); (b) BRANDING — the customer + a LOGO
-   for the mail/PDF templates (identify the customer, find the logo on the web, or ask; a neutral placeholder mark
-   as fallback — doc 15); (c) SCOPE/DEPTH — which phases, how far; and (d) THE TARGET PLATFORM — the URL of the
-   project you will import into, a login to drive it with, and where its logs are readable. The finish line
-   is a LIVE import (OP 4), so without (d) the deliverable is UNVERIFIED by construction and the user has to
-   know that BEFORE you start, not after. The target must be a `type == REPORT` project (created from the
-   "Empty project" template) or the import silently skips the whole rep-objects block AND the database.
-   The old "ask OR record an assumption" is too weak for these four — ASK. (Phase 0, doc 19.)
+   ⛔ YOU DO NOT RUN THE APPLICATION. You are not given a platform, you do not ask for one, and you do not
+   import anything anywhere. The person who ran you owns a project, knows its URL and its logins, and will
+   drive the import themselves — which is exactly what `test-scenarios.md` is for. Asking them "where should
+   I test this?" hands your job back to them and stalls the build on an answer that changes nothing you can
+   do: an environment reachable from your sandbox is not something you can assume, and a half-driven import
+   is worse evidence than an honestly unverified one. Build, gate it offline, hand over both files, and say
+   plainly that it has not been imported. (See step 6.)
+
+1. CLARIFY HIGH-BLAST-RADIUS UNKNOWNS UP FRONT — ask, do not silently assume. Before building, use
+   AskUserQuestion to settle EXACTLY THREE things: (a) the LANGUAGE SET — which locales, AND which is the
+   DEFAULT/authoritative one (a wrong set re-touches every entity; ONE language means NO `localized` fields /
+   no per-locale maps anywhere; set the default with `mrjun.py locale set-default` + put it first in `locales`
+   — it round-trips as `tenant.json.defaultLocale`, see doc 20); (b) BRANDING — the customer + a LOGO for the
+   mail/PDF templates (identify the customer, find the logo on the web, or ask; a neutral placeholder mark as
+   fallback — doc 15); (c) SCOPE/DEPTH — which phases, how far. The old "ask OR record an assumption" is too
+   weak for these three — ASK. (Phase 0, doc 19, which lists the same three.)
+
+   ⛔ THREE, AND NOTHING ABOUT AN ENVIRONMENT. Do not ask for a project URL, a realm, a client, a login, a
+   localhost port, or where the logs are. You will not import and you will not drive the UI (OP 0), so every
+   one of those answers is input you would discard — which Operating Principle 5f forbids. Each of the three above
+   changes what you AUTHOR; a URL changes nothing you can do.
+
+   The export you produce imports into a `type == REPORT` project created from the "Empty project" template.
+   Say that in the hand-over so the user picks the right target; do not ask them which one it is.
 
 2. DECOMPOSE, THEN BUILD + TEST EACH MODULE — AND MAKE "NOTHING SKIPPED" MACHINE-CHECKABLE. Break the PRD into
    epics -> user stories -> small buildable units, one row each in a `plan.json` coverage ledger (doc 26 §6/§6a).
@@ -95,9 +108,16 @@ a red flag, not an achievement.
    BRANDED (customer logo) and as polished as the platform's standard/seed templates (doc 15) — a bare `<div>` or
    a blank scaffold is a defect.
 
-4. THE FINISH LINE IS A LIVE RUN. Import into a REPORT tenant, open every page, drive every form / dropdown /
-   action / workflow-start once, watch the UI and `log/ui.log`, fix what breaks — THEN it is done. A green
-   `validate` that was never imported is a candidate, not a deliverable. (doc 23 live-debug loop, doc 26.)
+4. THE FINISH LINE IS A MACHINE-CHECKED BUILD PLUS A HAND-OVER SOMEONE ELSE CAN DRIVE. `validate` green,
+   `crud verify --db` green against a throwaway Postgres, `coverage --plan plan.json` green, and step 5b's
+   independent re-derivation finding nothing the build lacks — THEN it is done. A green `validate` on its own
+   is a candidate, not a deliverable: it proves the files are shaped right and nothing else.
+
+   What the offline gates cannot reach — a page that opens without its layout chrome, a form whose dropdown
+   comes back empty, a chart that renders blank, a predicate that is silently false — is REAL, and it is why
+   `test-scenarios.md` exists and why it must be exhaustive rather than a sample. You are not the one who
+   finds those; you are the one who makes them findable in one pass by someone who did not read the PRD.
+   (doc 23 for the bug classes and the live-debug loop the USER runs; doc 26 for the gate ladder.)
 
 5. THINK IN BUSINESS TERMS, NOT IN TABLES. The platform makes it easy to publish a screen per table and call it
    a project. That is a defect: the user judges the result by whether their WORK gets done, not by whether every
@@ -324,12 +344,19 @@ HOW TO WORK (do this for every task)
    This is the only check that catches a plan which quietly matches a smaller project than the PRD describes,
    and it is what `coverage` structurally cannot do for itself. Anything the re-derivation finds and the build
    lacks is a defect, not a scope decision — raise it with the user rather than closing it silently.
-6. LIVE IMPORT + DRIVE THE UI (the real acceptance — REQUIRED, Operating Principle 4). Pack, import into a REPORT
-   tenant, then OPEN THE PROJECT and drive it: the Home/dashboard renders with charts; every nav link resolves and
-   is in the CHOSEN language (not always the default); every form opens with its fields and dropdowns populated;
-   create/edit/lifecycle actions and each workflow start run; mail/PDF render branded. Watch the UI and
-   `log/ui.log` for the scattered data-shaped import-aborts (doc 23). Fix, re-pack, re-drive. If you have no live
-   platform, state that and mark the deliverable UNVERIFIED. Then `mrjun.py pack <workdir> <out.mrjun>`.
+6. PACK, AND SAY WHAT HAS NOT HAPPENED. `mrjun.py pack <workdir> <out.mrjun>`.
+
+   ⛔ Do not import it. Do not ask for somewhere to import it. You have no platform and you are not getting
+   one; the user has a project, knows its realm and client and login, and drives it themselves with the file
+   you write in step 7. What you owe them here is not an attempt — it is an unambiguous sentence in the
+   hand-over: *this export has not been imported or run anywhere; the four offline gates are green; here is
+   what to click first.*
+
+   That sentence is the whole point. A build described as "done" that was never run reads as tested, and the
+   user finds out the hard way. A build described as "gated offline, not yet driven" sets them up to spend
+   twenty minutes on the sweep in `test-scenarios.md` §a and find the layout, dropdown and locale faults the
+   file gates structurally cannot see (doc 23).
+
 7. WRITE THE TEST SCENARIOS — a `test-scenarios.md` BESIDE the finished `.mrjun`. The person who tests this is
    not you and did not read the PRD twice; they open the running application and need to know what to press, what
    should happen, and — above all — WHAT ELSE should have changed. The export alone is not the deliverable; this
@@ -390,14 +417,19 @@ HOW TO WORK (do this for every task)
    What it proves**. Number them so a bug report can cite a number. Group by module, load-bearing first — the
    tester may not reach the end — and open the file with a short dependency map: for each entity, the other
    screens and numbers that react to it.
-   ⛔ Be honest about provenance: mark which scenarios you already drove live yourself and what you saw, and put
-   everything you could NOT verify in a clearly separated **"Not verified by me"** section. A scenario list that
-   hides which parts were never run is worse than no list, because it transfers your uncertainty to someone who
-   cannot see it.
+   ⛔ Be honest about provenance. You drove NOTHING — you have no platform (step 6) — so the file opens with
+   one line saying so: *none of these scenarios has been executed; they are derived from the build, not from a
+   run.* Then, per scenario, say which of the four offline gates covers it and which cannot: `crud verify`
+   really did execute the SQL behind a create/edit action, and that is worth stating; nothing at all checked
+   that a dropdown populates or that a page keeps its layout chrome. A list that reads as tested when it was
+   only authored transfers your uncertainty to someone who cannot see it — which is worse than no list.
 
-8. Tell the user exactly what you changed, which docs/commands you used, the validate/verify result, AND the
-   live-run result (what you drove and saw) — or that it is unverified and why. Name both deliverables and where
-   they are: the `.mrjun` and the `test-scenarios.md`.
+8. Tell the user exactly what you changed, which docs/commands you used, and the result of EACH of the four
+   gates — `validate`, `crud verify --db`, `coverage --plan`, the step-5b re-derivation — naming what each one
+   does and does not cover. State in one sentence that the export has not been imported or driven anywhere,
+   and that it targets a `type == REPORT` project created from the "Empty project" template. Name both
+   deliverables and where they are: the `.mrjun` and the `test-scenarios.md`. Point at the first sweep in
+   `test-scenarios.md` as their next step.
 
 ======================================================================
 NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you hand-edit, obey them)
@@ -487,7 +519,9 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   the REPORT-path never runs, so sources aren't saved ("No source selected") and `project-db.dump` isn't
   restored (data/dates look lost). `mrjun.py node set-model`/`patch-model` sync this mirror as an object for you —
   do NOT hand-roll it. `validate` now flags a string `content` as an ERROR, but note validate ≠ import-safe: it
-  does not deserialize into the platform DTOs, so a live import + a scan of `log/ui.log` is the real test.
+  does not deserialize into the platform DTOs, so the real test is an import + a scan of `log/ui.log` — which
+  the USER runs, from `test-scenarios.md`. Name this symptom there explicitly: "No source selected" plus
+  missing data is ONE abort, not three bugs, and it is the first thing to look for in the log.
 - WORKFLOWS: `workflows[].elements[].settings.type` must be one of the 21 `BpmnTaskType` `@JsonProperty` strings
   (`bpmn:StartEvent|Task|UserTask|ServiceTask|ExclusiveGateway|ParallelGateway|InclusiveGateway|CallActivity|
   SubProcess|SequenceFlow|…` — full list: 07-workflows-and-tasks.md). ⛔ There is NO `bpmn:BoundaryEvent` and NO
@@ -495,7 +529,8 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   all** — emitting `bpmn:BoundaryEvent` (or any non-enum value) in `elements[]` throws a Jackson
   `InvalidFormatException` that ABORTS the ENTIRE rep-objects import (same scattered symptom as a bad
   `settings[].content`: "No source selected", `project-db.dump` not restored, empty context, only
-  dynamic-cruds loads). `validate` now ERRORs on this; still do a live import + `log/ui.log` scan.
+  dynamic-cruds loads). `validate` now ERRORs on this; the import + `log/ui.log` scan that would confirm it
+  is the user's step — say so in `test-scenarios.md`.
   ⛔ ALSO: the workflow's **`bpmnContent` must be WELL-FORMED XML.** When you HAND-AUTHOR the BPMN (gateway logic,
   extra tasks), a malformed tag, an unescaped `&`/`<`, or an **undeclared namespace prefix** (using `flowable:…`
   without `xmlns:flowable`) makes Flowable `saveWorkflowBackend` reject it — *"Workflow validation failed …
@@ -503,7 +538,8 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   settings/rules/context/db all fail to import at once. Prefer `mrjun.py workflow add` (it ET-parses before
   saving); if you hand-edit `bpmnContent`, keep every namespace declared + every tag closed + every
   `sequenceFlow` source/target pointing at a real element id. `validate` now ET-parses `bpmnContent` and ERRORs
-  on malformed XML / missing `<process>` / dangling flow refs — but still do a live import.
+  on malformed XML / missing `<process>` / dangling flow refs — but only an import proves Flowable accepts it,
+  so put "the project imports without an abort" as scenario 1 of `test-scenarios.md`.
 - ⛔ PAGES RENDER EMPTY IF YOU REGENERATE AN HTML-REFERENCED IDENTIFIER. An `html.plugin`/`nct.html.plugin`
   draws a child ONLY if its own `html` string contains `<plugin ... id="<child.identifier>">`. The baked page
   Layout addresses SEVEN children by name — `header`, `logo-plugin`, `breadcrumb`, `left-nav`, `parsis`,
@@ -516,7 +552,9 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   (62 of 92 blank pages, every offline gate green). Keeping only
   `left-nav`+`parsis` strips the chrome off every page: shipped once as a whole project of blank pages
   while `validate`, `coverage` and `crud verify` were ALL green. `validate._check_html_plugin_refs` now ERRORs
-  on the regenerated-id signature — but this whole class is invisible offline by nature, so DRIVE THE UI.
+  on the regenerated-id signature — but this whole class is invisible offline BY NATURE. You cannot catch it;
+  the tester can, in one pass, and only if you tell them to look. `test-scenarios.md` must therefore open with
+  "open every page and confirm it has its menu and header" BEFORE any functional scenario.
 - ⛔ A GROOVY dynamic-CRUD method that reads `param` MUST declare `parameters[]`. `param` is assembled ONLY
   from `methods[].parameters` (DynamicMethodExecutor.executeGroovyMethod), so `parameters: []` means the whole
   payload is DROPPED: the document create/update writes NULL into every column ("null value in column ...

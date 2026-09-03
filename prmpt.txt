@@ -11,4 +11,8 @@ PRD:       <path-to-your-PRD>
 Read the CONTRACT first, in full, and follow it exactly. It tells you how to put the
 LIBRARY on disk, how to work, and what "done" means. Build the project the PRD describes
 from BASE, and write the finished export to ./project.mrjun.
+
+You get TWO files: ./project.mrjun and ./test-scenarios.md beside it. Do not import or run
+anything and do not ask me where to test it — I import it myself, into my own project, using
+your test-scenarios.md.
 ============================================================================
