@@ -1,0 +1,37 @@
+Copyright (c) 2026 DevSegment. All rights reserved.
+
+DOKIE / NCT PROJECT CONSTRUCTION LIBRARY — TERMS OF USE
+
+1. Grant. You are granted a non-exclusive, non-transferable, revocable right to
+   use this library — its documentation, tooling and bundled `.mrjun` templates —
+   to design, build, test and maintain projects that run on the Dokie / NCT
+   platform, including for a client of yours.
+
+2. Output. Projects, `.mrjun` exports and other artifacts you produce with this
+   library are yours. Nothing in these terms claims ownership of your work.
+
+3. Restrictions. Without prior written permission you may not:
+   (a) redistribute, publish or sublicense this library or a substantial part of
+       it, in original or modified form. (Forking and viewing this repository, as
+       provided for by the terms of the hosting platform it is published on, are
+       of course permitted; this restricts redistribution beyond that.);
+   (b) use it to build, train, document or market a product that competes with
+       the Dokie / NCT platform;
+   (c) remove or alter this notice.
+
+   Quoting or excerpting it for support, review or teaching purposes is fine.
+
+4. No warranty. THE LIBRARY IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+   EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE LIBRARY OR ITS USE.
+
+   In particular: the library describes platform behaviour as verified against a
+   particular platform build (see 23-distribution-and-known-gaps.md §3). It is
+   documentation, not a specification, and it does not guarantee that a generated
+   project imports, renders or behaves correctly. Verify every build against your
+   own running platform.
+
+5. Contact. Questions this library cannot settle, and permission requests, go to
+   whoever provided you with access to it.

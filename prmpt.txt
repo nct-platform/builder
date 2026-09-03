@@ -1,31 +1,14 @@
 ============================================================================
 DOKIE BUILDER — RUN PROMPT
-Fill in the <ANGLE-BRACKET> paths and paste this as your task. Everything
-about HOW to build (clarify up front, decompose, test each, coverage gate,
-live run) lives in the operating contract below — do not repeat it here.
+Fill in the PRD line and paste this as your task.
 ============================================================================
 
-OPERATING CONTRACT (read this FIRST, in full, and follow it exactly): ./system_prompt.txt
+CONTRACT:  https://raw.githubusercontent.com/nct-platform/builder/main/system_prompt.txt
+LIBRARY:   https://github.com/nct-platform/builder
+BASE:      https://github.com/nct-platform/builder/raw/main/initialtemplates/empty.mrjun
+PRD:       <path-to-your-PRD>
 
-INPUTS:
-  INITIAL .mrjun (REPORT-typed base to build on): ./initialtemplates/empty.mrjun
-
-  PRD (the spec — what to build): <path-to-your-PRD>
-
-  OUTPUT .mrjun (create the finished project here): <path-to-your-output>/project.mrjun
-
-TASK:
-  Build the project described in the PRD from the INITIAL .mrjun, following the
-  operating contract, and write the finished project to OUTPUT.
-
-NOTE — where case knowledge goes:
-  doc/builder is a REUSABLE library and must stay domain-neutral. Everything you
-  learn about THIS project (its entities, its screen list, its decisions and its
-  gotchas) goes next to the export, not into the library:
-
-      python3 <path-to>/doc/builder/tools/mrjun.py case init --project <workdir>
-      python3 <path-to>/doc/builder/tools/mrjun.py case add  --project <workdir> --name 01-domain-model
-
-  That writes into `<workdir>-case/`, a SIBLING of the unpacked project, so
-  `mrjun.py pack` never sweeps the notes into the .mrjun.
+Read the CONTRACT first, in full, and follow it exactly. It tells you how to put the
+LIBRARY on disk, how to work, and what "done" means. Build the project the PRD describes
+from BASE, and write the finished export to ./project.mrjun.
 ============================================================================

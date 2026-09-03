@@ -1,0 +1,77 @@
+# The bundled baseline is the one artifact every build starts from. If it drifts, every project
+# built afterwards inherits the drift — and nothing else in the repo would notice.
+name: validate bundled exports
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: toolkit loads (and works without the maintainer-only dist gate)
+        run: |
+          python3 tools/mrjun.py --help > /dev/null
+          test "$(python3 tools/mrjun.py --help | grep -c '^    [a-z]')" -ge 25
+
+      - name: empty.mrjun round-trips
+        run: |
+          python3 tools/mrjun.py unpack initialtemplates/empty.mrjun ./_e
+          python3 tools/mrjun.py pack ./_e ./_e.mrjun
+          python3 tools/mrjun.py unpack ./_e.mrjun ./_rt
+          diff -r ./_e ./_rt
+
+      - name: empty.mrjun validate output matches the recorded baseline
+        run: |
+          python3 tools/mrjun.py validate --project ./_e > ./_got.txt 2>&1 || true
+          grep -v '^#' initialtemplates/empty-validate.txt | sed '/./,$!d' > ./_want.txt
+          if ! diff -u ./_want.txt ./_got.txt; then
+            echo "::error::validate output for initialtemplates/empty.mrjun changed."
+            echo "If the change is intended, regenerate initialtemplates/empty-validate.txt and commit it."
+            exit 1
+          fi
+
+      - name: erp reference exports still unpack (they are shape references, NOT lint-clean — see 23 §1)
+        run: |
+          for a in erp/dynamic.mrjun erp/initial_erp.mrjun; do
+            python3 tools/mrjun.py unpack "$a" "./_$(basename "$a" .mrjun)"
+            python3 tools/mrjun.py validate --project "./_$(basename "$a" .mrjun)" | tail -3 || true
+          done
+
+      - name: no junk crept back in
+        run: |
+          ! git ls-files | grep -E '(^|/)\.DS_Store$|(^|/)__pycache__/'
+
+  leaks:
+    # This repo IS the distribution — there is no packaging step left to catch a stray identity,
+    # so the check runs on every push instead. Add customer/maintainer names as the repository
+    # secret IDENTITY_WORDS (comma- or newline-separated); the structural rules need no list.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the history guard below needs real history; a depth-1 checkout would let it pass
+          # while seeing only HEAD, which is worse than not having the check at all
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: leak scan
+        env:
+          IDENTITY_WORDS: ${{ secrets.IDENTITY_WORDS }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 .github/leakscan.py
+
+      - name: the maintainer-only gate file is not in history either
+        # leakscan walks the working tree; a deleted file stays reachable in git history forever.
+        run: |
+          test -z "$(git rev-parse --is-shallow-repository 2>/dev/null | grep true)" \
+            || { echo "::error::shallow checkout — this guard cannot see history"; exit 1; }
+          ! git log --all --name-only --pretty=format: | sort -u | grep -q 'dist_cmds\.py'

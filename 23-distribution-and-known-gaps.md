@@ -7,8 +7,9 @@ platform, and where the docs are *necessary but not sufficient*.
 ## 1. What's bundled vs what you still need
 
 **Bundled (portable, no codebase required):**
-- The 32 numbered docs (`00`–`26`, plus the `14a`/`24a`/`24b`/`24c`/`24d` deep-dives) + `README.md` +
-  `system_prompt.txt` (the knowledge). Doc **24** = the HTML Component Studio
+- The 33 numbered docs (`00`–`27`, plus the `14a`/`24a`/`24b`/`24c`/`24d` deep-dives) + `README.md` +
+  `system_prompt.txt` (the knowledge) + `GETTING-STARTED.md` (start here) + `LICENSE` +
+  `initialtemplates/empty-validate.txt` (the baseline's expected `validate` output) + `.github/` (the CI gates). Doc **24** = the HTML Component Studio
   (`nct.html.plugin` with JS libs / isolated scripts / `ctx.callRule`+`ctx.callBl` / per-theme CSS). A `studioModel`
   STRING property and any vendored files under `tenant-files/studio/…` **round-trip in `.mrjun` for free** (files
   re-home to the new tenant's `t/<id>/…`; asset paths are stored relative so they need no editing on import).
@@ -26,12 +27,15 @@ platform, and where the docs are *necessary but not sufficient*.
   checks and both carry hundreds of warnings; `erp/dynamic.mrjun` currently **FAILS** the gate outright — its
   Document-CRUD GROOVY `create`/`update`/`delete` read `param` while declaring `parameters: []`, exactly the
   every-value-written-NULL bug [11](11-business-logic-dynamic-crud.md) warns about. Copy node/JSON *shapes* from
-  them; do not copy a pattern `validate` rejects, and do not read that FAIL as a tooling bug. The only bundled
-  export expected to be error-free is `initialtemplates/empty.mrjun`.
-ℹ️ **What you received is a packaged subset.** The library is assembled with an exclusion list
-([`.distignore`](.distignore)) that leaves the maintainers' working material behind; if a document refers to
-something you do not have, it is not missing from your copy by accident — everything the docs ask you to open
-is listed above.
+  them; do not copy a pattern `validate` rejects, and do not read that FAIL as a tooling bug. **Both** ERP
+  exports fail: `dynamic.mrjun` with 27 errors, `initial_erp.mrjun` with 5.
+  ⚠️ **No bundled export is error-free, including `initialtemplates/empty.mrjun`** — it ships 258 warnings and
+  1 error (a left-nav link with only one locale, which disappears on a single-locale tenant). Its exact output is
+  recorded in [`initialtemplates/empty-validate.txt`](initialtemplates/empty-validate.txt): **diff against that
+  file rather than chasing a zero** — what matters is a line that is new since you started.
+ℹ️ **What you received is the whole library.** This repository *is* the distribution — there is no packaged
+subset and nothing was held back. If a document refers to something you do not have, it is not missing from
+your copy by accident — everything the docs ask you to open is listed above.
 
 **Case notes ship BESIDE the export, never inside it.** This library is deliberately domain-neutral so the next
 project can use it unchanged; what you learn about **one** project (its entities, its screen inventory, its
@@ -119,6 +123,21 @@ version drifts silently. Two rules:
   ```
 
 ## 4. Known gaps — where `validate` can't help yet (so drive it live)
+
+> ⛔ **Three things no offline gate does. Read these before you trust a green run.**
+>
+> 1. **Nothing in this toolkit parses or compiles Groovy.** `validate` checks that a rule is *referenced*
+>    and *shaped* right; `crud verify --db` executes SQL methods only and skips GROOVY ones entirely. A rule
+>    with a syntax error passes every offline gate — and, worse, an unbalanced body makes `validate` skip its
+>    *other* checks on that rule. On a build with a hundred rules a syntax error is close to certain. The only
+>    test is executing each rule live, and a rule that opens a case must be run **twice** (doc 27).
+> 2. **`coverage --emit` self-certifies.** It derives `plan.json` *from the build*, so a plan emitted after
+>    the fact always passes. The gate is only meaningful when the plan is written from the **PRD**, before or
+>    during the build. Likewise `status: "deferred"` downgrades any missing row to a warning on every `kind` —
+>    it is an escape hatch, not a pass.
+> 3. **`coverage` never opens the object it counts.** It matches by alias/name, so a row can be satisfied by
+>    an empty shell. A CASE-producing trigger needs three rows (trigger + workflow + start rule) and even then
+>    nothing asserts the rule really calls `service.workflow.start` — grep the rule body before marking it done.
 
 `validate` catches classes we've hit; it is a **growing** net, not complete. When you hit a bug it didn't catch,
 that's a candidate to **add to `validate_cmds.py`** (the pattern: enumerate the artifact, assert the invariant,

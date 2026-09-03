@@ -308,7 +308,7 @@
                   "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
                   "arguments": {},
                   "key": "url",
-                  "stringValue": "t/202/fixed/90-60/logogo.png",
+                  "stringValue": "fixed/90-60/logo1.png",
                   "localizedStringValue": {},
                   "propertyType": "STRING",
                   "required": false,

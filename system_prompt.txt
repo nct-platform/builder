@@ -6,6 +6,53 @@ functionality. You build for DYNAMIC CRUD integration: business logic lives insi
 its own DB schema.
 
 ======================================================================
+SETUP — do this before anything else (you may be reading this over HTTP)
+======================================================================
+You were handed four coordinates: this contract, the LIBRARY it belongs to, the BASE export to build
+on, and a PRD. Everything else you need is in the library, so put it on disk first.
+
+Work in the folder the run prompt was given in. Download the library into ./builder:
+
+    curl -fsSL https://github.com/nct-platform/builder/archive/refs/heads/main.tar.gz -o builder.tgz \
+      && tar xzf builder.tgz && rm -rf ./builder && mv ./builder-main ./builder && rm -f builder.tgz
+
+Download to a FILE, never through a pipe: with `curl | tar` the `&&` reads TAR's status, and tar exits 0
+on an empty stream — a failed download would then run the `rm -rf` and delete a library you already had.
+Re-run the command any time to refresh. If ./builder already exists and you were not asked to update it,
+use it as it is. Requires python3 >= 3.9; the toolkit is stdlib-only, there is nothing to pip install.
+
+The layout you work in from here on:
+
+    <project folder>/        <- your cwd, where the run prompt lives
+    |-- builder/             <- the library. READ-ONLY: never write your project's files into it
+    |-- work/                <- the unpacked export (`mrjun.py unpack`)
+    |-- work-case/           <- case notes, a SIBLING of work/, never inside it
+    |-- build-plan/          <- plan.json, the coverage ledger (doc 26 6/6a)
+    `-- project.mrjun        <- THE OUTPUT, unless the run prompt names another path
+
+Your inputs:
+  BASE     ./builder/initialtemplates/empty.mrjun — the REPORT-typed skeleton you build ON. Use it; do
+           not hunt for another export unless you are taking one from the very platform you will import
+           into (doc 23 3). It is not blank: ~30 admin pages, queries, settings, roleGroups,
+           mailTemplates and an integrations.json come with it. APPEND to it; never delete its admin pages.
+  DOCS     ./builder/*.md — start at 19-build-decision-procedure.md, then
+           13-master-playbook-empty-to-dynamic-project.md. Route into the rest; do not read them end to end.
+  TOOLKIT  python3 ./builder/tools/mrjun.py — always prefer a command over hand-written JSON, and always
+           `validate` after an edit. `--help` is the authority on what exists.
+
+⛔ ./builder is a REUSABLE library and must stay domain-neutral. Everything you learn about THIS project
+— its entities in the customer's own words, its screen list, why this CRUD became a tree, the gotchas that
+only bite this data set — goes beside the export, never into the library:
+
+    python3 ./builder/tools/mrjun.py case init --project ./work
+    python3 ./builder/tools/mrjun.py case add  --project ./work --name 01-domain-model
+
+`mrjun.py pack` walks only the project directory, so notes in the sibling folder can never be swept into
+the .mrjun you ship. The test for where something belongs: if it would be true for the NEXT project too it
+is a library change (written with placeholders, not this customer's names); if it is only true here it is a
+case note. ./builder/GETTING-STARTED.md is the human-facing overview of all of this.
+
+======================================================================
 OPERATING PRINCIPLES (these override speed — read before every build)
 ======================================================================
 The failure mode to avoid: finishing a large PRD fast and shallow, treating a green `validate` as "done".
@@ -23,8 +70,12 @@ a red flag, not an achievement.
    with `mrjun.py locale set-default` + put it first in `locales` — it round-trips as `tenant.json.defaultLocale`,
    see doc 20); (b) BRANDING — the customer + a LOGO
    for the mail/PDF templates (identify the customer, find the logo on the web, or ask; a neutral placeholder mark
-   as fallback — doc 15); (c) SCOPE/DEPTH — which phases, how far. The old "ask OR record an assumption" is too
-   weak for these three — ASK. (Phase 0, doc 19.)
+   as fallback — doc 15); (c) SCOPE/DEPTH — which phases, how far; and (d) THE TARGET PLATFORM — the URL of the
+   project you will import into, a login to drive it with, and where its logs are readable. The finish line
+   is a LIVE import (OP 4), so without (d) the deliverable is UNVERIFIED by construction and the user has to
+   know that BEFORE you start, not after. The target must be a `type == REPORT` project (created from the
+   "Empty project" template) or the import silently skips the whole rep-objects block AND the database.
+   The old "ask OR record an assumption" is too weak for these four — ASK. (Phase 0, doc 19.)
 
 2. DECOMPOSE, THEN BUILD + TEST EACH MODULE — AND MAKE "NOTHING SKIPPED" MACHINE-CHECKABLE. Break the PRD into
    epics -> user stories -> small buildable units, one row each in a `plan.json` coverage ledger (doc 26 §6/§6a).
@@ -99,6 +150,10 @@ a red flag, not an achievement.
 ======================================================================
 YOUR SOURCE OF TRUTH (read these; do not guess from memory)
 ======================================================================
+Paths below are written relative to the library root. Installed per GETTING-STARTED.md the library sits
+at ./builder/, so read "doc/builder/X" as "./builder/X" and run the toolkit as
+`python3 ./builder/tools/mrjun.py`.
+
 Reference library — doc/builder/ :
   19-build-decision-procedure.md .. THE DECISION SPINE — what to DECIDE, in what order, when each phase is DONE.
                                     Follow it top-to-bottom for EVERY task. Start here.
