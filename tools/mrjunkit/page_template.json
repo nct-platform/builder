@@ -1,0 +1,2168 @@
+{
+  "id": "594f0c72-c574-4002-8b4c-1fdd87b48c13",
+  "identifier": "31879fb7-5553-4e43-b559-d1428f6d6d9f",
+  "uniqueIdentifier": "5fd5bce3-c2a1-4caa-aac9-c8d0f24e9af9",
+  "name": "Contexts",
+  "pluginName": "siteMapPage",
+  "isBehaviour": false,
+  "active": true,
+  "alias": "contexts",
+  "treeOpened": false,
+  "treeDisabled": false,
+  "treeSelected": false,
+  "includedInParsis": false,
+  "children": [
+    {
+      "id": "28ca3949-4318-439f-8f4a-6048c7bf6137",
+      "identifier": "siteMapPageParsis",
+      "uniqueIdentifier": "c9cbd83f-ee94-4557-8252-59b64d39d6f9",
+      "name": "parsis",
+      "pluginName": "parsis.plugin",
+      "isBehaviour": false,
+      "active": true,
+      "treeOpened": false,
+      "treeDisabled": false,
+      "treeSelected": false,
+      "includedInParsis": false,
+      "children": [
+        {
+          "id": "e980ddcd-f6c5-4b00-9cce-82a968341b35",
+          "identifier": "fdcdca35-9820-426a-bd7e-ce7e36a6fd22",
+          "uniqueIdentifier": "b8f00c2f-9a0b-4831-ba34-298404b04646",
+          "name": "Layout",
+          "pluginName": "html.plugin",
+          "isBehaviour": false,
+          "active": true,
+          "treeOpened": true,
+          "treeDisabled": false,
+          "treeSelected": false,
+          "includedInParsis": false,
+          "children": [
+            {
+              "id": "df1ebfaf-ada3-460f-b0ba-95e93b8a6fee",
+              "identifier": "header",
+              "uniqueIdentifier": "5f849d86-d2fc-4354-8021-a5d4eedf75f2",
+              "name": "header",
+              "pluginName": "site.header.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "app-header__content",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 0,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "d27095bc-ff72-4ca5-baf2-ad659b2bb761",
+              "identifier": "logo-plugin",
+              "uniqueIdentifier": "b8fcdf1d-fe80-4f04-bb37-007077be6c63",
+              "name": "logo-plugin",
+              "pluginName": "nct.image.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "description": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "description",
+                  "stringValue": "Logo",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "height": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseIntegerFieldPanel",
+                  "arguments": {},
+                  "key": "height",
+                  "intValue": 60,
+                  "localizedStringValue": {},
+                  "propertyType": "INTEGER",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tooltip": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tooltip",
+                  "stringValue": "Logo",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "url": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "url",
+                  "stringValue": "t/202/fixed/90-60/logogo.png",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "width": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseIntegerFieldPanel",
+                  "arguments": {},
+                  "key": "width",
+                  "intValue": 90,
+                  "localizedStringValue": {},
+                  "propertyType": "INTEGER",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 1,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "linkContentIdentifier": "d8eb14ae-3ea7-447f-9ae5-1c96dc5ccfc2",
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "2eed81df-e272-460e-8d28-f5a75dafba8f",
+              "identifier": "breadcrumb",
+              "uniqueIdentifier": "a1257c6d-eced-4acb-a972-c3efbc1f5e81",
+              "name": "breadcrumb",
+              "pluginName": "site.breadcrumb.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 3,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "fae6cb72-e30e-4b5b-b5e0-4ebadd1ebd2e",
+              "identifier": "left-nav",
+              "uniqueIdentifier": "80d20e36-0206-42c2-bac0-ae6310efece1",
+              "name": "left-nav",
+              "pluginName": "site.kicker.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "modelGroups": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "modelGroups",
+                  "stringValue": "{\"pagesModel\":[{\"order\":0,\"name\":\"Pages\",\"uuid\":\"62492f05-4e61-42dd-a659-6a391504e843\",\"icon\":\"globe\",\"heading\":false,\"children\":[{\"order\":0,\"name\":\"Sourcese\",\"uuid\":\"8b639b71-a51c-4daa-8a85-270a5484fa0e\",\"parentUuid\":\"62492f05-4e61-42dd-a659-6a391504e843\",\"icon\":\"pe-7s-server\",\"heading\":false,\"linkModel\":{\"icon\":\"pe-7s-server\",\"name\":\"Sourcese\",\"identifier\":\"03e4579a-f1bc-4d35-9bb2-fc5515c52c9d\",\"internal\":true,\"needToBeSaved\":true,\"localizedMap\":{\"name\":{\"ru_RU\":\"Sources\",\"en_US\":\"Sourcese\",\"hy_AM\":\"Sources\"},\"icon\":{\"ru_RU\":\"pe-7s-server\",\"en_US\":\"pe-7s-server\",\"hy_AM\":\"pe-7s-server\"}}},\"children\":[]},{\"order\":0,\"name\":\"Queries\",\"uuid\":\"9881829d-30bd-46d4-8072-e878186c8ad8\",\"parentUuid\":\"62492f05-4e61-42dd-a659-6a391504e843\",\"icon\":\"pe-7s-cloud\",\"heading\":false,\"linkModel\":{\"icon\":\"pe-7s-cloud\",\"name\":\"Queries\",\"identifier\":\"641b5dde-96b8-4cd3-b37a-42478cf521ec\",\"internal\":true,\"needToBeSaved\":true,\"localizedMap\":{\"icon\":{\"ru_RU\":\"pe-7s-cloud\",\"en_US\":\"pe-7s-cloud\",\"hy_AM\":\"pe-7s-cloud\"},\"name\":{\"ru_RU\":\"Queries\",\"en_US\":\"Queries\",\"hy_AM\":\"Queries\"}}},\"children\":[]},{\"order\":0,\"name\":\"Dashboars\",\"uuid\":\"3dd7a469-5f5a-40ae-8266-4bdd40200cac\",\"icon\":\"pe-7s-graph2\",\"heading\":false,\"linkModel\":{\"icon\":\"pe-7s-graph2\",\"name\":\"Dashboars\",\"identifier\":\"0a9fddb2-6ca4-4f67-a327-abc7c18f600e\",\"internal\":true,\"needToBeSaved\":true,\"localizedMap\":{\"icon\":{\"ru_RU\":\"pe-7s-graph2\",\"en_US\":\"pe-7s-graph2\",\"hy_AM\":\"pe-7s-graph2\"},\"name\":{\"ru_RU\":\"Dashboars\",\"en_US\":\"Dashboars\",\"hy_AM\":\"Dashboars\"}}}}]}]}",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 4,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "linkContentIdentifier": "23ab2aca-20c7-4a8c-af0c-f38c9b8e01bc",
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "39524b6c-d847-4c02-86fe-50d9f1e683af",
+              "identifier": "parsis",
+              "uniqueIdentifier": "e10a1faa-8db2-4298-b2a2-64eae5a3ac5e",
+              "name": "parsis",
+              "pluginName": "nct.parsis.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": true,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "emptyPlaceholder": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "emptyPlaceholder",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "isParsis": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+                  "arguments": {},
+                  "key": "isParsis",
+                  "booleanValue": true,
+                  "localizedStringValue": {},
+                  "propertyType": "BOOLEAN",
+                  "required": false,
+                  "hidden": false
+                },
+                "minHeight": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseIntegerFieldPanel",
+                  "arguments": {},
+                  "key": "minHeight",
+                  "intValue": 40,
+                  "localizedStringValue": {},
+                  "propertyType": "INTEGER",
+                  "required": false,
+                  "hidden": false
+                },
+                "reuseItems": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+                  "arguments": {},
+                  "key": "reuseItems",
+                  "booleanValue": false,
+                  "localizedStringValue": {},
+                  "propertyType": "BOOLEAN",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 6,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "f06c7208-b3e3-4391-bd19-a1acb4a1b758",
+              "identifier": "footer",
+              "uniqueIdentifier": "08633b2f-3cdf-443c-abd9-fda15dabc1a1",
+              "name": "footer",
+              "pluginName": "site.footer.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 7,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            },
+            {
+              "id": "9f2ada9f-25d4-46cf-8384-44dae4f12585",
+              "identifier": "right-kicker",
+              "uniqueIdentifier": "59b800e5-906f-4fdf-ac72-98ef4ef83746",
+              "name": "right-kicker",
+              "pluginName": "site.right.kicker.plugin",
+              "isBehaviour": false,
+              "active": true,
+              "treeOpened": false,
+              "treeDisabled": false,
+              "treeSelected": false,
+              "includedInParsis": false,
+              "children": [],
+              "properties": {
+                "activeNavName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "activeNavName",
+                  "stringValue": "Project settings",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "className": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "className",
+                  "stringValue": "app-drawer-wrapper",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "navOpened": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+                  "arguments": {},
+                  "key": "navOpened",
+                  "booleanValue": true,
+                  "localizedStringValue": {},
+                  "propertyType": "BOOLEAN",
+                  "required": false,
+                  "hidden": false
+                },
+                "showFromNonAuthMode": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+                  "arguments": {},
+                  "key": "showFromNonAuthMode",
+                  "booleanValue": true,
+                  "localizedStringValue": {},
+                  "propertyType": "BOOLEAN",
+                  "required": false,
+                  "hidden": false
+                },
+                "styleName": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "styleName",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                },
+                "tagProperties": {
+                  "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+                  "arguments": {},
+                  "key": "tagProperties",
+                  "stringValue": "",
+                  "localizedStringValue": {},
+                  "propertyType": "STRING",
+                  "required": false,
+                  "hidden": false
+                }
+              },
+              "order": 2,
+              "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+              "childPluginAdded": false,
+              "roleAccess": {
+                "publicReadAccess": true,
+                "authenticatedUserAccess": false,
+                "accessors": {
+                  "admin": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "user_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "nct_author": {
+                    "view": true,
+                    "edit": true,
+                    "advancedEdit": true
+                  },
+                  "report_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "user_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "report_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "source_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_edit": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "file_storage_view": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_create": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "role_group_delete": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "store_execute_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_edit_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "scheduler_view_any": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  },
+                  "oyo_project_configuration": {
+                    "view": false,
+                    "edit": false,
+                    "advancedEdit": false
+                  }
+                },
+                "roleGroupAccessors": {}
+              },
+              "virtualContent": true
+            }
+          ],
+          "properties": {
+            "className": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "className",
+              "stringValue": "",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            },
+            "editorHeight": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "editorHeight",
+              "stringValue": "700px",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            },
+            "editorWidth": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "editorWidth",
+              "stringValue": "100%",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            },
+            "html": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "html",
+              "stringValue": "<div class=\"app-container app-theme-white body-tabs-shadow fixed-header fixed-sidebar\">\r\n\r\n    <div class=\"app-header header-shadow\">\r\n        <div class=\"app-header__logo\">\r\n            <a href=\"/\">\r\n\t\t\t  <plugin name=\"nct.image.plugin\" id=\"logo-plugin\">\r\n\t\t\t    <prop name=\"tooltip\", value=\"Logo\", type=\"STRING\"/>\r\n\t\t\t\t<prop name=\"description\", value=\"Logo\", type=\"STRING\"/>\r\n\t\t\t\t<prop name=\"width\", value=\"90\", type=\"INTEGER\"/>\r\n\t\t\t\t<prop name=\"height\", value=\"60\", type=\"INTEGER\"/>\r\n\t\t\t\t<prop name=\"url\", value=\"abs(/architectui-html-pro/images/logo-inverse.png)\", type=\"STRING\"/>\r\n\t\t\t  </plugin>\r\n            </a>\r\n            <div class=\"header__pane ms-auto\">\r\n                <div>\r\n                    <button type=\"button\" class=\"hamburger close-sidebar-btn hamburger--elastic\" data-class=\"closed-sidebar\">\r\n                                <span class=\"hamburger-box\">\r\n                                    <span class=\"hamburger-inner\"></span>\r\n                                </span>\r\n                    </button>\r\n                </div>\r\n            </div>\r\n        </div>\r\n        <div class=\"app-header__mobile-menu\">\r\n            <div>\r\n                <button type=\"button\" class=\"hamburger hamburger--elastic mobile-toggle-nav\">\r\n                            <span class=\"hamburger-box\">\r\n                                <span class=\"hamburger-inner\"></span>\r\n                            </span>\r\n                </button>\r\n            </div>\r\n        </div>\r\n        <div class=\"app-header__menu\">\r\n                    <span>\r\n                        <button type=\"button\" class=\"btn-icon btn-icon-only btn btn-primary btn-sm mobile-toggle-header-nav\">\r\n                            <span class=\"btn-icon-wrapper\">\r\n                                <i class=\"fa fa-ellipsis-v fa-w-6\"></i>\r\n                            </span>\r\n                        </button>\r\n                    </span>\r\n        </div>\r\n        <plugin id=\"header\" name=\"site.header.plugin\">\r\n            <property name=\"className\" value=\"app-header__content\"></property>\r\n        </plugin>\r\n    </div>\r\n\r\n    <div class=\"app-main\">\r\n\r\n        <plugin id=\"left-nav\" name=\"site.kicker.plugin\"></plugin>\r\n\r\n        <div class=\"app-main__outer\">\r\n            <div class=\"app-main__inner\">\r\n                <plugin id=\"breadcrumb\" name=\"site.breadcrumb.plugin\"></plugin>\r\n                <plugin id=\"parsis\" name=\"nct.parsis.plugin\"></plugin>\r\n            </div>\r\n            <plugin id=\"footer\" name=\"site.footer.plugin\"></plugin>\r\n        </div>\r\n    </div>\r\n</div>\r\n<plugin id=\"right-kicker\" name=\"site.right.kicker.plugin\">\r\n    <property name=\"className\" value=\"app-drawer-wrapper\"></property>\r\n</plugin>\r\n\r\n<div class=\"app-drawer-overlay d-none animated fadeIn\"></div>",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            },
+            "isParsis": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+              "arguments": {},
+              "key": "isParsis",
+              "booleanValue": false,
+              "localizedStringValue": {},
+              "propertyType": "BOOLEAN",
+              "required": false,
+              "hidden": false
+            },
+            "reuseItems": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+              "arguments": {},
+              "key": "reuseItems",
+              "booleanValue": false,
+              "localizedStringValue": {},
+              "propertyType": "BOOLEAN",
+              "required": false,
+              "hidden": false
+            },
+            "styleName": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "styleName",
+              "stringValue": "",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            },
+            "tagProperties": {
+              "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+              "arguments": {},
+              "key": "tagProperties",
+              "stringValue": "",
+              "localizedStringValue": {},
+              "propertyType": "STRING",
+              "required": false,
+              "hidden": false
+            }
+          },
+          "order": 1,
+          "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+          "childPluginAdded": false,
+          "roleAccess": {
+            "publicReadAccess": true,
+            "authenticatedUserAccess": false,
+            "accessors": {
+              "admin": {
+                "view": true,
+                "edit": true,
+                "advancedEdit": true
+              },
+              "user_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "user_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "nct_author": {
+                "view": true,
+                "edit": true,
+                "advancedEdit": true
+              },
+              "report_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "report_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "source_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "source_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "user_create": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "user_delete": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "store_execute": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "scheduler_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "scheduler_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "report_edit_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "report_view_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "role_group_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "role_group_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "source_edit_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "source_view_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "file_storage_edit": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "file_storage_view": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "role_group_create": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "role_group_delete": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "store_execute_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "scheduler_edit_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "scheduler_view_any": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              },
+              "oyo_project_configuration": {
+                "view": false,
+                "edit": false,
+                "advancedEdit": false
+              }
+            },
+            "roleGroupAccessors": {}
+          },
+          "virtualContent": true
+        }
+      ],
+      "properties": {
+        "className": {
+          "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+          "arguments": {},
+          "key": "className",
+          "stringValue": "",
+          "localizedStringValue": {},
+          "propertyType": "STRING",
+          "required": false,
+          "hidden": false
+        },
+        "isParsis": {
+          "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+          "arguments": {},
+          "key": "isParsis",
+          "booleanValue": true,
+          "localizedStringValue": {},
+          "propertyType": "BOOLEAN",
+          "required": false,
+          "hidden": false
+        },
+        "reuseItems": {
+          "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+          "arguments": {},
+          "key": "reuseItems",
+          "booleanValue": false,
+          "localizedStringValue": {},
+          "propertyType": "BOOLEAN",
+          "required": false,
+          "hidden": false
+        },
+        "styleName": {
+          "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+          "arguments": {},
+          "key": "styleName",
+          "stringValue": "",
+          "localizedStringValue": {},
+          "propertyType": "STRING",
+          "required": false,
+          "hidden": false
+        },
+        "tagProperties": {
+          "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+          "arguments": {},
+          "key": "tagProperties",
+          "stringValue": "",
+          "localizedStringValue": {},
+          "propertyType": "STRING",
+          "required": false,
+          "hidden": false
+        }
+      },
+      "order": 0,
+      "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+      "childPluginAdded": false,
+      "roleAccess": {
+        "publicReadAccess": true,
+        "authenticatedUserAccess": false,
+        "accessors": {
+          "admin": {
+            "view": true,
+            "edit": true,
+            "advancedEdit": true
+          },
+          "user_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "user_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "nct_author": {
+            "view": true,
+            "edit": true,
+            "advancedEdit": true
+          },
+          "report_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "report_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "source_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "source_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "user_create": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "user_delete": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "store_execute": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "scheduler_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "scheduler_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "report_edit_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "report_view_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "role_group_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "role_group_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "source_edit_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "source_view_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "file_storage_edit": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "file_storage_view": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "role_group_create": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "role_group_delete": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "store_execute_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "scheduler_edit_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "scheduler_view_any": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          },
+          "oyo_project_configuration": {
+            "view": false,
+            "edit": false,
+            "advancedEdit": false
+          }
+        },
+        "roleGroupAccessors": {}
+      },
+      "virtualContent": false
+    }
+  ],
+  "properties": {
+    "Redirect": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+      "arguments": {},
+      "key": "Redirect",
+      "stringValue": "",
+      "localizedStringValue": {},
+      "propertyType": "STRING",
+      "required": false,
+      "hidden": false
+    },
+    "additionalCss": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+      "arguments": {},
+      "key": "additionalCss",
+      "stringValue": "",
+      "localizedStringValue": {},
+      "propertyType": "STRING",
+      "required": false,
+      "hidden": false
+    },
+    "isParsis": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseCheckboxFieldPanel",
+      "arguments": {},
+      "key": "isParsis",
+      "booleanValue": false,
+      "localizedStringValue": {},
+      "propertyType": "BOOLEAN",
+      "required": false,
+      "hidden": false
+    },
+    "layout": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+      "arguments": {},
+      "key": "layout",
+      "stringValue": "Main",
+      "localizedStringValue": {},
+      "propertyType": "STRING",
+      "required": false,
+      "hidden": false
+    },
+    "metaTags": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
+      "arguments": {},
+      "key": "metaTags",
+      "stringValue": "",
+      "localizedStringValue": {},
+      "propertyType": "STRING",
+      "required": false,
+      "hidden": false
+    },
+    "pageDescription": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseLocalizedTextFieldPanel",
+      "arguments": {},
+      "key": "pageDescription",
+      "localizedStringValue": {
+        "en_US": "Contexts"
+      },
+      "propertyType": "LOCALIZED_STRING",
+      "required": false,
+      "hidden": false
+    },
+    "pageTitle": {
+      "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseLocalizedTextFieldPanel",
+      "arguments": {},
+      "key": "pageTitle",
+      "localizedStringValue": {
+        "en_US": "Contexts"
+      },
+      "propertyType": "LOCALIZED_STRING",
+      "required": false,
+      "hidden": false
+    }
+  },
+  "order": 10,
+  "branchId": "6bc2ef69-8ed2-4756-a222-67cb699568b7",
+  "childPluginAdded": false,
+  "roleAccess": {
+    "publicReadAccess": false,
+    "authenticatedUserAccess": false,
+    "accessors": {
+      "admin": {
+        "view": true,
+        "edit": true,
+        "advancedEdit": true
+      },
+      "user_edit": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "user_view": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "nct_author": {
+        "view": true,
+        "edit": true,
+        "advancedEdit": true
+      },
+      "report_edit": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "report_view": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "source_edit": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "source_view": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "user_create": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "user_delete": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "store_execute": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "scheduler_edit": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "scheduler_view": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "report_edit_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "report_view_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "role_group_edit": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "role_group_view": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "source_edit_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "source_view_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "file_storage_edit": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "file_storage_view": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "role_group_create": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "role_group_delete": {
+        "view": true,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "store_execute_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "scheduler_edit_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "scheduler_view_any": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      },
+      "oyo_project_configuration": {
+        "view": false,
+        "edit": false,
+        "advancedEdit": false
+      }
+    },
+    "roleGroupAccessors": {}
+  },
+  "virtualContent": false
+}

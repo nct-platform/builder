@@ -1,0 +1,10 @@
+{
+  "basePdf": { "width": 60, "height": 40, "padding": [2, 2, 2, 2] },
+  "schemas": [[
+    { "name": "productName", "type": "multiVariableText", "position": { "x": 2, "y": 2 }, "width": 56, "height": 6, "rotate": 0, "alignment": "left", "verticalAlignment": "middle", "fontSize": 11, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#1a1a1a", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "{productName}", "content": "{\"productName\":\"Organic Coffee Beans\"}", "variables": ["productName"] },
+    { "name": "variant", "type": "multiVariableText", "position": { "x": 2, "y": 9 }, "width": 56, "height": 4, "rotate": 0, "alignment": "left", "verticalAlignment": "middle", "fontSize": 7, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#666666", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "{variant}", "content": "{\"variant\":\"Medium Roast 250g\"}", "variables": ["variant"] },
+    { "name": "price", "type": "multiVariableText", "position": { "x": 2, "y": 14 }, "width": 56, "height": 8, "rotate": 0, "alignment": "left", "verticalAlignment": "middle", "fontSize": 18, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#c0392b", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "${price}", "content": "{\"price\":\"12.99\"}", "variables": ["price"] },
+    { "name": "barcode", "type": "ean13", "content": "4006381333931", "position": { "x": 8, "y": 24 }, "width": 44, "height": 10, "rotate": 0, "opacity": 1, "backgroundColor": "", "barColor": "#000000" },
+    { "name": "footer", "type": "multiVariableText", "position": { "x": 2, "y": 35 }, "width": 56, "height": 4, "rotate": 0, "alignment": "center", "verticalAlignment": "middle", "fontSize": 6, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#888888", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "Batch: {batch}  Exp: {expiry}", "content": "{\"batch\":\"B-2026-0517\",\"expiry\":\"2027-05-17\"}", "variables": ["batch", "expiry"] }
+  ]]
+}

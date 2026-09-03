@@ -1,0 +1,12 @@
+{
+  "basePdf": { "width": 95, "height": 60, "padding": [3, 3, 3, 3] },
+  "schemas": [[
+    { "name": "topBar", "type": "rectangle", "position": { "x": 0, "y": 0 }, "width": 95, "height": 14, "rotate": 0, "opacity": 1, "color": "#e74c3c", "borderColor": "#e74c3c", "borderWidth": 0 },
+    { "name": "hello", "type": "text", "content": "HELLO", "position": { "x": 3, "y": 3 }, "width": 89, "height": 5, "rotate": 0, "alignment": "center", "verticalAlignment": "middle", "fontSize": 9, "lineHeight": 1, "characterSpacing": 4, "fontColor": "#ffffff", "backgroundColor": "", "opacity": 1, "fontName": "" },
+    { "name": "myNameIs", "type": "text", "content": "my name is", "position": { "x": 3, "y": 8 }, "width": 89, "height": 5, "rotate": 0, "alignment": "center", "verticalAlignment": "middle", "fontSize": 8, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#fde0dd", "backgroundColor": "", "opacity": 1, "fontName": "" },
+    { "name": "name", "type": "multiVariableText", "position": { "x": 3, "y": 20 }, "width": 70, "height": 16, "rotate": 0, "alignment": "left", "verticalAlignment": "middle", "fontSize": 26, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#1a1a1a", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "{firstName}", "content": "{\"firstName\":\"Maria\"}", "variables": ["firstName"] },
+    { "name": "details", "type": "multiVariableText", "position": { "x": 3, "y": 40 }, "width": 70, "height": 12, "rotate": 0, "alignment": "left", "verticalAlignment": "top", "fontSize": 9, "lineHeight": 1.4, "characterSpacing": 0, "fontColor": "#666666", "backgroundColor": "", "opacity": 1, "fontName": "", "text": "{role}\n{company}", "content": "{\"role\":\"Software Engineer\",\"company\":\"Dokie Ltd\"}", "variables": ["role", "company"] },
+    { "name": "qr", "type": "qrcode", "content": "https://dokie.example/p/maria", "position": { "x": 75, "y": 22 }, "width": 17, "height": 17, "rotate": 0, "opacity": 1, "backgroundColor": "", "barColor": "#000000" },
+    { "name": "qrLabel", "type": "text", "content": "scan me", "position": { "x": 75, "y": 40 }, "width": 17, "height": 4, "rotate": 0, "alignment": "center", "verticalAlignment": "middle", "fontSize": 6, "lineHeight": 1, "characterSpacing": 0, "fontColor": "#888888", "backgroundColor": "", "opacity": 1, "fontName": "" }
+  ]]
+}
