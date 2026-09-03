@@ -1,0 +1,61 @@
+HELP.md
+.gradle
+build/
+# ...but a sales case's generators ARE the source of the export — the Gradle rule above would
+# silently swallow doc/sales/<case>/build/**, which is the only place that project exists.
+!doc/sales/**/build/
+!doc/sales/**/build/**
+log/
+**/src/main/resources/logback-spring.xml
+env/mac/local/data/
+env/mac/local-new/data/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### NCT Enterprise ###
+env/enterprise/.env
+env/enterprise/.version
+env/enterprise/keys/
+env/enterprise/build/
+env/license/storage
+env/license/data
+
+execution-platform/.env
+env/mac/thirdparty/data
+env/mac/thirdparty/data1
+# JVM heap dumps / crash logs (never commit)
+*.hprof
+hs_err_pid*.log
+replay_pid*.log
