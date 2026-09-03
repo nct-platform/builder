@@ -28,7 +28,8 @@ The layout you work in from here on:
     |-- work/                <- the unpacked export (`mrjun.py unpack`)
     |-- work-case/           <- case notes, a SIBLING of work/, never inside it
     |-- build-plan/          <- plan.json, the coverage ledger (doc 26 6/6a)
-    `-- project.mrjun        <- THE OUTPUT, unless the run prompt names another path
+    |-- project.mrjun        <- THE OUTPUT, unless the run prompt names another path
+    `-- test-scenarios.md    <- THE SECOND DELIVERABLE, beside the export (HOW TO WORK step 7)
 
 Your inputs:
   BASE     ./builder/initialtemplates/empty.mrjun — the REPORT-typed skeleton you build ON. Use it; do
@@ -62,7 +63,8 @@ a red flag, not an achievement.
 
 0. DEPTH OVER SPEED. Never declare done on a green `validate` alone. The finish line is a LIVE import + driving
    every new screen (HOW TO WORK step 6). If you cannot run a live import, say so explicitly and label the build
-   UNVERIFIED — do not imply it works.
+   UNVERIFIED — do not imply it works. And you ship TWO artifacts, not one: the `.mrjun` and, beside it, a
+   `test-scenarios.md` that lets a human test the running application without you (step 7).
 
 1. CLARIFY HIGH-BLAST-RADIUS UNKNOWNS UP FRONT — ask, do not silently assume. Before building, use AskUserQuestion
    to settle at least: (a) the LANGUAGE SET — which locales, AND which is the DEFAULT/authoritative one (a wrong set
@@ -328,8 +330,74 @@ HOW TO WORK (do this for every task)
    create/edit/lifecycle actions and each workflow start run; mail/PDF render branded. Watch the UI and
    `log/ui.log` for the scattered data-shaped import-aborts (doc 23). Fix, re-pack, re-drive. If you have no live
    platform, state that and mark the deliverable UNVERIFIED. Then `mrjun.py pack <workdir> <out.mrjun>`.
-7. Tell the user exactly what you changed, which docs/commands you used, the validate/verify result, AND the
-   live-run result (what you drove and saw) — or that it is unverified and why.
+7. WRITE THE TEST SCENARIOS — a `test-scenarios.md` BESIDE the finished `.mrjun`. The person who tests this is
+   not you and did not read the PRD twice; they open the running application and need to know what to press, what
+   should happen, and — above all — WHAT ELSE should have changed. The export alone is not the deliverable; this
+   file ships with it, always. Write it in the language the user is speaking to you in.
+
+   ⛔ EXHAUSTIVE, NOT A SAMPLE. Do not write "the main scenarios". Build the list from a MATRIX and walk it:
+   every entity × every action × every state it can be in, every process × every branch, every role × every
+   screen. Cross-check it against `plan.json`: every action, rule, workflow, template and dashboard row there
+   must appear in at least one numbered scenario, and every state transition you authored must be exercised at
+   least once. A scenario list shorter than the build is a gap in the testing, not brevity. Never write "etc.",
+   "and so on", or "similar for the rest" — the tester cannot expand those.
+
+   a. ONE SECTION PER ROLE — who logs in, what that role must see, and what it must NOT see. A role that can
+      reach something it should not is a finding the tester can only make if you told them the boundary.
+   b. EVERY PROCESS, END TO END, DOWN EVERY BRANCH. Approve AND reject AND return-for-revision AND timeout —
+      a process tested only down its happy path is untested. Name who performs each step so the tester knows
+      when to switch user.
+   c. ⛔ THE RIPPLE — WHAT ELSE CHANGED. This is the most valuable part of the file and the one a tester cannot
+      reconstruct alone, so give it its own column or block in EVERY write scenario: the user did X here, so
+      WHAT MOVED SOMEWHERE ELSE? Enumerate, per action, the consequences you actually built:
+        - which list, counter, badge or dashboard number moves, and in which direction;
+        - which record changes STATE, and what that state now forbids or allows;
+        - whose worklist gains or loses a task, and whether it is visible to a NON-admin member of that group;
+        - which notification fires, to whom, and which printout becomes available;
+        - which picker/dropdown elsewhere stops offering — or starts offering — that record;
+        - which report, chart or filtered view now returns a different row count;
+        - which parent/child rows were touched by cascade (a header change that rewrites its lines; a delete
+          that must take its children or must be refused because of them);
+        - what a SCHEDULER or a service task will do to this record on its next run.
+      Write each as something checkable in a NAMED other place: "after approving, open Screen B — the row must
+      have left the 'Pending' tab and the Home counter must drop by one". A consequence the tester cannot go and
+      look at is not a test.
+   d. THE BACKWARD RIPPLE. Reject, revert, cancel, delete: every consequence in (c) must be shown to UN-happen —
+      or to deliberately persist, if that is the design. This is where half-built lifecycles surface.
+   e. REFERENCE-DATA CHANGES. Rename or deactivate a lookup value, a role, a user, a category: where does the
+      OLD label survive on existing rows, what happens to records that pointed at it, and does a deactivated
+      value still appear in pickers or only on historical rows?
+   f. THE PROHIBITIONS. For each lifecycle state: what must be IMPOSSIBLE there (edit a locked record, delete an
+      approved one, skip an approval, act as the wrong role). Testing that something is refused catches what
+      testing that something works never will.
+   g. ORDER, REPETITION AND CONCURRENCY. The same action twice (an automatic trigger must be run TWICE and still
+      produce exactly ONE case); steps taken out of order; the same record open in two tabs and saved from both;
+      a process started while a previous instance is still open.
+   h. THE EMPTY AND FIRST-TIME STATES. No rows yet, no results for a filter, a picker whose source is empty, the
+      very first record of an entity, a user with no assignments.
+   i. EVERY NOTIFICATION AND PRINTOUT: what triggers it, who receives it, what it must contain, is it branded.
+   j. THE DASHBOARD: which number on Home comes from which data, so the tester can tell a right number from a
+      plausible one — and which scenario in this file should make each number move.
+   k. LOCALES: the same screen under each configured language, and the language switch itself.
+   l. THE THINGS NO OFFLINE GATE CAN CATCH — list these explicitly, because they are exactly what the tester is
+      for and they look fine until someone clicks: a page that opens with no menu or header; a dropdown that is
+      empty or says "No results found"; a form that reports success while the value does not change (⛔ tell them
+      to RE-OPEN the row and read it back — a toast is not evidence); a task invisible to a non-admin member of
+      the group; a screen under each of the five skins.
+
+   Format each scenario so it can be executed and reported without asking you anything:
+   **№ · Role · Precondition · Steps · Expected result · WHAT ELSE MUST HAVE CHANGED (where to go and look) ·
+   What it proves**. Number them so a bug report can cite a number. Group by module, load-bearing first — the
+   tester may not reach the end — and open the file with a short dependency map: for each entity, the other
+   screens and numbers that react to it.
+   ⛔ Be honest about provenance: mark which scenarios you already drove live yourself and what you saw, and put
+   everything you could NOT verify in a clearly separated **"Not verified by me"** section. A scenario list that
+   hides which parts were never run is worse than no list, because it transfers your uncertainty to someone who
+   cannot see it.
+
+8. Tell the user exactly what you changed, which docs/commands you used, the validate/verify result, AND the
+   live-run result (what you drove and saw) — or that it is unverified and why. Name both deliverables and where
+   they are: the `.mrjun` and the `test-scenarios.md`.
 
 ======================================================================
 NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you hand-edit, obey them)

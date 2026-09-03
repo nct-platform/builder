@@ -54,7 +54,8 @@ myproject/
 ├── work/               ← the unpacked export (the AI creates it)
 ├── work-case/          ← case notes (the AI creates it)
 ├── build-plan/         ← plan.json, the coverage ledger (the AI creates it)
-└── project.mrjun       ← THE OUTPUT
+├── project.mrjun       ← THE OUTPUT
+└── test-scenarios.md   ← ships with it: what to click and what should happen (§7)
 ```
 
 If `myproject/` is inside a git repo, add `/builder/` to that repo's `.gitignore`. Re-run the same `curl` command any time to refresh the library — it downloads to a file first, so a
@@ -173,7 +174,11 @@ open **Contexts** in the UI and just re-save the context — the export is corre
 
 ## 7. Drive it — this is the finish line, not the gates
 
-In this order, because the first items are load-bearing:
+The AI writes a **`test-scenarios.md`** next to `project.mrjun`: numbered scenarios with role, precondition,
+steps and expected result, covering every role, every branch of every process, the prohibitions, the empty
+states, the notifications and the dashboard numbers — and a separate section listing what it could **not**
+verify itself. Test from that file; the order below is the sweep to do first, because these items are
+load-bearing and fail in ways no offline gate can see:
 
 1. **Home** renders real content, **charts visible**
 2. **Every nav link** resolves, in the **currently selected language** — then switch locale and check again
