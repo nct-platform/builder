@@ -147,6 +147,39 @@ a red flag, not an achievement.
    h. IF IT RENDERS, IT MUST WORK. Any control, action or setting visible in the UI must have a runtime
       consequence. Ship nothing whose only behaviour is being drawn.
 
+6. DIVIDE THE WORK BY ARTIFACT, NOT BY JOB TITLE. Do NOT role-play a team ("as the PM I will now…", a business
+   analyst, four Groovy developers, a dashboard specialist). A title adds no capability, costs context you need
+   for routing, and produces narration that reads like rigour while checking nothing — the exact failure this
+   contract exists to prevent. What measurably raises quality is a reader that did not have to hold the whole
+   library, and a checker that did not build the thing. Three shapes, and only these:
+   a. READ IN PARALLEL. Before a phase, fan out one agent per doc-cluster with a CONCRETE question ("for this
+      PRD, from 04+05: which CRUD becomes a tree, and what is the exact columnSettings JSON"). Each returns
+      decisions and literal JSON shapes, never a summary. This is the only way a multi-megabyte library fits
+      inside one build.
+   b. AUTHOR SEQUENTIALLY. There is ONE mutable workdir; concurrent `mrjun.py` edits race and corrupt each
+      other. Never parallelise authoring. The exception is an artifact that lands in its OWN file — a pdfme
+      template, a chart config, an HTML component — generate those in parallel, then apply them one at a time
+      and `validate` after each.
+   c. VERIFY INDEPENDENTLY, AND WITH DIFFERENT LENSES. N identical checkers find what one finds. Give each a
+      distinct lens — does it render / does the rule actually fire / is it theme-safe / does the SQL bind as a
+      string — and take the majority verdict on a disputed finding. The checker must not be the author: an
+      agent re-reading its own reasoning confirms it.
+   The tell of theatre: output that narrates a process instead of naming a file, a command, or an invariant.
+   If a "role" cannot be handed an acceptance criterion, it is decoration — drop it.
+
+7. THE BUILD IS LONGER THAN YOUR CONTEXT. Plan for that from the first command, not when you run out.
+   a. SIZE. The library is megabytes of prose and `branches.json` inside a real project is megabytes of JSON —
+      you will never read the file you are authoring, and you must not try. Route into the docs (19 -> 13 -> the
+      specific reference); edit only through `mrjun.py`.
+   b. SCALE, so you know when you have stopped rather than finished. A comparable delivered project of this kind
+      runs to roughly 90 pages, 20 dynamic CRUDs, 180 rules, several workflows and schedulers, three locales —
+      and got there over THREE import-and-drive iterations. If what you built is an order of magnitude smaller
+      than the PRD implies, both gates can still be green and you are not done.
+   c. RESUME RECORD. `build-plan/plan.json` + `<workdir>-case/` ARE the handoff. Write them as you go, never at
+      the end. At any moment a fresh session with no memory must be able to read those two and continue: which
+      module is done, which unit is next, what was decided and why. Before a compaction or a handoff, update the
+      plan rows, add a case note for anything decided this session, and name the next unit.
+
 ======================================================================
 YOUR SOURCE OF TRUTH (read these; do not guess from memory)
 ======================================================================
@@ -274,6 +307,21 @@ HOW TO WORK (do this for every task)
    (every planned item built and marked done — the anti-skip gate, doc 26 §6a). If you can reach the DB, ALSO run
    `mrjun.py crud verify --db "<conninfo>"` (executes every SQL method against real/seeded rows so CHECK/NOT
    NULL/FK actually fire).
+   ⛔ THREE THINGS THESE GATES CANNOT SEE — know them or you will trust a green run:
+     - **Nothing here parses or compiles Groovy.** `validate` checks a rule is referenced and shaped right;
+       `crud verify` runs SQL methods only and skips GROOVY ones. A syntax error passes every offline gate, and
+       an unbalanced body makes `validate` skip its OTHER checks on that rule. Only a live execution finds it.
+     - **`coverage --emit` self-certifies.** It derives the plan FROM the build, so a plan emitted afterwards
+       always passes. The gate means something only when the plan was written from the PRD. `status:"deferred"`
+       likewise downgrades any missing row to a warning — an escape hatch, not a pass.
+     - **`coverage` never opens what it counts.** It matches by alias/name, so an empty shell satisfies a row.
+       Grep the rule body before you mark it done.
+5b. INDEPENDENT ACCEPTANCE — REQUIRED before you call the build complete. Have an agent that did NOT build it
+   re-derive, FROM THE PRD ALONE, the inventory of entities, actors, documents, statuses, processes and the
+   TRIGGER of each process — then diff that against `plan.json` and against what is actually in the workdir.
+   This is the only check that catches a plan which quietly matches a smaller project than the PRD describes,
+   and it is what `coverage` structurally cannot do for itself. Anything the re-derivation finds and the build
+   lacks is a defect, not a scope decision — raise it with the user rather than closing it silently.
 6. LIVE IMPORT + DRIVE THE UI (the real acceptance — REQUIRED, Operating Principle 4). Pack, import into a REPORT
    tenant, then OPEN THE PROJECT and drive it: the Home/dashboard renders with charts; every nav link resolves and
    is in the CHOSEN language (not always the default); every form opens with its fields and dropdowns populated;
