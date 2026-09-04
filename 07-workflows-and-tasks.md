@@ -1075,12 +1075,14 @@ they are there by default — `siteMapPage` nodes with `workflows.plugin`, `bpmn
 `workflows.plugin` list simply by being present in `rep-objects.json.workflows`. Process groups —
 `rep-objects.json.processGroups` (in an empty project there are already two, with fixed `identifier`s).
 
-> **⚠️ Repoint the 2 seeded `process.table.pluin` nodes.** `empty/branches.json` ships **two** "Process Table"
-> nodes whose `properties.model.stringValue` carries **dangling** references (verified by `jq` over
-> `empty/`): `workflowIdentifier` `6c0b4335-...` and `4009ac6c-...` (empty has **0 workflows**),
-> `contextIdentifier` `fe5e9b03-...` (empty has **0 contexts**), plus `userStartProcessActions`
-> `formGroupIdentifier`/`predicateIdentifier` UUIDs that also don't exist here. Their `processGroupIdentifier`s
-> (`32d9be5f-...`, `b0c1f90e-...`) DO resolve (those are the two seeded groups). So when you add a workflow:
+> **⚠️ Repoint the seeded `process.table.pluin` node.** `empty/branches.json` ships **one** "Process Table"
+> node, on `Home`, whose `properties.model.stringValue` carries **dangling** references (verified against the
+> current baseline): `workflowIdentifier` `6c0b4335-...` (empty has **0 workflows**), `contextIdentifier`
+> `fe5e9b03-...` in 6 places across `columnSettings`/`indexSettings` (empty has **0 contexts**), plus
+> `formGroupIdentifier`/`predicateIdentifier` UUIDs on both its 2 `userStartProcessActions` and its 2
+> `globalActions` that do not exist here either.
+> Its `processGroupIdentifier` (`32d9be5f-...`) DOES resolve — that is one of the two seeded groups. So when
+> you add a workflow:
 > **repoint each node's `model` `workflowIdentifier`/`contextIdentifier`/action-UUIDs at your real objects,
 > or delete the nodes** — don't ship the placeholders. Full `model` field walkthrough (7 keys, `filterExpression`
 > DSL, recipes) lives in [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md).

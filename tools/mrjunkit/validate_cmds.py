@@ -1434,11 +1434,6 @@ def _tables_by_container(page):
     return containers
 
 
-# Tab nodes that ship inside the platform's own base template live on these pages — nobody authored
-# them, so their (absent) size is not the build's decision and must not be warned about.
-_BASE_TEMPLATE_PAGE_ALIASES = {"insights", "advisory"}
-
-
 def _check_tab_size(root, r):
     """An authored `tabModel` should carry `"size": "SMALL"`.
 
@@ -1458,8 +1453,6 @@ def _check_tab_size(root, r):
 
     for n, alias in walk(root):
         if n.get("pluginName") != "nct.tab.plugin":
-            continue
-        if (alias or "") in _BASE_TEMPLATE_PAGE_ALIASES:
             continue
         raw = ((n.get("properties") or {}).get("tabModel") or {}).get("stringValue")
         try:
@@ -2143,7 +2136,9 @@ def _to_camel_case(name):
     head, *rest = name.split("_")
     return head + "".join(part[:1].upper() + part[1:] for part in rest)
 
-_MAP_KEY_RE = re.compile(r"[\[,]\s*['\"]?([A-Za-z_]\w*)['\"]?\s*:")
+# ⛔ NOT _MAP_KEY_RE — that name is bound again further down this file, and the LAST module-level
+# binding wins for both call sites. A same-named constant here is dead code that reads as live.
+_ARG_MAP_KEY_RE = re.compile(r"[\[,]\s*['\"]?([A-Za-z_]\w*)['\"]?\s*:")
 _SCALAR_PARAM_TYPES = {"boolean", "integer", "int", "long", "short", "double", "float",
                        "bigdecimal", "biginteger", "uuid", "date", "time", "timestamp",
                        "localdate", "localtime", "localdatetime", "instant"}
@@ -2162,33 +2157,106 @@ def _balanced_call_arg(text, start):
 
 
 def _known_map_keys(arg, body):
-    """Every key the argument map is known to carry, or None when it cannot be read statically."""
+    """Every key the argument map is known to carry, or None when it cannot be read statically.
+
+    ⛔ None means "undecidable", and the caller stays SILENT on it. That distinction is the whole
+    safety of this check: a map is seeded in Groovy half a dozen ways — a literal, `m.key = v`,
+    `m.put('key', v)`, `m << [k: v]`, `m += [...]`, a reassignment — and reading only the literal
+    while a later statement adds the missing key turns a correct rule into a reported defect. So
+    every shape this scanner does not model makes it hand back None rather than a short answer."""
     if arg.startswith("["):
-        return set(_MAP_KEY_RE.findall(arg))
+        return set(_ARG_MAP_KEY_RE.findall(arg))
     if re.fullmatch(r"[A-Za-z_]\w*", arg or ""):
-        m = re.search(r"def\s+%s\s*=\s*\[" % re.escape(arg), body)
+        name = re.escape(arg)
+        # More than one binding of the same local, or a `<-` style merge: stop reading.
+        if len(re.findall(r"(?<![\w.])%s\s*=(?!=)" % name, body)) > 1:
+            return None
+        if re.search(r"(?<![\w.])%s\s*(?:<<|\+=|\.putAll\s*\()" % name, body):
+            return None
+        m = re.search(r"def\s+%s\s*=\s*\[" % name, body)
         if not m:
             return None
         literal = _balanced_call_arg(body, m.end())
         if literal is None:
             return None
-        keys = set(_MAP_KEY_RE.findall("[" + literal + "]"))
-        keys |= set(re.findall(r"%s\[\s*['\"]([A-Za-z_]\w*)['\"]\s*\]\s*=" % re.escape(arg), body))
+        keys = set(_ARG_MAP_KEY_RE.findall("[" + literal + "]"))
+        keys |= set(re.findall(r"%s\[\s*['\"]([A-Za-z_]\w*)['\"]\s*\]\s*=(?!=)" % name, body))
+        keys |= set(re.findall(r"%s\.([A-Za-z_]\w*)\s*=(?!=)" % name, body))
+        keys |= set(re.findall(r"%s\.put\s*\(\s*['\"]([A-Za-z_]\w*)['\"]" % name, body))
         return keys
     return None
 
 
 # ⛔ NOT _PLACEHOLDER_RE — that name is already taken further down the file for `{{mustache}}`
 # slots, and a second module-level binding silently wins over the first.
-# ⚠️ Deliberately does NOT span a nested brace, so a placeholder carrying a `dropDownPopulation:{…}`
-# map is invisible to the checks below. Widening it was tried and reverted: the keyword scan that
-# stands in for the engine's AST walk then anchors too far back on the platform's own demo charts —
-# which put a placeholder inside a select-list function call — and every project went red on baseline
-# content. A false positive on a shipped template is worse than a gap, so the gap is documented in
-# 22-charts-params-and-filters.md instead: the recommended `dropdown-string` period filter is NOT
-# machine-checked, and has to be eyeballed against the "bare right-hand operand" rule.
-_QUERY_PARAM_RE = re.compile(r"\{\s*name\s*:\s*['\"]?([A-Za-z_]\w*)['\"]?[^{}]*\}")
+_QUERY_PARAM_HEAD_RE = re.compile(r"\{\s*name\s*:\s*['\"]?([A-Za-z_]\w*)['\"]?")
 _NEUTRALISE_KEYWORDS = re.compile(r"\b(WHERE|AND|OR|HAVING|ON)\b", re.I)
+# A span the keyword scan anchored inside a select-list expression. The scan is a token
+# approximation of the engine's AST walk; on `CASE WHEN … THEN … END` it latches the WHEN and the
+# span it reports is an expression, not a predicate. Every such span is discarded — the wrapped
+# placeholder this check exists for never sits inside one.
+_SELECT_LIST_KEYWORDS = re.compile(r"\b(CASE|WHEN|SELECT)\b", re.I)
+
+
+def _mask_sql_text(sql):
+    """`sql` with every string literal and comment blanked to spaces, offsets preserved.
+
+    A `(` inside `'a (b'` or inside `-- note (` is DATA. Counting it as an opened paren is how the
+    placeholder scan reported a wrapped placeholder on a query that has none."""
+    out = list(sql)
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if c == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'":
+                    if j + 1 < n and sql[j + 1] == "'":
+                        j += 2
+                        continue
+                    break
+                j += 1
+            end = min(j + 1, n)
+        elif c == "-" and sql.startswith("--", i):
+            end = sql.find("\n", i)
+            end = n if end < 0 else end
+        elif c == "/" and sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+        else:
+            i += 1
+            continue
+        for k in range(i, end):
+            if out[k] != "\n":
+                out[k] = " "
+        i = end
+    return "".join(out)
+
+
+def _query_placeholders(sql, masked=None):
+    """(text, start, end) for every `{name: …}` slot, nested braces and all.
+
+    A brace-DEPTH scan, not a regex: the recommended period filter is
+    `{name:'Since', type:'dropdown-string', dropDownPopulation:{query:…}}`, and a pattern that
+    refuses to cross a nested brace cannot see it at all — which made the whole check blind to
+    exactly the filters doc 22 tells authors to write."""
+    masked = _mask_sql_text(sql) if masked is None else masked
+    # The HEAD is matched on the real text — masking blanks the quoted `'since'` and the pattern
+    # would never match — while the brace DEPTH is counted on the mask, so a `}` inside a literal
+    # cannot close the slot early. Same length, so the offsets are the same in both.
+    for m in _QUERY_PARAM_HEAD_RE.finditer(sql):
+        if masked[m.start()] != "{":
+            continue          # the whole slot sits inside a literal or a comment: not code
+        depth, i = 0, m.start()
+        while i < len(masked):
+            if masked[i] == "{":
+                depth += 1
+            elif masked[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    yield sql[m.start():i + 1], m.start(), i + 1
+                    break
+            i += 1
 
 
 def _dangling_placeholder_spans(sql):
@@ -2207,15 +2275,18 @@ def _dangling_placeholder_spans(sql):
     genuine "I wrapped my placeholder" shape still reports.
     """
     out = []
-    for m in _QUERY_PARAM_RE.finditer(sql):
-        head = sql[:m.start()]
+    masked = _mask_sql_text(sql)
+    for text, start, _end in _query_placeholders(sql, masked):
+        head = masked[:start]
         kw = None
         for k in _NEUTRALISE_KEYWORDS.finditer(head):
             kw = k
         span = head[kw.end():] if kw else head
+        if _SELECT_LIST_KEYWORDS.search(span):
+            continue          # anchored inside an expression, not a predicate — see the constant
         depth = span.count("(") - span.count(")")
         if depth > 0:
-            out.append((m.group(0), span.strip()[:60]))
+            out.append((text, sql[len(head) - len(span):start].strip()[:60]))
     return out
 
 
@@ -2249,7 +2320,30 @@ def _chart_query_sources(p):
 
 
 _CHART_CANVAS_RE = re.compile(r"this\s*\.\s*\$find\s*\(")
-_CHART_INSTANCE_RE = re.compile(r"this\s*\.\s*chart\s*=")
+_CHART_INSTANCE_RE = re.compile(r"this\s*(?:\.\s*chart|\[\s*['\"]chart['\"]\s*\])\s*=(?!=)")
+# `const self = this` before a callback is idiomatic and works exactly as well — the plugin is still
+# the receiver. Failing it outright would red-flag a chart that renders.
+# ⛔ `this` and NOTHING ELSE on the right. `var ctx = this.$find('canvas')[0]` also starts with
+# `= this`, and treating `ctx` as a receiver made `ctx.chart = new Chart(...)` — assigning the
+# instance to a local instead of to the plugin, which is the exact defect the check exists for —
+# read as satisfying the contract.
+_CHART_THIS_ALIAS_RE = re.compile(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*this\s*(?![\w.\[(])")
+
+
+def _chart_receivers(js):
+    """`this` plus every local the script captured it into."""
+    return ["this"] + _CHART_THIS_ALIAS_RE.findall(js)
+
+
+def _chart_reaches_canvas(js):
+    return any(re.search(r"%s\s*\.\s*\$find\s*\(" % re.escape(rx), js)
+               for rx in _chart_receivers(js))
+
+
+def _chart_assigns_instance(js):
+    return any(re.search(r"%s\s*(?:\.\s*chart|\[\s*['\"]chart['\"]\s*\])\s*=(?!=)"
+                         % re.escape(rx), js)
+               for rx in _chart_receivers(js))
 
 
 def _check_filter_form_layout(p, r):
@@ -2276,11 +2370,17 @@ def _check_filter_form_layout(p, r):
                             and c.get("identifier") == "filter.parsis"), None)
         if anchor_node is None:
             continue          # a missing anchor is a different, louder problem
-        fields = [c for c in anchor_node.get("children") or []]
+        children = list(anchor_node.get("children") or [])
+        if any(c.get("pluginName") in ("nct.html.plugin", "html.plugin") for c in children):
+            continue
+        # ⛔ FIELD controls only. A submit button, a label or a table sitting in the same anchor is
+        # not a field, and counting it both defeats the single-field exemption (one control beside a
+        # button looked like two) and printed a count the author cannot reconcile with the screen.
+        fields = [c for c in children
+                  if str(c.get("pluginName") or "").startswith("dynaform.form.")
+                  and c.get("pluginName") != "dynaform.filter.submit.button.plugin"]
         if len(fields) < 2:
             continue          # one control needs no grid
-        if any(c.get("pluginName") in ("nct.html.plugin", "html.plugin") for c in fields):
-            continue
         r.warn("filter form %r puts its %d controls straight into `filter.parsis` with no layout — "
                "each renders full width, so the bar is one stacked row per field. Wrap them in an "
                "`nct.html.plugin` row of `col-*` cells, one `<plugin id=… name=\"nct.parsis.plugin\">` "
@@ -2300,25 +2400,38 @@ def _check_dashboard_layout(p, r):
     ERROR on the ROOT page, WARN anywhere else. The root is the front door — the first screen anyone
     opens, and the one a customer judges the whole delivery by; doc 21 spells its shape out. A child
     page may legitimately be plain, and the shipped baseline has one that is."""
-    root_id = p.root_content.get("identifier")
-    on_root = set()
-    for node in [p.root_content]:
-        for child, _pp, _pt in core.iter_nodes(node):
-            if child.get("pluginName") == "siteMapPage" and child is not p.root_content:
-                continue
-            if child.get("identifier"):
-                on_root.add(id(child))
+    # ⛔ The front door is what the bare project URL RESOLVES to, not the root node. Doc 21 gives two
+    # shapes and they are equally recommended: Home carries the dashboard itself, or Home carries
+    # `Redirect=<alias>` and the dashboard lives on that page. Judging by tree position alone let the
+    # second shape — the one a project is just as likely to take — past the gate entirely.
+    from . import content_cmds          # local: the module-level namespace does not carry it
+
+    front_doors = [p.root_content]
+    redirect = (_prop_string_value(p.root_content, "Redirect") or "").strip()
+    if redirect:
+        target = content_cmds.resolve_alias_path(p.root_content, redirect.lstrip("/"))
+        if target is not None:
+            front_doors.append(target)
+
+    def _page_own_content(page):
+        """Every node belonging to THIS page — its own subtree, minus any nested page."""
+        own, stack = set(), [page]
+        while stack:
+            n = stack.pop()
+            own.add(id(n))
+            for c in n.get("children") or []:
+                if c.get("pluginName") == "siteMapPage":
+                    continue
+                stack.append(c)
+        return own
+
+    front_door_nodes = set()
+    for page in front_doors:
+        front_door_nodes |= _page_own_content(page)
 
     def _inside_root_page(target):
-        """True when the node belongs to the ROOT page's own content, not to a child page."""
-        stack = [(p.root_content, True)]
-        while stack:
-            n, own = stack.pop()
-            if n is target:
-                return own
-            for c in n.get("children") or []:
-                stack.append((c, own and not (c.get("pluginName") == "siteMapPage")))
-        return False
+        """True when the node belongs to a FRONT-DOOR page's own content."""
+        return id(target) in front_door_nodes
 
     for node, _pp, _pt in core.iter_nodes(p.root_content):
         if node.get("pluginName") not in ("nct.parsis.plugin", "parsis.plugin"):
@@ -2368,12 +2481,12 @@ def _check_chart_js_contract(p, r):
         if "new Chart(" not in js:
             continue          # not a Chart.js chart (Plotly, mermaid, a hand-drawn gauge)
         label = node.get("name") or node.get("identifier")
-        if not _CHART_CANVAS_RE.search(js):
+        if not _chart_reaches_canvas(js):
             r.err("chart %r does not reach its canvas with `this.$find('canvas')[0]` — the script is "
                   "evaluated with `this` bound to the plugin and is given no other handle on its own "
                   "DOM, so it throws before `new Chart` runs and the chart renders EMPTY while its "
                   "queries return data. (22-charts-params-and-filters.md)" % label)
-        if not _CHART_INSTANCE_RE.search(js):
+        if not _chart_assigns_instance(js):
             r.err("chart %r never assigns `this.chart` — the redraw path calls `.destroy()` on it, so "
                   "the instance leaks a canvas on every re-render and the chart stops updating. "
                   "(22-charts-params-and-filters.md)" % label)
@@ -2399,7 +2512,8 @@ def _check_query_placeholder_shape(p, r):
     Scope is deliberately CHART queries only. An autocomplete or picker query is wrapped the same way
     on purpose and always has a value — the platform's own baseline ships three of them."""
     for label, sql in _chart_query_sources(p):
-        if not _QUERY_PARAM_RE.search(sql):
+        placeholders = list(_query_placeholders(sql))
+        if not placeholders:
             continue
         dangling = _dangling_placeholder_spans(sql)
         if dangling:
@@ -2410,8 +2524,8 @@ def _check_query_placeholder_shape(p, r):
                   "and the statement stops parsing. Write `<column> <operator> %s` and nothing else. "
                   "(22-charts-params-and-filters.md)" % (label, span, ph[:40]))
             continue
-        for m in _QUERY_PARAM_RE.finditer(sql):
-            tail = sql[m.end():m.end() + 4].lstrip()
+        for _text, _start, end in placeholders:
+            tail = sql[end:end + 4].lstrip()
             if tail[:2] in ("<=", ">=", "<>", "!=") or tail[:1] in ("=", "<", ">"):
                 r.err("%s puts a {name:…} placeholder on the LEFT of a comparison. Empty, it becomes "
                       "`1=1 %s…`, which does not parse. The placeholder is only ever the right-hand "
@@ -5634,7 +5748,7 @@ _ADMIN_BASE_ALIASES_REQUIRED = {
     "processes", "profile", "queries", "query", "roles", "rules", "schedulers", "script",
     "sources", "users", "workflow", "workflows",
 }
-_ADMIN_BASE_ALIASES_SOFT = {"settings", "pdf-templates", "mail-templates", "bl", "branches"}
+_ADMIN_BASE_ALIASES_SOFT = {"settings", "pdf-templates", "mail-templates", "bl"}
 
 
 def _check_admin_base_pages(p, r):

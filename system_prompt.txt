@@ -649,7 +649,7 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   identity (NOT child order) routes content; `item.order` only sorts the tab headers. E.g. one crud.table per tab
   to show several CRUDs on one page.
 - The left-nav (site.kicker.plugin, id=`left-nav`) is repeated per page; use `quicklink` to keep it consistent.
-- ⛔ PRESERVE THE ADMIN BASE — NEVER DELETE the management-console pages. The `empty`/REPORT base ships ~30
+- ⛔ PRESERVE THE ADMIN BASE — NEVER DELETE the management-console pages. The `empty`/REPORT base ships **23**
   admin/system `siteMapPage`s (Settings, Rules, Form Groups + Landing, PDF/Mail Templates, Sources, Queries,
   Contexts, Workflows, Schedulers, Roles, Users, Database, Business Logic, Processes, …). You **ADD** your business
   pages under `root`; you must **never remove or replace** the base skeleton. Deleting them breaks `/settings`, the
@@ -721,9 +721,13 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   filter bar whose controls hang straight off its anchor renders one full-width block per field: a
   five-field filter becomes five stacked rows above the table. Wrap them: an `nct.html.plugin` whose markup
   is a `<div class="row">` of `<div class="col-md-N"><plugin id="…" name="nct.parsis.plugin"></plugin></div>`
-  cells, one control per cell (the exact shape is in 04-crud-table-plugin.md; for the dashboard,
-  21-homepage-and-redirect.md §Home-as-dashboard). TABLES are the exception — a crud table lays itself out.
-  `validate` reports both: an unlaid-out front door is an ERROR, a filter bar without a grid is a WARNING.
+  cells, one control per cell. Shapes: the FILTER BAR in 04-crud-table-plugin.md; the DATA-ENTRY FORM in
+  03-generate-fields-from-crud.md (`gen_row_*` / `gen_colK_*` / `gen_slot_*`, `layoutColumns` 4 -> `col-md-3`);
+  the DASHBOARD in 21-homepage-and-redirect.md §Home-as-dashboard. All three are hand-written HTML — there is
+  no toolkit command that generates them. TABLES are the exception — a crud table lays itself out.
+  ⚠️ `validate` sees only TWO of the three: the dashboard (ERROR on the front door — which it resolves through
+  Home's `Redirect` — WARN elsewhere) and the filter bar (WARN). A DATA-ENTRY FORM'S LAYOUT IS NOT MACHINE-
+  CHECKED — it is on you, and a green run says nothing about it.
 - ⛔ HOME MUST RENDER REAL CONTENT (charts), not a blank shell. If the PRD has a dashboard, either build the
   `chart.js.plugin` grid **into Home's own parsis** (preferred — no redirect that can land on nothing) or redirect
   Home to a dashboard page. A grid of empty `nct.html.plugin`

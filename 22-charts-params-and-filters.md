@@ -2040,31 +2040,7 @@ this.chart = new Chart(ctx, {
 > **fixed-height, `position:relative` wrapper** — because `maintainAspectRatio:false` makes the canvas fill its parent;
 > without a sized wrapper the chart collapses to 0 px (a common "chart is blank" cause that is NOT a data problem).
 
-### 9.1 `type` — the built-in chart types (core, all loaded)
-
-`bar` · `line` · `doughnut` · `pie` · `radar` · `polarArea` · `scatter` · `bubble`. Everything else is one of these
-with option/dataset tweaks (no separate type):
-
-| You want | How | Starter |
-|---|---|---|
-| Vertical column | `type:'bar'` | Column |
-| **Horizontal bar** | `type:'bar'` + `options.indexAxis:'y'` | Bar (Horizontal) |
-| **Grouped bar** | `type:'bar'` + several `datasets[]` | Grouped Bar |
-| **Stacked bar** | `type:'bar'` + `scales:{x:{stacked:true},y:{stacked:true}}` | Stacked Bar / 100% Stacked |
-| Area | `type:'line'` + dataset `fill:true` | Area |
-| Multi-line | `type:'line'` + several datasets | Multi-line |
-| **Combo (bar+line)** | `type:'bar'` + a dataset with its own `type:'line'` (+ `yAxisID` for a 2nd axis) | Combo |
-| Sparkline | `type:'line'`, hide axes/legend, small height | Sparkline |
-| Time-series | `type:'line'` + `scales:{x:{type:'time'}}` (date-fns adapter IS loaded) | Time-Series Line |
-| KPI vs target / gauge | **use Plotly `indicator`** (§6/Recipe D) — Chart.js gauge plugin is NOT loaded (§2.5 ⚠) | — |
-
-Full starter list (copy one): Column, Bar (Horizontal), Grouped Bar, Stacked Bar, 100% Stacked Bar, Line, Multi-line,
-Area, Stacked Area, Combo (Bar + Line), Pie, Doughnut, Polar Area, Radar, Scatter, Bubble, Histogram, Sparkline,
-Horizontal Stacked Bar, Time-Series Line, Stepped Line, Waterfall, Diverging Bar, Bullet (KPI vs Target), Range Bar,
-Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line.
-
-
-### 9.3 The full starter catalogue — all 88, by engine
+### 9.0 The full starter catalogue — all 88, by engine
 
 Every card in the gallery, so a starter can be chosen from the docs and looked up by `key` in the
 editor. The `key` is what the gallery stores; the name is what the card shows. Counts per engine:
@@ -2075,6 +2051,12 @@ editor. The `key` is what the gallery stores; the name is what the card shows. C
 > construction order the engine needs. Hand-rolled chart JS is where `element.querySelector` and other
 > handles that do not exist come from — and a chart whose script throws renders an empty box while its
 > queries return data perfectly well.
+>
+> ⛔ **Except the 15 `mermaid` starters.** Their `js` is two lines that hand the block to
+> `mermaid.init(undefined, this.$find('.mermaid')[0])`; the diagram itself is literal text inside
+> `html`, and there is not one `$$()` slot in any of them — nothing binds to a query (§2.5). Pick one
+> only for a STATIC diagram; a data-driven chart has to come from `chartjs`, `plotly` or `echarts`.
+> (Verified against the shipped catalog: 73 of the 88 carry `$$()`; all 15 that do not are mermaid.)
 
 **chartjs** (29)
 
@@ -2124,6 +2106,31 @@ editor. The `key` is what the gallery stores; the name is what the card shows. C
 | Relationship | Entity Relationship (`mermaid-er`), Requirement Diagram (`mermaid-requirement`) |
 | Sequence | Sequence Diagram (`mermaid-sequence`) |
 | Structure | Class Diagram (`mermaid-class`), Quadrant Chart (`mermaid-quadrant`), Pie Chart (`mermaid-pie`), C4 Context (`mermaid-c4context`) |
+
+
+### 9.1 `type` — the built-in chart types (core, all loaded)
+
+`bar` · `line` · `doughnut` · `pie` · `radar` · `polarArea` · `scatter` · `bubble`. Everything else is one of these
+with option/dataset tweaks (no separate type):
+
+| You want | How | Starter |
+|---|---|---|
+| Vertical column | `type:'bar'` | Column |
+| **Horizontal bar** | `type:'bar'` + `options.indexAxis:'y'` | Bar (Horizontal) |
+| **Grouped bar** | `type:'bar'` + several `datasets[]` | Grouped Bar |
+| **Stacked bar** | `type:'bar'` + `scales:{x:{stacked:true},y:{stacked:true}}` | Stacked Bar / 100% Stacked |
+| Area | `type:'line'` + dataset `fill:true` | Area |
+| Multi-line | `type:'line'` + several datasets | Multi-line |
+| **Combo (bar+line)** | `type:'bar'` + a dataset with its own `type:'line'` (+ `yAxisID` for a 2nd axis) | Combo |
+| Sparkline | `type:'line'`, hide axes/legend, small height | Sparkline |
+| Time-series | `type:'line'` + `scales:{x:{type:'time'}}` (date-fns adapter IS loaded) | Time-Series Line |
+| KPI vs target / gauge | **use Plotly `indicator`** (§6/Recipe D) — Chart.js gauge plugin is NOT loaded (§2.5 ⚠) | — |
+
+Full starter list (copy one): Column, Bar (Horizontal), Grouped Bar, Stacked Bar, 100% Stacked Bar, Line, Multi-line,
+Area, Stacked Area, Combo (Bar + Line), Pie, Doughnut, Polar Area, Radar, Scatter, Bubble, Histogram, Sparkline,
+Horizontal Stacked Bar, Time-Series Line, Stepped Line, Waterfall, Diverging Bar, Bullet (KPI vs Target), Range Bar,
+Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line.
+
 
 ### 9.2 `data` — labels + datasets (this is what you bind to `$$()`)
 

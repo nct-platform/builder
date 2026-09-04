@@ -60,8 +60,8 @@ platform/admin-level and never written into a project export.
 | `nct.label.link.plugin` | rare | named props | below |
 | `nct.tab.plugin` | 1 per tabbed page | `properties.tabModel` | below |
 | `nct.help.plugin` | rare | `properties.helpSettings` | below + [03](03-generate-fields-from-crud.md) |
-| `chart.js.plugin` | a batch ships in the baseline; add your own | `properties.Javascript` | [22](22-charts-params-and-filters.md) |
-| `global.replacement.plugin` | a couple in the baseline; 1 per filter bar | — (no content blob; the editor edits query parameters) | [22](22-charts-params-and-filters.md) |
+| `chart.js.plugin` | **0 in the current baseline** — every chart is yours to author | `properties.Javascript` | [22](22-charts-params-and-filters.md) |
+| `global.replacement.plugin` | **0 in the current baseline**; 1 per filter bar | — (no content blob; the editor edits query parameters) | [22](22-charts-params-and-filters.md) |
 | `action.button.plugin` | 1 per standalone button (rare) | `properties.settings` | below |
 | `crud.table.plugin` | 1 per list page (0 in the baseline) | `properties.model` | [04](04-crud-table-plugin.md) |
 | `crud.tree.plugin` | 1 per hierarchy page (rare) | `properties.model` | [05](05-crud-tree-and-process-table.md) |
@@ -100,13 +100,13 @@ platform/admin-level and never written into a project export.
 | `admin.user.management.plugin` | 1 (console skeleton) | admin scaffold | below |
 | `admin.rolegroup.management.plugin` | 1 (console skeleton) | admin scaffold | below + [12](12-queries-sources-schedulers-and-rest.md) |
 | `audit.log.list.plugin` | 1 (console skeleton) | admin scaffold | below |
-| `ontology.viewer.plugin` | 1 (console skeleton) | admin scaffold | below |
+| `ontology.viewer.plugin` | **0 in the current baseline** (the `Ontology` demo page is gone) | admin scaffold | below |
 | `user.profile.plugin` | 1 (console skeleton) | admin scaffold | below |
 | `project.settings.plugin` | 1 (console skeleton) | admin scaffold | below + [12](12-queries-sources-schedulers-and-rest.md) |
 | `messaging.mail.templates.plugin` | 1 (console skeleton) | admin scaffold | [12](12-queries-sources-schedulers-and-rest.md),[15](15-pdf-and-mail.md) |
 | `report.pdf.templates.plugin` | 1 (console skeleton; absent in a truncated one) | admin scaffold | [15](15-pdf-and-mail.md) |
-| `pdf.report.plugin` ⚠️ *(dead — no class)* | 1 (console skeleton) | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
-| `pdf.report.page.plugin` ⚠️ *(dead — no class)* | 1 (console skeleton) | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| `pdf.report.plugin` ⚠️ *(dead — no class)* | **0 in the current baseline** (the `reports` demo page is gone) | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| `pdf.report.page.plugin` ⚠️ *(dead — no class)* | **0 in the current baseline** | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
 | `site.header.plugin` | 1 per page (site chrome) | — (site chrome) | below |
 | `site.footer.plugin` | 1 per page (site chrome) | — (site chrome) | below |
 | `site.kicker.plugin` | 1 per page (site chrome) | `properties.modelGroups` when `id=left-nav` (quick-links tree); else — (site chrome) | [17](17-left-nav-quick-links.md), below |
@@ -935,7 +935,7 @@ The `siteMapPage → plugin` table (from `empty/branches.json`, `.rootContent.ch
 | Settings | `project.settings.plugin` | `ProjectSettingsPlugin` · `plugin/dynamic/projectsettings/ProjectSettingsPlugin.java` | project settings (rep-objects.settings) | [12](12-queries-sources-schedulers-and-rest.md) |
 | Audit Logs | `audit.log.list.plugin` | `AuditLogListPlugin` · `plugin/auditlog/AuditLogListPlugin.java` | the audit log | — |
 | Profile | `user.profile.plugin` | `UserProfilePlugin` · `plugin/profile/UserProfilePlugin.java` | the current user's profile | — |
-| Ontology | `ontology.viewer.plugin` | `OntologyViewerPlugin` · `plugin/ontology/OntologyViewerPlugin.java` | ontology viewer — **no config slot** (empty properties: `className`/`styleName`/`tagProperties`); the `NctBasePlugin<OntologyModel>` type param is **vestigial**, `initPluginContent` never reads `properties.model` (`OntologyViewerPlugin.java`) | — |
+| ~~Ontology~~ *(page removed from the baseline)* | `ontology.viewer.plugin` | `OntologyViewerPlugin` · `plugin/ontology/OntologyViewerPlugin.java` | ontology viewer — **no config slot** (empty properties: `className`/`styleName`/`tagProperties`); the `NctBasePlugin<OntologyModel>` type param is **vestigial**, `initPluginContent` never reads `properties.model` (`OntologyViewerPlugin.java`) | — |
 | Contexts | `dynaform.context.list.plugin` | `ContextListPlugin` · `plugin/context/ContextListPlugin.java` | the list of contexts | [08](08-groovy-rules-and-context.md) |
 | Rules (list) | `executor.rule.list.plugin` | `RuleListPlugin` · `plugin/executor/rule/RuleListPlugin.java` | the list of rules | [08](08-groovy-rules-and-context.md) |
 | Rules (editor) | `executor.rule.script.plugin` | `RuleScriptPlugin` · `plugin/executor/rule/RuleScriptPlugin.java` | the rule script editor (no model/settings blob; `RuleDto` is a rep-object, resolved via `?rule=<identifier>`, `RuleScriptPlugin.java`) | [08](08-groovy-rules-and-context.md) |
@@ -948,12 +948,13 @@ The `siteMapPage → plugin` table (from `empty/branches.json`, `.rootContent.ch
 | Business Logic | `dynamic.cruds.plugin` | `DynamicCrudsPlugin` · `plugin/dynamic/dynamiccruds/DynamicCrudsPlugin.java` | dynamic CRUD / business logic (`properties.model`) | [11](11-business-logic-dynamic-crud.md) |
 | Mail Templates | `messaging.mail.templates.plugin` | `MailTemplatesPlugin` · `plugin/mailtemplate/MailTemplatesPlugin.java` | mail-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.mailTemplates[]`, saved via `mailTemplateService` (see [15]) | [12](12-queries-sources-schedulers-and-rest.md),[15](15-pdf-and-mail.md) |
 | Pdf Templates | `report.pdf.templates.plugin` | `PdfTemplatesPlugin` · `plugin/pdftemplate/PdfTemplatesPlugin.java` | PDF-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.pdfTemplates[]`, saved via `pdfTemplateService` (see [15]) | [15](15-pdf-and-mail.md) |
-| Branches | `process.table.pluin` | `ProcessTablePlugin` · `plugin/process/ProcessTablePlugin.java` | the branches table (reuses the process table) | [05](05-crud-tree-and-process-table.md) |
-| reports ⚠️ | `pdf.report.plugin`, `pdf.report.page.plugin` | **⚠️ no `@PluginConfig` class** (none declared anywhere in the platform sources) | ⚠️ **dead/legacy** — render as `mrjun.plugin.not.found`; for PDFs use `report.pdf.templates.plugin` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| ~~Branches~~ *(page removed from the baseline)* | `process.table.pluin` | `ProcessTablePlugin` · `plugin/process/ProcessTablePlugin.java` | the branches table (reused the process table) | [05](05-crud-tree-and-process-table.md) |
+| ~~reports~~ ⚠️ *(page removed from the baseline)* | `pdf.report.plugin`, `pdf.report.page.plugin` | **⚠️ no `@PluginConfig` class** (none declared anywhere in the platform sources) | ⚠️ **dead/legacy** — render as `mrjun.plugin.not.found`; for PDFs use `report.pdf.templates.plugin` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
 
 > ⚠️ **`pdf.report.plugin` / `pdf.report.page.plugin` are orphan/dead — do NOT author new nodes with them.**
-> They appear once each in a project export (a `Home → reports → Pdf → html.plugin → pdf.report.plugin →
-> pdf.report.page.plugin` subtree), but **no class registers either name** via `@PluginConfig` anywhere in
+> They appeared once each in OLDER project exports (a `Home → reports → Pdf → html.plugin →
+> pdf.report.plugin → pdf.report.page.plugin` subtree) and are **absent from the current baseline**, but
+> **no class registers either name** via `@PluginConfig` anywhere in
 > `nct-ui`/`mrjun`/`richwicket` (grep = 0), so on the current code they render as `mrjun.plugin.not.found` (registry
 > miss). The live PDF plugin is **`report.pdf.templates.plugin`** (`PdfTemplatesPlugin.java`); write new PDF nodes
 > under it. Same fact in [01-content-model-and-pages.md](01-content-model-and-pages.md) (the legacy-PDF-pair note) and
@@ -971,7 +972,7 @@ The `siteMapPage → plugin` table (from `empty/branches.json`, `.rootContent.ch
 > absent-table below, an admin scaffold that never appears in a project export and is **not hand-authored**, so no construction recipe exists; if
 > ever needed, its model must be reverse-engineered from the class. (`ontology.viewer.plugin` does **not** carry a
 > model — its `NctBasePlugin<OntologyModel>` type param is vestigial and never read from `properties`; it renders as
-> an empty admin scaffold and does appear once in a project export, not 0 times.)
+> an empty admin scaffold. It appeared once in older exports and is absent from the current baseline.)
 
 **Plugins from the code that are absent from project exports** (platform-level — they belong to the
 admin application/orgs, not the project; so they are not written into a project export):

@@ -4,9 +4,9 @@
 # DIFF AGAINST THIS FILE, do not chase a zero. These findings are the baseline's, not yours:
 # every WARNING below and the single ERROR are present before you author a byte. What matters is a NEW
 # line appearing after your edit. (The ERROR is locale-conditional: it disappears on a single-locale tenant.)
-validate: tests
+validate: base
 
-WARNINGS (14):
+WARNINGS (13):
   ! query 'Countries' references sourceIdentifier b814d61d-84b6-4611-99b3-914e0ca067db not in sources[] (ok if platform-internal)
   ! query 'Rimm Brand Start With' references sourceIdentifier b814d61d-84b6-4611-99b3-914e0ca067db not in sources[] (ok if platform-internal)
   ! query 'Rimm Countries Start with' references sourceIdentifier b814d61d-84b6-4611-99b3-914e0ca067db not in sources[] (ok if platform-internal)
@@ -20,7 +20,6 @@ WARNINGS (14):
   ! process.table 'Process Table' indexSettings 'customerName' is scope=CRUD over alias 'ticket' — indexed values are extracted only from a start that CARRIES indexSettings, and again after each action. No start form seeds this alias, and a rule-started case passes no index settings at all, so nothing ever fills this index and every filter over it matches nothing. Index a GLOBAL attribute a serviceTask publishes instead. (05-crud-tree-and-process-table.md, 27-event-driven-process-start.md §6)
   ! process.table 'Process Table' indexSettings 'assignedTechnician' is scope=CRUD over alias 'ticket' — indexed values are extracted only from a start that CARRIES indexSettings, and again after each action. No start form seeds this alias, and a rule-started case passes no index settings at all, so nothing ever fills this index and every filter over it matches nothing. Index a GLOBAL attribute a serviceTask publishes instead. (05-crud-tree-and-process-table.md, 27-event-driven-process-start.md §6)
   ! left-nav quick link 'Dashboars' targets siteMapPage 0a9fddb2-6ca4-4f67-a327-abc7c18f600e which does not exist — dead link. (17)
-  ! admin base pages absent (present in the current `empty` base): branches — if you deleted them, restore (don't remove the console); if your base is older, ignore. (01)
 
 ERRORS (1):
   x left-nav link 'Users' has no item-level localizedMap.name for all 2 locales (got {'en_US': 'Users'}) — the sidebar reads localizedMap.name off the ITEM (PageModel extends LocalizedBean) and falls back to the raw `name`, so this link shows ONE language under every locale. (17-left-nav-quick-links.md / doc 20)

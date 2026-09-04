@@ -55,7 +55,7 @@ file is placed under `sourceDir.relativize(file)`,
   rep-objects.json         ← nct-ui: rules, forms, contexts, queries, source, roles, mail, etc.
   project-db.dump          ← nct-ui: JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1 format)
   project-db-<db>.dump     ← nct-ui: dump of each ADDITIONAL distinct CRUD-source DB (multi-source projects)
-  project-db-meta.json     ← nct-ui: {databaseName (primary), databases:[…all], rimmSourceIdentifier} for remapping
+  project-db-meta.json     ← nct-ui: {databaseName (primary), databases:[…all], schemaPrefix, rimmSourceIdentifier} for remapping
   dynamic-cruds.json       ← nct-ui: DYNAMIC ONLY — CRUD business-logic definitions
   integrations.json        ← nct-ui: the execution-platform integrations (the `bl` deployable and any other)
   favicon/                 ← nct-ui: favicon assets (tenant/{id}/favicon/*)
@@ -246,13 +246,21 @@ base (mrjun) file and node ids are **not** remapped on import — they are prese
 Metadata for DB remapping on import. Written in `CmsProjectServiceImpl.java`:
 
 ```json
-{"databaseName":"prj_<realm>_<client>","rimmSourceIdentifier":"74f8ea9d-9e06-4a05-9f89-3144d3321e18"}
+{"databaseName":"org_<realm>_<hash>",
+ "databases":["org_<realm>_<hash>"],
+ "schemaPrefix":"<realm>_<client>_<hash>",
+ "rimmSourceIdentifier":"74f8ea9d-9e06-4a05-9f89-3144d3321e18"}
 ```
 
 | Field | Type | Meaning | Required |
 |---|---|---|---|
-| `databaseName` | string | Name of the source project DB (`prj_<realm>_<client>`). Used to remap `dbName` in source strings (`CmsProjectServiceImpl.java`) and as the "old" schema name when locating the RIMM schema in the dump | yes |
+| `databaseName` | string | Name of the donor's project DB. On the current storage model one database holds a whole **organisation** and each project is a set of prefixed schemas inside it, so this is an org-level name — not `prj_<realm>_<client>`. Used to remap `dbName` in source rows and to locate the RIMM schema in the dump | yes |
+| `databases` | array | every database the archive carries a dump for (a multi-source project has more than one) | yes |
+| `schemaPrefix` | string | **the DONOR's schema prefix.** This is the single field that tells the import which of the dump's schemas belong to this project; the import renames each one into the RECIPIENT's own prefix. A schema you add to the dump by hand must carry it. Absent only for a legacy donor whose schemas were unprefixed — the import then infers the prefix from the dump's own `_system`/`_rimm`/`_data` names | yes, whenever the dump's schemas are prefixed |
 | `rimmSourceIdentifier` | string(uuid) | identifier of the RIMM-source source. Written **only if** a RIMM source was found (`CmsProjectServiceImpl.java` `if (rimmSource != null)`). On import, old `query.sourceIdentifier == this` → remapped to the new RIMM source | no (only if a RIMM source exists) |
+
+See [10-database-management.md](10-database-management.md) §"Import-time source materialization" — the two
+sections describe one file and must not drift.
 
 **⚠️ DB staging requires BOTH files.** `readOtherFilesFromFolder` puts the dump in file storage and
 sets the tenant properties `initProjectDbDumpPath`/`initProjectDbMeta` only when
@@ -296,9 +304,13 @@ Schema sets you can expect (inspect any dump with `jq -r '.schemas[]|.name'`):
 
 | Project kind | Schemas in the dump |
 |---|---|
-| Empty baseline | `public`, `rimm_<realm>_<client>`, `system_<realm>_<client>` — **all empty** |
-| **DYNAMIC** build | the **business schema** (your name — `app_schema`, `customs_schema`, …) with tables/sequences/FKs, one `int_<realm>_<client>_<hash>` per dynamic-integration, `public`(empty), `rimm_<realm>_<client>` (a few lookup tables), `system_<realm>_<client>`(empty) |
-| **STATIC** build | only `int_<realm>_<client>_<hash>` schemas (large, FK-heavy — Hibernate-generated), `public`(empty), an empty `rimm_<realm>_<client>` — **no business schema** |
+| Empty baseline | `<prefix>_data`, `<prefix>_rimm` — **both empty** |
+| **DYNAMIC** build | the **business schema** (`<prefix>_<your name>`) with tables/sequences/FKs, one `<prefix>_<hash>` per dynamic-integration, `<prefix>_rimm` (a few lookup tables), `<prefix>_data`(empty). The registry `<prefix>_system` is deliberately EXCLUDED from the export |
+| **STATIC** build | only `<prefix>_<hash>` integration schemas (large, FK-heavy — Hibernate-generated) and an empty `<prefix>_rimm` — **no business schema** |
+
+`<prefix>` throughout is `project-db-meta.json.schemaPrefix`. Older archives predating the org-per-database
+model carry unprefixed `public` / `rimm_<realm>_<client>` / `system_<realm>_<client>` instead; the import
+handles both.
 
 **The key static ↔ dynamic difference at the dump level** (see §Static vs Dynamic below):
 in a dynamic project the business schema (tables *with data*) rides **inside the dump**; in a static project
@@ -838,19 +850,19 @@ unpack it with `mrjun.py unpack`) (see [README.md](README.md), "Step 2"). This i
   `{"name":…,"alias":…,"description":…,"domain":…,"status":"published","template":false,"importedFrom":[],`
   `"locales":["en_US","hy_AM"]}`. ⚠️ The concrete name/alias/domain in the bundled copy are the ones of the
   tenant it was exported from and carry no meaning for you — on import the target tenant's own realm/client
-  are used. The same is true of the schema names inside `project-db.dump`
-  (`rimm_<realm>_<client>` / `system_<realm>_<client>` for **that** tenant).
+  are used. The same is true of the schema names inside `project-db.dump`: they carry **that** tenant's
+  `schemaPrefix`, and the import renames every one of them into the recipient's own prefix.
 - `branch-metadata.json` = `{"publishedBranchName":"master","totalBranches":1}`.
 - `branches.json` — one branch `master` with `rootContent` made of top-level `siteMapPage` admin
   pages (Sources, Queries, Business Logic, Database, Rules, Contexts, Form Groups, Workflows,
-  Settings, etc.) and **20** `virtualPlugins`. No business pages/forms/CRUD.
+  Settings, etc. — 23 in all) and **20** `virtualPlugins`. No business pages/forms/CRUD.
 - `rep-objects.json` — 6 default `queries` (`Countries`, `Rimm Brand Start With`,
   `Rimm Countries Start with`, `Rimm Equipments`, `Rimm Users by Role Group`,
-  `Rimm User Start With`), 2 `processGroups`, 2 `roleGroups` (`Author`, `Developer`), 3 `settings`,
+  `Rimm User Start With`), 2 `processGroups`, 2 `roleGroups` (`Author`, `Developer`), 4 `settings`,
   5 `mailTemplates` (`Company Invitation`, `Event Reminder`, `Password Recovery`, `sendIntakeInit`,
-  `User Registration`); everything else empty.
-- `project-db.dump` — 3 **empty** schemas: `public`, `rimm_<realm>_<client>`, `system_<realm>_<client>`
-  (no business tables — you create them).
+  `User Registration`), **1 INTERNAL `source` named `data`**; everything else empty.
+- `project-db.dump` — 2 **empty** schemas, `<prefix>_data` and `<prefix>_rimm`, where `<prefix>` is
+  `project-db-meta.json.schemaPrefix` (no business tables — you create them).
 - `integrations.json` — the pinned **Business Logic** integration (keep it; see above).
 - `dynamic-cruds.json` — **absent** (we create it).
 
@@ -861,18 +873,24 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 
 1. **`tenant.json`** — set `name`, `alias`, `domain=<realm>.<client>`, `locales`. Everything else — as in
    `empty/tenant.json` (`status:"published"`, `template:false`, `importedFrom:[]`).
-2. **`project-db.dump`** — add the business schema to `schemas[]` (e.g. `app_schema`) with `enumTypes`,
-   `tables[]` (`name` + `ddl`(`CREATE TABLE "app_schema"."t"(...)`) + `columns` + `columnTypes` +
+2. **`project-db.dump`** — add the business schema to `schemas[]` **carrying the same `schemaPrefix` the
+   other schemas carry** (`<prefix>_app`, not a bare `app_schema` — the import classifies a schema by that
+   prefix and renames it into the recipient's own) with `enumTypes`,
+   `tables[]` (`name` + `ddl`(`CREATE TABLE "<prefix>_app"."t"(...)`) + `columns` + `columnTypes` +
    `rows` + `rowCount`), `sequences[]`, `foreignKeys[]`(DDL strings), `indexes[]`, `uniqueConstraints[]`,
-   `checkConstraints[]`. Leave `public`/`rimm_*` empty. `columnTypes` — JDBC `java.sql.Types` codes.
+   `checkConstraints[]`. Leave the shipped `<prefix>_data` / `<prefix>_rimm` schemas empty. `columnTypes` —
+   JDBC `java.sql.Types` codes.
    `rows[].<col>` — **strings** (even numbers/booleans); `null` = `null` — an unquoted number rolls the whole
    schema back on import, see [Gotcha 7](#gotchas). Build them with `db_cmds.normalise_rows`. Table order — by FK
    (parents before children). Don't forget the paired `project-db-meta.json` (otherwise the DB isn't staged).
    Schema recipe — [10-database-management.md](10-database-management.md).
 3. **`rep-objects.json`** — add (write `"id": null` on every object — the key is required):
-   - `sources[]`: one INTERNAL `SourceDto` (`identifier`=UUID, `dbType:"POISTGRESQL"`,
-     `dbName=prj_<realm>_<client>`, `schemaName=app_schema`, `hostName`, `port`). On import, the creds
-     will be rewritten to the project-level role.
+   - `sources[]`: one INTERNAL `SourceDto` per business schema (`identifier`=UUID,
+     `dbType:"POISTGRESQL"`, `dbName`, `schemaName=<prefix>_app`, `hostName`, `port`, a non-blank
+     `userName` — it is `@NotBlank` and a blank one makes the platform REJECT the object). ⚠️ The baseline
+     already ships one INTERNAL source named `data`; reuse it or delete it, never leave two INTERNAL rows
+     over two schemas. On import the `dbName`, `schemaName` and the creds are all rewritten onto the
+     RECIPIENT's project — so whatever you write there is a placeholder, never a live coordinate.
    - `queries[]`: for each SQL method of the CRUD — a `query` with `identifier`(UUID),
      `name="crud_<alias>_<method>"`, `sourceIdentifier`=the source's UUID, `query` with placeholders
      `{name:'p', type:'integer'}`. Details — [12-...](12-queries-sources-schedulers-and-rest.md).

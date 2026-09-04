@@ -66,7 +66,7 @@ Format string: `"nct-jdbc-dump-v1"`. Assembled in `ProjectDatabaseServiceImpl`:
 ```json
 {
   "format": "nct-jdbc-dump-v1",
-  "database": "prj_<realm>_<client>",
+  "database": "org_<realm>_<hash>",
   "schemas": [ { "name": "...", "enumTypes": [...], "foreignKeys": [...], "uniqueConstraints": [...],
                  "checkConstraints": [...], "indexes": [...], "tables": [...], "sequences": [...],
                  "views": [...], "functions": [...], "triggers": [...] }, ... ]
@@ -78,7 +78,7 @@ Format string: `"nct-jdbc-dump-v1"`. Assembled in `ProjectDatabaseServiceImpl`:
 | Key | Type | Value |
 |---|---|---|
 | `format` | string | always `"nct-jdbc-dump-v1"` |
-| `database` | string | name of the physical project DB (`prj_<realm>_<client>`); matches `project-db-meta.json.databaseName` and `dynamic-cruds.json.cruds[].sourceDb` |
+| `database` | string | name of the physical project DB; matches `project-db-meta.json.databaseName` and `dynamic-cruds.json.cruds[].sourceDb`. On the current storage model one DB holds the whole organisation and each project is a set of prefixed schemas inside it — so this is an org-level name, not `prj_<realm>_<client>` |
 | `schemas` | array | array of schema objects (order: as the catalog returned them) |
 
 **Schema object** — 11 keys. `schemaDump` is also a `LinkedHashMap`, so the **key order in JSON =
@@ -585,16 +585,17 @@ The business schema from `project-db.dump` is what the dynamic-CRUDs look at. Th
 must match:
 
 1. `project-db.dump.database` == `dynamic-cruds.json.cruds[].sourceDb`
-   (`prj_<realm>_<client>`).
+   (`org_<realm>_<hash>` — one database per organisation).
 2. `project-db.dump.schemas[].name` == `dynamic-cruds.json.cruds[].sourceSchema` — most CRUDs point at the
-   business schema; the lookup/reference ones point at `rimm_<realm>_<client>`.
+   business schema; the lookup/reference ones point at `<prefix>_rimm`.
 3. Each schema is registered as a **Source** (the `sourceIdentifier` in the CRUD references an object from
    `rep-objects.json.sources`; `sourceType=INTERNAL`). A CRUD over the business schema:
 
 ```json
 { "alias": "equipment_event_types_cruid", "sourceIdentifier": "9801cfaa-e98d-4d1a-b960-7b7366f10a0c",
-  "sourceSchema": "app_schema", "sourceDb": "prj_<realm>_<client>",
-  "sourceHost": "<db-host>", "sourcePort": 5432, "sourceUser": "prj_<realm>_<client>_user" }
+  "sourceSchema": "<prefix>_app", "sourceDb": "org_<realm>_<hash>",
+  "sourceHost": "localhost", "sourcePort": 5432, "sourceUser": "<project-role>",
+  "sourcePassword": null }
 ```
 
 It is exactly **Create Schema (internal)** that does both things at once: `createSchema` creates the schema in the dumped DB, and
@@ -603,9 +604,12 @@ a project by hand: **the schema tables go in `project-db.dump`; the schema's sou
 the CRUDs go in `dynamic-cruds.json`** (see [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md) and
 [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md)).
 
-> **Import-time source materialization.** `project-db-meta.json` = `{"databaseName":"prj_<realm>_<client>",
-> "rimmSourceIdentifier":"<uuid>"}` — `databaseName` duplicates `project-db.dump.database`; `rimmSourceIdentifier`
-> points to the rimm source. At the same time `rep-objects.json.sources` is often **empty**, even though
+> **Import-time source materialization.** `project-db-meta.json` has four keys:
+> `{"databaseName":"<db>", "databases":["<db>"], "schemaPrefix":"<realm>_<client>_<hash>", "rimmSourceIdentifier":"<uuid>"}`.
+> `databaseName` duplicates `project-db.dump.database`; `rimmSourceIdentifier` points to the rimm source;
+> **`schemaPrefix` is the donor's schema prefix** and is what tells the import which of the dump's schemas
+> belong to this project — every schema you add by hand must carry it, and the import renames each one into
+> the RECIPIENT's prefix. At the same time `rep-objects.json.sources` may be **empty**, even though
 > queries/CRUDs reference `sourceIdentifier`s: the missing INTERNAL/RIMM source records are materialized on
 > import (`create-schema-sync`). A hand-built business schema normally carries exactly **one** explicit entry in
 > `sources[]` — the INTERNAL source pointing at it. Details of the
@@ -628,9 +632,10 @@ table and a related business table — so that after import the DB contains tabl
 
 ### Step 0 — starting point
 
-Take the `project-db.dump` of the empty baseline. There `schemas` contains `public`, `rimm_<realm>_<client>`,
-`system_<realm>_<client>` (all empty). **Add a new schema object** to the `schemas` array (or rename
-one of the empty ones). Leave `database` as in the target project.
+Take the `project-db.dump` of the empty baseline. There `schemas` contains exactly two, both empty:
+`<prefix>_data` and `<prefix>_rimm`, where `<prefix>` is `project-db-meta.json.schemaPrefix`. **Add a new
+schema object** to the `schemas` array — named `<prefix>_<yours>`, carrying the same prefix, because that
+prefix is how the import decides a schema belongs to this project. Leave `database` as in the target project.
 
 ### Step 1 — schema skeleton
 
@@ -638,7 +643,7 @@ Keep the key order the serializer emits:
 
 ```json
 {
-  "name": "customs_schema",
+  "name": "<prefix>_customs",
   "enumTypes": [],
   "foreignKeys": [],
   "uniqueConstraints": [],

@@ -136,7 +136,8 @@ python3 ./builder/tools/mrjun.py crud verify --db "host=… dbname=… user=… 
 
 - `validate` → **0 errors** (warnings can be legitimate). Compare against
   [`initialtemplates/empty-validate.txt`](initialtemplates/empty-validate.txt): the baseline already ships
-  258 warnings and 1 error, so **diff against that file rather than chasing a zero** — what matters is a *new* line.
+  a fixed set of warnings and 1 error (the count is in that file — do not memorise it here; it moves whenever the
+  baseline is replaced), so **diff against that file rather than chasing a zero** — what matters is a *new* line.
   With a workflow in the project it is not "0 errors" but "0 errors **and** 0 process-context findings".
 - `coverage` → **PASS**. This is the gate that catches *"shipped with half the forms and no workflows"* — but only
   if the plan was written from the PRD. See the three caveats in [23 §4](23-distribution-and-known-gaps.md).

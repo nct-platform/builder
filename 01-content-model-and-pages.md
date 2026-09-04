@@ -233,9 +233,9 @@ A page = a `ContentDomain` with `pluginName="siteMapPage"`. Every export has
 > project publishes to the browser tab and to every search engine. **Set both, for every locale, as part of
 > the Home page work** — this is the one property pair no gate will ever remind you about.
 
-The `empty` root `Home` actually has **25 children**: one `parsis.plugin` (`identifier="siteMapPageParsis"`)
-+ 24 admin pages `siteMapPage` (`Sources`, `Insights`, `Queries`, …). So navigation is a tree of
-`siteMapPage` nodes, not a flat list.
+The `empty` root `Home` actually has **20 children**: one `parsis.plugin` (`identifier="siteMapPageParsis"`)
++ 19 admin pages `siteMapPage` (`Sources`, `Queries`, `Database`, …); four more admin pages hang off those,
+for 23 in all. So navigation is a tree of `siteMapPage` nodes, not a flat list.
 
 > ⛔ **NEVER delete the admin/system pages — ADD, don't replace.** Those admin children (Settings, Rules, Form
 > Groups + Landing, PDF/Mail Templates, Sources, Queries, Contexts, Workflows, Schedulers, Roles, Users, Database,

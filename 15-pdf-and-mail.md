@@ -361,9 +361,14 @@ authoring). The options are:
 
 # Part 2. PDF report `pdf.report.plugin` / `pdf.report.page.plugin` (demo scaffold)
 
-This is a **separate, legacy scaffold** (it does not overlap with the pdfme templates from Part 1). In every export it is present as a demo on the page **`Home → reports → Pdf`**: a container node `html.plugin("Layout")` contains a `pdf.report.plugin` with `identifier="pdf"`, and inside it a `pdf.report.page.plugin` with `identifier="page-1"`. This is the "PDF report page" construct of the old mrjun report engine.
+This is a **separate, legacy scaffold** (it does not overlap with the pdfme templates from Part 1). ⚠️ **It is
+no longer shipped**: the current `initialtemplates/empty.mrjun` has no `reports` page and no `pdf.report.*` node.
+Older exports carry it as a demo on the page **`Home → reports → Pdf`**: a container node `html.plugin("Layout")`
+contains a `pdf.report.plugin` with `identifier="pdf"`, and inside it a `pdf.report.page.plugin` with
+`identifier="page-1"`. This is the "PDF report page" construct of the old mrjun report engine. It is documented
+here so you can RECOGNISE it in an inherited project — never author a new one.
 
-Shape of the `pdf.report.plugin` node (a real node from `empty/branches.json`):
+Shape of the `pdf.report.plugin` node (a real node from an older `empty/branches.json`):
 
 ```json
 {

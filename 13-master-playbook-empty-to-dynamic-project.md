@@ -74,12 +74,24 @@ user **reimports** to get a working application with **dynamic CRUD integration*
 `empty` is an **admin skeleton of a REPORT project**, not a blank slate. Already present:
 
 - **`tenant.json`**: `{name, alias, description, domain, status:"published", template:false, importedFrom:[],
-  locales:["en_US","hy_AM"]}`. `locales` determine for which languages you need `localizedNames`.
+  locales:["en_US","hy_AM"]}` — the shipped values are the neutral `base`/`base.template`; `locales` determine
+  for which languages you need `localizedNames`. Set your own name/alias/domain; the target tenant's realm and
+  client are used on import regardless.
 - **`rep-objects.json`**: `queries: 6` (`Countries`, `Rimm Brand Start With`, `Rimm Countries Start with`,
-  `Rimm Equipments`, `Rimm Users by Role Group`, `Rimm User Start With`), `settings: 3`, `processGroups: 2`,
+  `Rimm Equipments`, `Rimm Users by Role Group`, `Rimm User Start With`), `settings: 4`, `processGroups: 2`,
   `roleGroups: 2` (`Author`, `Developer`), `mailTemplates: 5` (`Company Invitation`, `Event Reminder`,
-  `Password Recovery`, `sendIntakeInit`, `User Registration`). Everything else (`workflows/rules/contexts/
-  formGroups/forms/sources/schedulers/userRoleGroupAssignments`) is **empty**.
+  `Password Recovery`, `sendIntakeInit`, `User Registration`), **`sources: 1`** — one INTERNAL source named
+  `data`, carrying only placeholders (`hostName: "localhost"`, `dbName: "project_db"`, `schemaName: "data"`,
+  `userName: "project_user"`, empty `password`, `realmName`/`clientName` null). Everything else
+  (`workflows/rules/contexts/formGroups/forms/schedulers/userRoleGroupAssignments/pdfTemplates`) is **empty**.
+  ⚠️ **`sources` is NOT empty any more.** Adding "your" INTERNAL source next to it leaves the export with two
+  INTERNAL sources over two different schemas, and the import materializes both. Either reuse the shipped
+  `data` row (repoint its `schemaName`) or delete it before adding your own — never both.
+  ⛔ **They are placeholders on purpose, and yours must be too.** The import rewrites every INTERNAL row onto
+  the RECIPIENT's database, role and password before it saves it, and normalises the host afterwards — so
+  nothing you write there is ever used. What you write there IS, however, published: a `.mrjun` is a file that
+  gets mailed, committed and bundled into libraries. Never put a real host, role or password in one. The
+  export strips them now (`sourceWithoutSecrets`), but an archive you assemble by hand is on you.
 - **`integrations.json`**: the pinned **Business Logic** integration. Keep it — the import starts integrations
   before it imports `dynamic-cruds.json`, and a dynamic CRUD binds to a RUNNING integration ([00](00-export-format-and-import.md)).
 - ⚠️ **Dangling `roleGroupAccessors` on the baseline pages.** Baseline page nodes carry a `roleGroupAccessors`
@@ -88,22 +100,31 @@ user **reimports** to get a working application with **dynamic CRUD integration*
   ([01](01-content-model-and-pages.md)), so an entry naming a group nobody can belong to grants nothing — but
   it is not harmless noise either: create a role group with that name later and the old entry silently becomes
   live. Strip them for a clean export, and write your own persona entries deliberately.
-- **`branches.json`**: a single branch `master` with `rootContent` = `Home` (`siteMapPage`) and ~25 admin pages:
-  `Database`, `Business Logic`, `Sources`, `Queries`, `Workflows`, `Processes`, `Rules`, `Form Groups`,
-  `Contexts`, `Role Management`, `User management`, `Scheduelrs` (sic — the real node name with the typo), `Mail Templates`, `Audit Logs`, `Settings`,
-  `Profile`, `Pdf Templates`, `Ontology`, `Branches`, `Insights`, `Advisory`, `reports`, `401`, `404`. Plus
+- **`branches.json`**: a single branch `master` with `rootContent` = `Home` (`siteMapPage`) and **23** admin
+  pages, by alias: `401`, `404`, `audit-logs`, `bl`, `contexts`, `database`, `form`, `landing`,
+  `mail-templates`, `pdf-templates`, `processes`, `profile`, `queries`, `query`, `roles`, `rules`,
+  `schedulers`, `script`, `settings`, `sources`, `users`, `workflow`, `workflows`.
+  ⚠️ The demo pages a previous baseline carried — `Insights`, `Advisory`, `Ontology`, `Branches`, `reports` —
+  are **gone**. Nothing in this library holds them up as a reference: a dashboard's shape is your decision
+  under [21](21-homepage-and-redirect.md) and [22](22-charts-params-and-filters.md), not a copy of a deleted
+  demo page. Plus
   `virtualPlugins[]` — the palette of layout/controls (`1-col`…`4-col Layout`, `Main`, `Form`, `Nct layout`,
   `Nct left nav`, `Card`, `Logo`, `Pdf`, `Form Submit Button`, `Text Label Field`, `Drop Down Label Field`,
   `Date Picher Label Field` (sic), `Auto Complete Label Field`, `File Upload Label Field`, …).
-  ⚠️ **`empty` is not content-free: `Home`'s content parsis already holds a `process.table.pluin`** (and
-  `Branches` a second one), both pointing at `workflowIdentifier`s that exist nowhere in the export
-  (`rep-objects.workflows` is empty), i.e. dead as shipped.
+  ⚠️ **`empty` is not content-free: `Home`'s content parsis already holds a `process.table.pluin`**, pointing
+  at a `workflowIdentifier` that exists nowhere in the export (`rep-objects.workflows` is empty), i.e. dead as
+  shipped. It is the only one left — the second, on the deleted `Branches` page, went with that page.
   **Before you put any table — or the dashboard grid — on `Home`, DELETE that node** (or repoint it —
   [05](05-crud-tree-and-process-table.md) Part 2, [07](07-workflows-and-tasks.md)); otherwise `validate` ERRORs with
   the one-table-per-page rule. The remedy its message suggests (put each table in its own tab) is the **wrong**
   fix here — it would ship your real table tabbed together with a dead demo process table.
-- **`project-db.dump`**: 3 empty schemas (`public`, `rimm_<realm>_<client>`, `system_<realm>_<client>` — the two
-  platform schemas are named after the tenant). No business tables.
+- **`project-db.dump`**: 2 empty schemas, `<prefix>_data` and `<prefix>_rimm`, where `<prefix>` is the
+  `schemaPrefix` recorded in `project-db-meta.json`. On the current storage model every schema of a project
+  carries that prefix (`<realm>_<client>_<hash>_<name>`), and the import RENAMES each one into the recipient's
+  own prefix — so a business schema you add by hand must carry the donor prefix too. An unprefixed name is
+  not left alone: it still lands inside the recipient, but as `<recipientPrefix>_<the whole bare name>`,
+  which no longer matches the `<prefix>_app` shape the rest of your archive assumes. Only a LEGACY
+  (one-database-per-project) recipient leaves it bare.
 - **No `dynamic-cruds.json`** — it appears only once you add a dynamic CRUD.
 
 **You ADD on top of this:** the DB business schema, a source, dynamic CRUDs + their queries, a context, rules,
