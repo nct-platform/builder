@@ -76,7 +76,8 @@ a red flag, not an achievement.
    plainly that it has not been imported. (See step 6.)
 
 1. CLARIFY HIGH-BLAST-RADIUS UNKNOWNS UP FRONT — ask, do not silently assume. Before building, use
-   AskUserQuestion to settle EXACTLY THREE things: (a) the LANGUAGE SET — which locales, AND which is the
+   AskUserQuestion to settle AT LEAST these three (doc 19 Phase 0 adds more for a PRD with a dashboard —
+   ask those too; what is forbidden is asking about an ENVIRONMENT, see the ⛔ below): (a) the LANGUAGE SET — which locales, AND which is the
    DEFAULT/authoritative one (a wrong set re-touches every entity; ONE language means NO `localized` fields /
    no per-locale maps anywhere; set the default with `mrjun.py locale set-default` + put it first in `locales`
    — it round-trips as `tenant.json.defaultLocale`, see doc 20); (b) BRANDING — the customer + a LOGO for the
@@ -308,6 +309,33 @@ HOW TO WORK (do this for every task)
    each phase DECIDE (with its defaults), AUTHOR (via the doc it points to + the mrjun.py command), and satisfy
    its DONE-WHEN gate before moving on. Build + `validate` each unit as you go (Operating Principle 2) — never
    author everything then validate once at the end. The build/write order + dependency graph is 13-master-playbook.
+3a. PUT THE PRD'S GAPS AND CONTRADICTIONS TO THE USER — ONCE, AS A LIST, WITH A RECOMMENDATION ON EACH.
+   A PRD is a business document. It is written by people who know the business and not the platform, so it
+   will leave things open, and it will occasionally ask for two things that cannot both be true. Building
+   over that silently is how a project comes out technically green and businessly wrong — and the person
+   who could have settled it in thirty seconds never got asked.
+   So: once, after the Phase-1 inventory exists and BEFORE you author anything, produce ONE consolidated
+   list. Not a stream of questions during the build, and not a private assumption log: one pass the reader
+   can answer in a sitting.
+   Each item carries five things, in this order:
+     - WHAT THE PRD SAYS — quote or cite the clause, so the reader can check you read it right;
+     - WHAT IS OPEN OR CONTRADICTORY — the gap in the PRD's own terms, not in platform terms;
+     - WHAT YOU PROPOSE — one concrete option, named;
+     - RECOMMEND / DO NOT RECOMMEND, and WHY — take a position. "Either could work" is not an answer; you
+       have read the whole PRD and they have not read the platform, so the judgement is yours to offer;
+     - WHAT IT COSTS TO SKIP IT — what the delivered project will not do, in business terms.
+   Sort by blast radius: an item that re-touches every entity comes before a nicety. Use AskUserQuestion
+   for the items whose answer CHANGES WHAT YOU BUILD, and put the rest in the list as stated assumptions.
+   ⛔ Silence is not consent. An item nobody answers ships as an assumption written into the hand-over in
+   the user's own words — never as a decision you quietly made for them.
+   ⛔ This is about the BUSINESS, never about an environment. Do not ask for a URL, a realm, a client, a
+   login or where to test — Operating Principle 0 settles all of that, and asking hands your job back.
+   Typical members of this list, from real PRDs: a status named in one clause and absent from the state
+   list; a role that acts in a process but is missing from the role table; a document the process produces
+   that no screen ever shows; a deadline with no clock to enforce it; an approval whose rejection path is
+   never described; a report the PRD asks for whose data nothing in the PRD records; two clauses that
+   disagree about who approves what. Each of those is a one-line question and a one-line recommendation.
+
 3b. ⛔ DO NOT REIMPLEMENT A TOOLKIT PRIMITIVE. If you write a generator, IMPORT from `tools/mrjunkit/core.py`
    (`core.regen_ids`, `core.looks_uuid`, `core.iter_nodes`, `core.new_rep_object`, `core.set_inner_json`, …)
    and `tools/mrjunkit/db_cmds.py` (`db_cmds.normalise_rows`, `db_cmds.dump_cell`, `db_cmds._build_ddl`).
@@ -322,13 +350,33 @@ HOW TO WORK (do this for every task)
    gateway logic, per-field form-control settings, tab layouts, PDF template content, schedulers) and then follow
    the EXACT export shape documented in the relevant file. If a command produces a wrong-shaped result (e.g. the
    nav-label / localization traps), fix the toolkit or the output — do not ship the defect.
-5. VALIDATE + COVERAGE (offline gates — necessary, NOT sufficient). `mrjun.py validate --project <workdir>` -> 0
-   errors (warnings about pre-existing platform-internal orphans are acceptable); it also runs schema-aware
+5. VALIDATE + COVERAGE (offline gates — necessary, NOT sufficient). `mrjun.py validate --project <workdir>` -> no
+   NEW errors (warnings about pre-existing platform-internal orphans are acceptable). ⚠️ The bundled BASE is not
+   clean — `initialtemplates/empty.mrjun` validates with warnings and one pre-existing error, and
+   `initialtemplates/empty-validate.txt` records its exact output: diff against that file rather than chasing a
+   finding you did not introduce; it also runs schema-aware
    dynamic-CRUD checks (CHECK-literal / expression-coverage incl. list sub-grids / document-delete-cascade /
-   enum-option snapshots). Then `mrjun.py coverage --project <workdir> --plan build-plan/plan.json` -> **PASS**
-   (every planned item built and marked done — the anti-skip gate, doc 26 §6a). If you can reach the DB, ALSO run
-   `mrjun.py crud verify --db "<conninfo>"` (executes every SQL method against real/seeded rows so CHECK/NOT
-   NULL/FK actually fire).
+   enum-option snapshots) and the PLATFORM-CONTRACT checks — the two failure classes that used to be found
+   only by importing and clicking, and that a build you never run has no other way to catch:
+     - **an object the platform will REJECT at import.** Fields the platform's DTOs declare mandatory,
+       checked against the archive: a query with a blank `name`/`query`, a workflow or role group with no
+       name, a source missing its connection fields. Objects import in a fixed order, so one rejected query
+       can cost every workflow, rule, context, form and setting behind it — the project then arrives with a
+       database and blank screens. The usual cause is a scaffolded CRUD whose `create`/`update`/`delete`
+       later became GROOVY: their paired query records are never filled and ship as `"query": ""`.
+     - **a Map argument meeting a single-slot SQL method that the map does not name.** The executor then
+       binds the whole serialized map into that one slot. On a scalar column it is a loud
+       `invalid input syntax for type …`; on a text column it is silent and the screen just shows nothing.
+       This is the default shape of `count` on a table with exactly one filter. The gate reads GROOVY
+       callers only — the table plugin builds its filter map at runtime, so a green gate proves your
+       rules are safe, not that the table is.
+   Then `mrjun.py coverage --project <workdir> --plan build-plan/plan.json` -> **PASS** (every planned item
+   built and marked done — the anti-skip gate, doc 26 §6a).
+   Then `mrjun.py crud verify --db "<conninfo>" --project <workdir>` — REQUIRED, not optional, and named as
+   one of the four gates in Operating Principle 0. It executes every SQL method against real/seeded rows, so
+   CHECK / NOT NULL / FK actually fire; it is the only gate that runs your SQL. It needs a `psql` binary and
+   ANY throwaway Postgres — not the platform, not the customer's database — so "I could not reach the DB" is
+   a reason to start a container, not a reason to skip it (doc 26 §3a).
    ⛔ THREE THINGS THESE GATES CANNOT SEE — know them or you will trust a green run:
      - **Nothing here parses or compiles Groovy.** `validate` checks a rule is referenced and shaped right;
        `crud verify` runs SQL methods only and skips GROOVY ones. A syntax error passes every offline gate, and
@@ -669,12 +717,20 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   A dump exported by the platform can never show this (it writes `val.toString()`), so **only a generated or
   hand-edited dump is at risk, and no reference export demonstrates the correct shape by contrast.**
   `validate` now ERRORs on it; it did not before, which is how a shipped build reached a customer's import.
+- ⛔ EVERY SCREEN GETS A LAYOUT — the dashboard, and every FORM and FILTER BAR on every page. A form or a
+  filter bar whose controls hang straight off its anchor renders one full-width block per field: a
+  five-field filter becomes five stacked rows above the table. Wrap them: an `nct.html.plugin` whose markup
+  is a `<div class="row">` of `<div class="col-md-N"><plugin id="…" name="nct.parsis.plugin"></plugin></div>`
+  cells, one control per cell (the exact shape is in 04-crud-table-plugin.md; for the dashboard,
+  21-homepage-and-redirect.md §Home-as-dashboard). TABLES are the exception — a crud table lays itself out.
+  `validate` reports both: an unlaid-out front door is an ERROR, a filter bar without a grid is a WARNING.
 - ⛔ HOME MUST RENDER REAL CONTENT (charts), not a blank shell. If the PRD has a dashboard, either build the
   `chart.js.plugin` grid **into Home's own parsis** (preferred — no redirect that can land on nothing) or redirect
-  Home to a dashboard page **and verify live that the charts actually render**. A grid of empty `nct.html.plugin`
+  Home to a dashboard page. A grid of empty `nct.html.plugin`
   cells ("Modify html") = the charts weren't placed/rendered — each grid cell's `<plugin id="X" name="chart.js.plugin">`
   must have a real child chart node with a non-empty `properties.Javascript` (a `ChartJsModel` with `js` +
-  `replacements` bound to a query that returns rows). Charts are NOT offline-verifiable — DRIVE Home in the browser
+  `replacements` bound to a query that returns rows). Charts are NOT offline-verifiable — you cannot confirm
+  one renders, so `test-scenarios.md` must carry a scenario per chart saying what it should show
   (doc 21/22, Operating Principle 4).
 - IMPORT PRECONDITION: the receiving project must be `type == REPORT`, or its rep-objects + DB are skipped on
   import. The `empty` export is REPORT-typed — base new work on it.

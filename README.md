@@ -13,6 +13,21 @@ codebase**, and **writes the export files**.
 
 ---
 
+## Start here
+
+| file | what it is |
+|---|---|
+| **[GETTING-STARTED.md](GETTING-STARTED.md)** | the human on-ramp — read this first if you have never run a build |
+| **[prmpt.txt](prmpt.txt)** | the RUN PROMPT: fill in the PRD path and paste it as the task |
+| **[system_prompt.txt](system_prompt.txt)** | the OPERATING CONTRACT the builder must read in full and follow — how to work, and what "done" means |
+
+A finished build is **two files, not one**: the export `project.mrjun`, and beside it a `test-scenarios.md`
+that lets whoever imports it test the running application without the builder. Nothing in this library imports
+or drives a platform — the offline gates prove the files are right, `test-scenarios.md` is how the behaviour
+gets proven, by the person who owns the project.
+
+---
+
 ## How to use this — two steps
 
 **Step 1 — planning (a separate Claude session).**

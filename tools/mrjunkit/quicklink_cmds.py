@@ -493,8 +493,29 @@ def cmd_quicklink_add_external(args):
 # ---------------------------------------------------------------------------
 
 
+def _link_labels(item):
+    """Every string this link can legitimately be called: the raw `name` on the item and on its
+    linkModel, plus EVERY per-locale value of both `localizedMap.name` maps.
+
+    ⛔ The raw `name` is only one language. A link authored with `--label-loc` renders a different
+    string under every other locale, and a caller removing "Purchase requests" from a project whose
+    raw name is the Armenian original would match nothing — and, before this, would be told it
+    succeeded. That silence is what lets a nav phase believe it replaced its links when it appended.
+    """
+    out = set()
+    for holder in (item, item.get("linkModel") or {}):
+        if not isinstance(holder, dict):
+            continue
+        if holder.get("name"):
+            out.add(holder["name"])
+        names = (holder.get("localizedMap") or {}).get("name") or {}
+        if isinstance(names, dict):
+            out.update(v for v in names.values() if isinstance(v, str) and v)
+    return out
+
+
 def _prune_links(pages_model, label):
-    """Remove link PageModels whose name/linkModel.name matches label, at every
+    """Remove link PageModels the label names — by raw name or by ANY localized name — at every
     depth. Returns the number removed. Groups are kept."""
     removed = 0
     kept = []
@@ -505,7 +526,7 @@ def _prune_links(pages_model, label):
         info = _link_target(item)
         lm = item.get("linkModel") or {}
         is_link = info is not None
-        matches = is_link and (item.get("name") == label or lm.get("name") == label)
+        matches = is_link and label in _link_labels(item)
         if matches:
             removed += 1
             continue
@@ -540,5 +561,12 @@ def cmd_quicklink_rm(args):
     if total_removed:
         p.mark(core.F_BRANCHES)
         p.save()
+    if not total_removed:
+        # Reporting "removed 0" as success is how a generator convinces itself it replaced its links
+        # when it appended. Say it plainly instead.
+        core.out("quick link %r: NOTHING MATCHED — no link carries that name in any locale. "
+                 "Check the label (a link authored with --label-loc renders a different string per "
+                 "locale; any one of them matches)." % args.label)
+        return 0
     core.out("quick link removed: %r; %d link(s) across %d left-nav node(s)"
              % (args.label, total_removed, nodes_touched))

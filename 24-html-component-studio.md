@@ -1468,7 +1468,8 @@ try {
 
 ## 13 · Done when
 
-**Done when:** the component renders on a live import with an empty browser console; every include resolves and
+**Done when:** every include resolves, and `test-scenarios.md` carries a scenario saying the component must
+render with an empty browser console on the tester's import; and
 the component's script-selection mode (§3.2) is the one you intended; one `<Screen> Data` rule
 feeds the whole screen; every bridge call is inside `try/catch` and renders its error; page-level actions live in
 the breadcrumb bar and morph by key as the user drills in; every timer/listener is registered through

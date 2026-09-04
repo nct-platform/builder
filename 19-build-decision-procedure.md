@@ -1111,11 +1111,12 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
 
 ---
 
-## Phase 14 — Validate, verify, LIVE-RUN, pack  → [tools/README.md](tools/README.md), [26](26-orchestration-and-testing.md), [18](18-existing-schema-to-dynamic-wiring.md)
+## Phase 14 — Validate, verify, pack, HAND OVER  → [tools/README.md](tools/README.md), [26](26-orchestration-and-testing.md), [18](18-existing-schema-to-dynamic-wiring.md)
 
 > This is the WHOLE-PROJECT close-out. It does not replace per-module testing: you should have `validate`d each
-> unit as you built it ([26](26-orchestration-and-testing.md) §4) — this phase is the final offline gate **plus the
-> live run that actually proves it works.**
+> unit as you built it ([26](26-orchestration-and-testing.md) §4) — this phase is the final offline gate **plus
+> the hand-over that lets someone else prove it works.** You do not import and you do not drive the UI; the
+> person who ran you does, with the `test-scenarios.md` this phase produces.
 
 1. `mrjun.py validate --project <dir>` → **0 errors** (warnings about pre-existing platform orphans are ok). It
    also runs the schema-aware dynamic-CRUD checks (CHECK-literal coverage, field-expression coverage incl. list
@@ -1148,52 +1149,58 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    > as a string AND on any rep-object field that is a string where that field is an object/array elsewhere, but it
    > does not deserialize into the DTOs. If you hand-edited `rep-objects.json`, do a **live import smoke-test and
    > read `log/ui.log`** — or edit via `mrjun.py node set-model`/`patch-model`, which keep the mirror correct (object).
-2. If you can reach the DB, `mrjun.py crud verify --db "<conninfo>"` — it runs **every SQL method against real
-   (or seeded-fixture) rows** so CHECK/NOT NULL/FK actually fire (an empty-table smoke test hides them).
+2. `mrjun.py crud verify --db "<conninfo>" --project <dir>` — REQUIRED, not conditional. It runs **every SQL
+   method against real (or seeded-fixture) rows** so CHECK/NOT NULL/FK actually fire (an empty-table smoke test
+   hides them). It needs a `psql` binary and ANY throwaway Postgres, not the platform — so "no DB" means start a
+   container ([26](26-orchestration-and-testing.md) §3a).
 3. Eyeball the [13 §5](13-master-playbook-empty-to-dynamic-project.md) checklist (localization coverage, model
    vs settings, explicit `return`, `id=null`, typos, settings mirror).
 4. `mrjun.py pack <dir> <out.mrjun>`.
-5. ⚠️ **LIVE IMPORT + DRIVE THE UI — the real acceptance (REQUIRED; a green `validate` is not a deliverable).**
-   Import into a REPORT tenant and drive it in order ([26](26-orchestration-and-testing.md) §5, [23](23-distribution-and-known-gaps.md) §2):
+5. ⚠️ **WRITE `test-scenarios.md` BESIDE THE EXPORT — the second deliverable, and the only acceptance that
+   exists.** You cannot drive the UI, so the file has to make someone else's first pass exhaustive rather than a
+   sample. Order it the way [26](26-orchestration-and-testing.md) §5 orders the sweep, and cover at minimum:
    **Home renders its front door** — the charts, not a blank shell — **and its filter bar re-runs them** (pick a
    value; then click a category and watch the rest of the page narrow, [22](22-charts-params-and-filters.md) §4, §5);
    **every workflow's worklist page lists its instances**; **every nav link resolves and shows in the SELECTED language**
-   (switch the locale — the #1 loc bug hides here); **every list page loads** with real column values + Create/Edit
+   (switching the locale is where the #1 loc bug hides); **every list page loads** with real column values + Create/Edit
    buttons; **every form opens with all its fields** and each dropdown is populated (not "No results"/blank);
    create/edit/lifecycle actions save — **re-open the row and read the value back; a success toast is not
    evidence** ([26](26-orchestration-and-testing.md) §5 step 4); **every workflow starts** and its tasks fire; **mail + PDF render branded**;
-   **every AUTOMATIC start opens exactly ONE case** — **Deploy the workflow in the BPMN editor first** (import
-   ships every workflow un-deployed, so a rule-started chain throws `workflow_is_not_deployed` until someone
-   presses it, and no screen says so), then run the action rule by hand and **run it AGAIN on the same data**: a
-   second case for the same subject means the idempotency guard is missing or is not atomic, and this is the only
-   test that exists for it — **and the case it opened is visible in its own worklist**, with populated columns, to
-   a NON-admin, non-author member of the role group the call passed (every rule-started case grants the `admin`
-   and `nct_author` roles unconditionally, so testing as one of those proves nothing; and a case filed under no
-   group is excluded from a group-scoped worklist for everyone, silently)
+   **every AUTOMATIC start opens exactly ONE case** — the scenario must tell the tester to **Deploy the workflow in
+   the BPMN editor first** (import ships every workflow un-deployed, so a rule-started chain throws
+   `workflow_is_not_deployed` until someone presses it, and no screen says so), then run the action rule by hand and
+   **run it AGAIN on the same data**: a second case for the same subject means the idempotency guard is missing or is
+   not atomic, and this is the only test that exists for it — **and the case it opened must be visible in its own
+   worklist**, with populated columns, to a NON-admin, non-author member of the role group the call passed (every
+   rule-started case grants the `admin` and `nct_author` roles unconditionally, so testing as one of those proves
+   nothing; and a case filed under no group is excluded from a group-scoped worklist for everyone, silently)
    ([27](27-event-driven-process-start.md) §8.3);
    and **`log/ui.log` is clean** of Jackson `MismatchedInputException`/`InvalidFormatException` (the scattered,
-   data-shaped import-aborts). Fix → re-pack → re-drive until clean. **If you have no live platform, say so and
-   label the deliverable UNVERIFIED — never imply an un-driven build works.**
-5b. ⚠️ **AFTER the import, run `mrjun.py livediff --db "<platform conninfo>" --tenant <alias>`.** It diffs what
-   the platform actually stored against what you packed. Two real failure classes are invisible everywhere else and
-   emit **no log line**: a symbolic layout anchor regenerated on a cloned page (the platform then builds a fresh
-   EMPTY node under that name, renders it, and your subtree is an unrendered orphan → a BLANK page), and a
-   rep-object that threw mid-`initAllObjects` (everything after it silently skipped while the import still reports
-   DONE). `livediff` diffs the content tree for the first and prints the PACKED rep-object counts in
-   `initAllObjects` order for the second — it cannot read live rep-objects, so compare those counts against the
-   platform yourself; its exit code covers the content-tree checks only. Do this BEFORE you start clicking — it turns "the page is empty"
-   from an hours-long hunt into a one-liner.
-6. Tell the user what changed, which docs/commands you used, the validate/verify result, **and the live-run result
-   (what you drove and observed)** — or that it is UNVERIFIED and why.
+   data-shaped import-aborts). What you CAN do offline for that last class is make it impossible to ship: `validate`
+   ERRORs on a blank mandatory field and on a rep-object field serialized as a string, which is where those aborts
+   come from.
+5b. ⚠️ **`mrjun.py livediff --db "<platform conninfo>" --tenant <alias>` is for the person who imported it, not
+   for you** — put it in `test-scenarios.md` as the FIRST thing to run after the import, before any clicking. It
+   diffs what the platform actually stored against what was packed, and catches two classes that emit **no log
+   line** anywhere: a symbolic layout anchor regenerated on a cloned page (the platform builds a fresh EMPTY node
+   under that name, renders it, and the real subtree becomes an unrendered orphan → a BLANK page), and a
+   rep-object that threw mid-`initAllObjects` (everything after it silently skipped while the import still
+   reports DONE). It diffs the content tree for the first and prints the PACKED rep-object counts in
+   `initAllObjects` order for the second — it cannot read live rep-objects, so those counts have to be compared
+   against the platform by hand; its exit code covers the content-tree checks only. Run first, it turns "the page
+   is empty" from an hours-long hunt into a one-liner.
+6. Tell the user what changed, which docs/commands you used, the result of EACH of the four offline gates, and
+   — in one plain sentence — **that the export has not been imported or run anywhere**, pointing at
+   `test-scenarios.md` for what to click first.
 
 **Done when:** `validate` = 0 errors; **`mrjun.py coverage --plan build-plan/plan.json` PASSES** (every PRD item
-built and marked done — the anti-skip gate, [26](26-orchestration-and-testing.md) §6a); `crud verify` (if DB
-reachable) all green; **every per-locale map (`localizedNames`/`localizedButtonNames`/`localizedStringValue`/nav
+built and marked done — the anti-skip gate, [26](26-orchestration-and-testing.md) §6a); `crud verify --db` all green; **every per-locale map (`localizedNames`/`localizedButtonNames`/`localizedStringValue`/nav
 `localizedMap`/enum `displayName`/validation-message maps) and every entity `localize` jsonb covers all
 `tenant.json.locales` with DISTINCT per-locale values** (no auto-translate on import; single-language ⇒ none of
-these exist — [20](20-localization.md)); **every automatic start was run TWICE live and produced exactly one
-case, which its worklist shows to the people the PRD names** ([27](27-event-driven-process-start.md) §8.3);
-**the LIVE run (step 5) is done and clean** — or the deliverable is explicitly marked UNVERIFIED; packed.
+these exist — [20](20-localization.md)); **every automatic start carries its idempotency guard in the rule body
+and has a run-twice scenario written for the tester** ([27](27-event-driven-process-start.md) §8.3);
+`test-scenarios.md` written beside the export; the independent acceptance re-derivation found nothing missing;
+packed — and the hand-over says plainly that nothing has been imported or run.
 
 ---
 

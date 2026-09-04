@@ -203,6 +203,11 @@ def build_parser():
     sp.add_argument("--force", action="store_true", help="overwrite an existing README.md")
     sp.set_defaults(func=case_cmds.cmd_case_init)
 
+    sp = ca.add_parser("recipes", help="which per-artefact build recipes this project has written")
+    sp.add_argument("--project", default=".", help="unpacked export dir (the case folder is its sibling)")
+    sp.add_argument("--dir", help="explicit case folder (default: <project-dir>-case)")
+    sp.set_defaults(func=case_cmds.cmd_case_recipes)
+
     sp = ca.add_parser("add", help="write one case note (body from --from or stdin)")
     _add_project(sp)
     sp.add_argument("--dir")

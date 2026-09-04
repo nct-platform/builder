@@ -133,3 +133,88 @@ def cmd_case_ls(args):
     for n in names:
         size = os.path.getsize(os.path.join(target, n))
         core.out("  %-40s %6d bytes" % (n, size))
+
+
+# ---------------------------------------------------------------------------
+# case recipes — the build recipes this project must write before it authors
+# ---------------------------------------------------------------------------
+
+# One per artefact family. The names are the SLUG the check looks for inside a filename, so a recipe
+# may be called anything as long as it says what it is: `charts-dashboard-recipe-acme.md` matches
+# "charts-dashboard".
+#
+# The list is deliberately per-ARTEFACT rather than per-doc. A doc teaches the platform; a recipe
+# decides THIS project — which queries, of what shape, in which layout, driven by which filters. The
+# difference is not academic: two builds of the same PRD, both gated green offline, came out one
+# polished and one a stack of unstyled charts, and the only thing that separated their working folders
+# was that the first had written these and the second had not.
+EXPECTED_RECIPES = [
+    ("database", ["database", "schema", "db-and-dump"],
+     "the schema: tables, keys, the dump's shape and its row types"),
+    ("dynamic-crud", ["dynamic-crud", "dynamic_crud", "cruds"],
+     "CRUDs, their methods, the SQL each one runs and its parameters"),
+    ("forms", ["forms", "form-controls"],
+     "the forms: which control per field, and the LAYOUT the fields sit in"),
+    ("tables", ["tables", "crud-table"],
+     "the tables and trees: columns, actions, and the filter bar's layout"),
+    ("pages-navigation", ["pages", "navigation", "nav"],
+     "the page inventory, the nav, and who may see each screen"),
+    ("charts-dashboard", ["charts", "dashboard"],
+     "the dashboard: which number comes from which query, KPI shapes, which filter drives which "
+     "chart, and the CARD/ROW composition"),
+    ("workflow", ["workflow", "process"],
+     "the process: tasks, gateways, who acts, and what starts it"),
+    ("rules", ["rules", "groovy"],
+     "the Groovy: what each rule reads, writes and returns"),
+    ("localization", ["localization", "locale", "loc-"],
+     "the locales, the default one, and every per-locale map that has to be filled"),
+    ("templates", ["templates", "mail", "pdf"],
+     "mail and PDF: which event sends which template, and the branding"),
+]
+
+_RECIPE_DIRS = ("research", "")   # <project>-case/research/ first, then the case root
+
+
+def _recipe_files(case_dir):
+    """Every markdown file the case folder holds, as (relative path, lowercased name)."""
+    out = []
+    for sub in _RECIPE_DIRS:
+        d = os.path.join(case_dir, sub) if sub else case_dir
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if name.lower().endswith(".md"):
+                out.append((os.path.join(sub, name) if sub else name, name.lower()))
+    return out
+
+
+def cmd_case_recipes(args):
+    """Report which per-artefact build recipes this project has written, and which it has not.
+
+    A recipe is not a summary of the library — it is the decision for THIS project, made before the
+    matching build phase runs: the queries and their shapes, the layout the screen is composed in, the
+    filters each chart answers to. Nothing else in the toolkit can check that authoring was thought
+    through; this checks at least that the thinking was written down and can be read back.
+
+    Exits non-zero when one is missing, so a build script can gate on it.
+    """
+    case_dir = _case_dir(args)
+    if not os.path.isdir(case_dir):
+        raise core.ToolError("no case folder at %s — run `mrjun.py case init --project <workdir>` "
+                             "first" % case_dir)
+    files = _recipe_files(case_dir)
+    missing = []
+    core.out("case recipes in %s" % case_dir)
+    for label, slugs, what in EXPECTED_RECIPES:
+        hit = next((rel for rel, low in files if any(sl in low for sl in slugs)), None)
+        if hit:
+            core.out("  ok      %-18s %s" % (label, hit))
+        else:
+            missing.append((label, what))
+            core.out("  MISSING %-18s %s" % (label, what))
+    if missing:
+        core.out("\n%d recipe(s) missing. Write each one BEFORE the phase that needs it — a phase "
+                 "authored without its recipe is where a build quietly comes out shallow." % len(missing))
+        return 1
+    core.out("\nall %d recipes present" % len(EXPECTED_RECIPES))
+    return 0

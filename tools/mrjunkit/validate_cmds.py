@@ -45,6 +45,16 @@ def cmd_validate(args):
     rep = p.rep
     r = Report()
 
+    # A wrong-typed rep-object field aborts the platform's import before anything is applied, and it
+    # also breaks every check below (they all read these shapes). Report it alone and stop.
+    _check_rep_object_field_types(p, r)
+    if r.errors:
+        core.out("\nERRORS (%d):" % len(r.errors))
+        for e in r.errors:
+            core.out("  x %s" % e)
+        core.out("\nFAIL — malformed rep-object; the remaining checks were not run.")
+        return 1
+
     ids = _collect_identifiers(rep)
     context_ids = ids["contexts"]
     query_ids = ids["queries"]
@@ -274,6 +284,14 @@ def cmd_validate(args):
     _check_pdf_template_fonts(p, r)
     # -- a `--` comment in a saved query eats the paging wrapper the platform appends --
     _check_query_line_comments(p, r)
+    _check_platform_required_fields(p, r)
+    _check_query_reference_integrity(p, r)
+    _check_single_slot_map_calls(p, r)
+    _check_autofind_needs_count(p, r)
+    _check_query_placeholder_shape(p, r)
+    _check_chart_js_contract(p, r)
+    _check_filter_form_layout(p, r)
+    _check_dashboard_layout(p, r)
     _check_localized_fields(p, r)
     _check_field_rule_refs(p, r)
     _check_table_fetch_rules(p, r)
@@ -558,17 +576,70 @@ def _check_homepage_and_nav(p, root, r):
     shared_nav = quicklink_cmds._shared_left_nav_node(p)
     if shared_nav is not None:
         nav_nodes.append(shared_nav)
+
+    # Every identifier the export actually carries — content nodes AND the virtual plugins, because a
+    # link may legitimately point into a shared/virtual subtree.
+    known_ids = set()
+    for _n, _pp, _pt in core.iter_nodes(root):
+        if _n.get("identifier"):
+            known_ids.add(_n["identifier"])
+    for _br in p.branches:
+        for _vp in (_br.get("virtualPlugins") or []):
+            _c = _vp.get("content")
+            if isinstance(_c, dict):
+                for _n, _pp, _pt in core.iter_nodes(_c):
+                    if _n.get("identifier"):
+                        known_ids.add(_n["identifier"])
+
     for nav in nav_nodes:
+        # ⛔ Only the node that RENDERS may be judged for broken links. Every per-page
+        # `site.kicker.plugin` carries a `modelGroups` copy that the platform never reads — each page
+        # resolves its nav through the shared virtual plugin instead — so a stale link left in one of
+        # those copies is dead data, not a broken menu. Reading them for REACHABILITY (above) is
+        # generous and harmless; reporting them as dangling is 14 false errors on a baseline whose menu
+        # is perfectly fine.
+        renders = shared_nav is None or nav is shared_nav
         pm = quicklink_cmds._pages_model(quicklink_cmds._read_model_groups(nav))
+        seen_labels = {}
+        target_labels = {}
 
         def _collect(items):
             for it in items:
                 info = quicklink_cmds._link_target(it)
                 if info and info[0]:            # internal link -> target identifier
                     linked.add(info[1])
+                    target = info[1]
+                    label = it.get("name") or (it.get("linkModel") or {}).get("name") or "?"
+                    # A link is rendered as a page lookup BY IDENTIFIER in the active branch. When the
+                    # lookup misses, the URL builder has no page to build from and emits the site root,
+                    # so the item still renders — with its icon and its label — and quietly goes to "/".
+                    # Nothing errors, in the log or on screen; the user just never reaches the screen.
+                    if renders and target and target not in known_ids:
+                        r.err("left-nav link %r points at %s, which is not a node in this export — the "
+                              "URL builder falls back to the site root, so the item renders normally and "
+                              "goes to `/`. Re-point it at the page's identifier "
+                              "(17-left-nav-quick-links.md)." % (label, target))
+                    # Two links with the same label in one tree is the signature of a nav phase that
+                    # APPENDS on a re-run: the stale copy keeps the identifiers of pages that were
+                    # regenerated, so half the menu silently goes to the root.
+                    # Count by TARGET, not by label: a link may carry no display name at all (the
+                    # baseline ships several), and two entries pointing at the same page is the shape
+                    # that matters — an appended stale copy points at the OLD identifier, so the pair
+                    # shows up as one dangling error plus one live link with the same label.
+                    if target:
+                        seen_labels[target] = seen_labels.get(target, 0) + 1
+                        target_labels.setdefault(target, label)
                 _collect(it.get("children") or [])
 
         _collect(pm)
+        root_identifier = root.get("identifier")
+        for target, n in (sorted(seen_labels.items()) if renders else []):
+            # The ROOT page is the one target many links legitimately share — a "Home" entry, the
+            # logo, a group's landing row. Only a repeated BUSINESS page is the stale-copy signature.
+            if n > 1 and target != root_identifier:
+                r.warn("left-nav carries %d links pointing at the same page %s (%r) — a nav phase "
+                       "that appends instead of replacing leaves a stale copy behind. "
+                       "(17-left-nav-quick-links.md)" % (n, target, target_labels.get(target) or "?"))
     for node, _pp, _pt in core.iter_nodes(root):
         if node.get("pluginName") != "siteMapPage":
             continue
@@ -1925,6 +1996,548 @@ def _check_query_line_comments(p, r):
                   "( `) pp OFFSET … FETCH NEXT …` ) on that same line, so the comment eats it and Postgres "
                   "reports `syntax error at end of input`. Use /* … */ or move the comment into the "
                   "generator. (22)" % q.get("name"))
+
+def _check_rep_object_field_types(p, r):
+    """A rep-object field that is a JSON OBJECT/ARRAY on its siblings but a serialized STRING here.
+
+    This is the whole import-abort class in one shape. The platform reads `rep-objects.json` into its
+    DTOs with Jackson; a field typed as an object that arrives as a string is a MismatchedInputException
+    while the file is still being READ, so nothing in the archive is applied — not the sources, not the
+    database dump. The user sees an import that "did nothing", with no object named anywhere.
+
+    It is easy to produce by hand: serialize a nested value once too often (`json.dumps` on something
+    that was already a dict) and the file still looks plausible. The signature is unambiguous, which is
+    why this can be an ERROR rather than a guess — the SAME field on the SAME kind of object is an
+    object/array everywhere else, and the outlier's string parses back into an object/array.
+
+    Runs FIRST, and `cmd_validate` stops on it: every later check reads these shapes, so continuing
+    would bury this error under a traceback from whichever check happened to touch the field."""
+    for coll in core.REP_COLLECTIONS:
+        objs = [o for o in (p.rep.get(coll) or []) if isinstance(o, dict)]
+        if len(objs) < 2:
+            continue
+        structured = set()
+        for o in objs:
+            for field, value in o.items():
+                if isinstance(value, (dict, list)) and value:
+                    structured.add(field)
+        for o in objs:
+            label = o.get("name") or o.get("identifier") or "?"
+            for field in sorted(structured):
+                value = o.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                try:
+                    parsed = json.loads(value)
+                except Exception:
+                    continue  # ordinary text that merely shares a name — not this bug
+                if not isinstance(parsed, (dict, list)):
+                    continue
+                # The settings mirror is the best-known member of this class and has its own
+                # wording in the docs and in the regression test — keep saying it that way.
+                lead = ("settings %r: content is a JSON string" % label
+                        if (coll, field) == ("settings", "content")
+                        else "%s %r: field %r is a JSON string" % (coll.rstrip("s"), label, field))
+                r.err("%s but is a JSON object/array on every other %s in this export. Jackson reads "
+                      "rep-objects.json into the platform DTOs before anything is applied, so this one "
+                      "field aborts the ENTIRE import — no sources, no database restore, no objects, "
+                      "and nothing named in the UI. Store the value itself, not a serialized copy of "
+                      "it. (00-export-format-and-import.md)" % (lead, coll.rstrip("s")))
+
+
+def _check_platform_required_fields(p, r):
+    """Fields the platform's own DTOs declare `@NotBlank` / `@NotNull`. A blank one is not a shape
+    problem this format can see — it is a 400 the moment the archive is imported, and the objects
+    import in a FIXED order (queries, then workflows, rules, contexts, form groups, forms, settings,
+    process groups), so on a platform that stops at the first rejection everything queued behind it is
+    skipped. The project then arrives with a database and nothing else: every screen blank, and the
+    only clue a card that says "imported with warnings".
+
+    The shape that produces it without anyone noticing: a scaffolded CRUD mints a paired query record
+    per method, and `create`/`update`/`delete` are later turned into GROOVY orchestrators. Those three
+    methods carry `queryIdentifier: null`, nothing ever fills their query records, and they ship as
+    `"query": ""`. Nothing else in the build looks at a query body."""
+    required = {
+        "queries": ("query", ("name", "query")),
+        "workflows": ("workflow", ("name",)),
+        "roleGroups": ("role group", ("name", "roles")),
+        "sources": ("source", ("name", "hostName", "port", "dbName", "schemaName",
+                               "userName", "dbType")),
+    }
+    for coll, (singular, fields) in required.items():
+        for obj in p.rep.get(coll, []) or []:
+            if not isinstance(obj, dict):
+                continue
+            label = obj.get("name") or obj.get("identifier") or "?"
+            for field in fields:
+                value = obj.get(field)
+                # @NotNull (a list/map field) is satisfied by an EMPTY collection — only @NotBlank
+                # string fields reject blankness. Treating an empty list as missing would flag a role
+                # group that legitimately grants nothing yet.
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    r.err("%s %r has a blank %r — the platform declares it mandatory, so the import "
+                          "REJECTS this object and everything imported after it may be skipped. Fill it "
+                          "in, or (for a query record left behind when its method became GROOVY) delete "
+                          "the record. (12-queries-sources-schedulers-and-rest.md, "
+                          "11-business-logic-dynamic-crud.md)" % (singular, label, field))
+
+
+def _check_query_reference_integrity(p, r):
+    """A dynamic-CRUD method's `queryIdentifier` must resolve, and a `crud_*` query record should have
+    a method behind it. A dangling identifier is silent — the method simply never runs the SQL the
+    author is looking at in the editor — and an unreferenced `crud_*` record is the leftover of a
+    method that changed type, which is where blank bodies come from."""
+    _, cruds = _dynamic_crud_methods(p)
+    if not cruds:
+        return
+    by_id = {q.get("identifier"): q for q in p.rep.get("queries", []) or [] if isinstance(q, dict)}
+    referenced = set()
+    for c in cruds:
+        for m in c.get("methods", []) or []:
+            qid = m.get("queryIdentifier")
+            if not qid:
+                continue
+            referenced.add(qid)
+            if qid not in by_id:
+                r.err("dynamic CRUD %r method %r points at query %s, which is not in the export — the "
+                      "method has no SQL to run and fails at the first call."
+                      % (c.get("alias"), m.get("methodName"), qid))
+    # Only the LEFTOVER shape is worth a word: the CRUD is still here and still has a method of that
+    # name, but the method no longer runs SQL — so its record is dead weight and, if it was never
+    # filled, the blank body above rejects the whole archive. A record whose alias no longer exists at
+    # all is a fossil of a deleted/renamed CRUD, harmless and none of this check's business.
+    live = {}
+    for c in cruds:
+        for m in c.get("methods", []) or []:
+            live[("crud_%s_%s" % (c.get("alias"), m.get("methodName")))] = m
+    for q in p.rep.get("queries", []) or []:
+        if not isinstance(q, dict):
+            continue
+        name = q.get("name") or ""
+        method = live.get(name)
+        if method is None or q.get("identifier") in referenced:
+            continue
+        if method.get("methodType") == "SQL":
+            # Still a SQL method — the record holds its statement and the pairing is simply not
+            # recorded on the method. Telling the author to delete it would delete working SQL.
+            r.warn("query %r is the paired record of SQL method %r but the method does not reference "
+                   "it (`queryIdentifier` is unset) — the method still runs its own `script`, so the "
+                   "editor and the runtime can drift apart. Point the method at the record."
+                   % (name, method.get("methodName")))
+            continue
+        r.warn("query %r is the paired record of dynamic CRUD method %r, which no longer runs SQL "
+               "(methodType=%s) — nothing will ever fill this record. Delete it before packing: an "
+               "unfilled one is `\"query\": \"\"`, which the import REJECTS. "
+               "(11-business-logic-dynamic-crud.md)"
+               % (name, method.get("methodName"), method.get("methodType")))
+
+
+LOCALIZATION_CANONICAL_KEY = "localize"
+
+
+def _to_camel_case(name):
+    """`snake_case` -> `snakeCase`, the executor's own rule: uppercase the letter after each `_`,
+    leave a name without underscores alone."""
+    if not name or "_" not in name:
+        return name or ""
+    head, *rest = name.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+_MAP_KEY_RE = re.compile(r"[\[,]\s*['\"]?([A-Za-z_]\w*)['\"]?\s*:")
+_SCALAR_PARAM_TYPES = {"boolean", "integer", "int", "long", "short", "double", "float",
+                       "bigdecimal", "biginteger", "uuid", "date", "time", "timestamp",
+                       "localdate", "localtime", "localdatetime", "instant"}
+
+
+def _balanced_call_arg(text, start):
+    """The argument text of a call whose opening paren sits at `start - 1`."""
+    depth, i = 1, start
+    while i < len(text) and depth:
+        if text[i] in "([":
+            depth += 1
+        elif text[i] in ")]":
+            depth -= 1
+        i += 1
+    return text[start:i - 1].strip() if depth == 0 else None
+
+
+def _known_map_keys(arg, body):
+    """Every key the argument map is known to carry, or None when it cannot be read statically."""
+    if arg.startswith("["):
+        return set(_MAP_KEY_RE.findall(arg))
+    if re.fullmatch(r"[A-Za-z_]\w*", arg or ""):
+        m = re.search(r"def\s+%s\s*=\s*\[" % re.escape(arg), body)
+        if not m:
+            return None
+        literal = _balanced_call_arg(body, m.end())
+        if literal is None:
+            return None
+        keys = set(_MAP_KEY_RE.findall("[" + literal + "]"))
+        keys |= set(re.findall(r"%s\[\s*['\"]([A-Za-z_]\w*)['\"]\s*\]\s*=" % re.escape(arg), body))
+        return keys
+    return None
+
+
+# ⛔ NOT _PLACEHOLDER_RE — that name is already taken further down the file for `{{mustache}}`
+# slots, and a second module-level binding silently wins over the first.
+# ⚠️ Deliberately does NOT span a nested brace, so a placeholder carrying a `dropDownPopulation:{…}`
+# map is invisible to the checks below. Widening it was tried and reverted: the keyword scan that
+# stands in for the engine's AST walk then anchors too far back on the platform's own demo charts —
+# which put a placeholder inside a select-list function call — and every project went red on baseline
+# content. A false positive on a shipped template is worse than a gap, so the gap is documented in
+# 22-charts-params-and-filters.md instead: the recommended `dropdown-string` period filter is NOT
+# machine-checked, and has to be eyeballed against the "bare right-hand operand" rule.
+_QUERY_PARAM_RE = re.compile(r"\{\s*name\s*:\s*['\"]?([A-Za-z_]\w*)['\"]?[^{}]*\}")
+_NEUTRALISE_KEYWORDS = re.compile(r"\b(WHERE|AND|OR|HAVING|ON)\b", re.I)
+
+
+def _dangling_placeholder_spans(sql):
+    """Placeholders whose neutralisation would leave a construct OPENED before them dangling.
+
+    The engine's "no value supplied" rewrite walks back to the nearest WHERE/AND/OR/HAVING/ON, blanks
+    every token from there to the placeholder and writes `1=1`. Whatever was written AFTER the
+    placeholder survives. So the failure is precise: if the blanked span OPENS a parenthesis it does
+    not close — `AND (`, `AND ... CAST(`, `AND COALESCE(` — then that paren's closer is still sitting
+    in the tail with nothing to close, and the statement stops parsing.
+
+    Counting the span's open depth (rather than re-balancing the whole rewritten statement) is what
+    makes this safe on a real query: the keyword scan is a token approximation of an AST walk, and on
+    a query with an `AND` inside a `CASE` in the select list it anchors too early. A wrong anchor
+    produces a span with SURPLUS closers, never surplus openers — so it is silently ignored, while the
+    genuine "I wrapped my placeholder" shape still reports.
+    """
+    out = []
+    for m in _QUERY_PARAM_RE.finditer(sql):
+        head = sql[:m.start()]
+        kw = None
+        for k in _NEUTRALISE_KEYWORDS.finditer(head):
+            kw = k
+        span = head[kw.end():] if kw else head
+        depth = span.count("(") - span.count(")")
+        if depth > 0:
+            out.append((m.group(0), span.strip()[:60]))
+    return out
+
+
+def _chart_query_sources(p):
+    """(label, sql) for every query a chart actually runs — the rep-object AND the copy embedded in
+    the chart's own model, which is the one the page executes."""
+    wanted, out = set(), []
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "chart.js.plugin":
+            continue
+        raw = _prop_string_value(node, "Javascript") or _prop_string_value(node, "model") or ""
+        if not raw.strip().startswith("{"):
+            continue
+        try:
+            model = json.loads(raw)
+        except Exception:
+            continue
+        for rep in model.get("replacements") or []:
+            if not isinstance(rep, dict):
+                continue
+            if rep.get("queryIdentifier"):
+                wanted.add(rep["queryIdentifier"])
+            emb = rep.get("query")
+            if isinstance(emb, dict) and emb.get("query"):
+                out.append(("chart %r embedded query %r"
+                            % (node.get("name"), emb.get("name") or "?"), emb["query"]))
+    for q in p.rep.get("queries", []) or []:
+        if isinstance(q, dict) and q.get("identifier") in wanted and q.get("query"):
+            out.append(("query %r" % (q.get("name") or q.get("identifier")), q["query"]))
+    return out
+
+
+_CHART_CANVAS_RE = re.compile(r"this\s*\.\s*\$find\s*\(")
+_CHART_INSTANCE_RE = re.compile(r"this\s*\.\s*chart\s*=")
+
+
+def _check_filter_form_layout(p, r):
+    """A filter bar's fields need a LAYOUT, or they stack down the page one per line.
+
+    The shape the platform expects is in 04-crud-table-plugin.md: inside the form's
+    `nct.parsis.plugin identifier="filter.parsis"` goes an `nct.html.plugin` whose markup is a
+    row of column cells, each holding a `<plugin id="…" name="nct.parsis.plugin">` that the field
+    nodes hang off::
+
+        <div class="row"><div class="col-md-4"><plugin id="first" name="nct.parsis.plugin"></plugin></div>…
+
+    Without it every control is a full-width block: a five-field filter becomes five stacked rows above
+    the table, and the screen reads as unfinished. Nothing else notices — the form is well-formed, the
+    fields bind, the filter works. It is only ugly, and ugly is not something the other gates can see.
+
+    WARN, not ERROR: a single-field filter legitimately needs no grid, and this is a presentation
+    decision the author is allowed to make deliberately."""
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "dynaform.filter.form.plugin":
+            continue
+        anchor_node = next((c for c in node.get("children") or []
+                            if c.get("pluginName") == "nct.parsis.plugin"
+                            and c.get("identifier") == "filter.parsis"), None)
+        if anchor_node is None:
+            continue          # a missing anchor is a different, louder problem
+        fields = [c for c in anchor_node.get("children") or []]
+        if len(fields) < 2:
+            continue          # one control needs no grid
+        if any(c.get("pluginName") in ("nct.html.plugin", "html.plugin") for c in fields):
+            continue
+        r.warn("filter form %r puts its %d controls straight into `filter.parsis` with no layout — "
+               "each renders full width, so the bar is one stacked row per field. Wrap them in an "
+               "`nct.html.plugin` row of `col-*` cells, one `<plugin id=… name=\"nct.parsis.plugin\">` "
+               "per cell (04-crud-table-plugin.md)." % (node.get("name"), len(fields)))
+
+
+def _check_dashboard_layout(p, r):
+    """Charts dropped straight onto a page with no layout read as a wall, not as a dashboard.
+
+    A page carrying several `chart.js.plugin` nodes as direct siblings inside one parsis renders them
+    stacked at full width, edge to edge, with no card, no section heading and no row — which is what a
+    dashboard looks like when nobody laid it out. The composition the platform's own screens use is an
+    `nct.html.plugin` per section, with `main-card` / `card-header` / `card-body` and a `row` of `col-*`
+    cells, each cell a `<plugin name="nct.parsis.plugin">` a chart hangs off
+    (24b-html-composition-and-plugin-tags.md, 22-charts-params-and-filters.md).
+
+    ERROR on the ROOT page, WARN anywhere else. The root is the front door — the first screen anyone
+    opens, and the one a customer judges the whole delivery by; doc 21 spells its shape out. A child
+    page may legitimately be plain, and the shipped baseline has one that is."""
+    root_id = p.root_content.get("identifier")
+    on_root = set()
+    for node in [p.root_content]:
+        for child, _pp, _pt in core.iter_nodes(node):
+            if child.get("pluginName") == "siteMapPage" and child is not p.root_content:
+                continue
+            if child.get("identifier"):
+                on_root.add(id(child))
+
+    def _inside_root_page(target):
+        """True when the node belongs to the ROOT page's own content, not to a child page."""
+        stack = [(p.root_content, True)]
+        while stack:
+            n, own = stack.pop()
+            if n is target:
+                return own
+            for c in n.get("children") or []:
+                stack.append((c, own and not (c.get("pluginName") == "siteMapPage")))
+        return False
+
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") not in ("nct.parsis.plugin", "parsis.plugin"):
+            continue
+        charts = [c for c in node.get("children") or []
+                  if c.get("pluginName") == "chart.js.plugin"]
+        if len(charts) < 3:
+            continue
+        message = ("%d charts hang directly off parsis %r with no layout between them — they render "
+                   "stacked at full width, with no card, heading or row. Compose them the way "
+                   "21-homepage-and-redirect.md §Home-as-dashboard describes: a header "
+                   "`nct.html.plugin`, then grid-row `nct.html.plugin` nodes whose markup is a row of "
+                   "`<div class=\"col-md-N\"><plugin id=… name=\"nct.parsis.plugin\"></plugin></div>` "
+                   "cells, one chart per cell." % (len(charts), node.get("identifier")))
+        if _inside_root_page(node):
+            r.err("THE FRONT DOOR: " + message)
+        else:
+            r.warn(message)
+
+
+def _check_chart_js_contract(p, r):
+    """A Chart.js script must reach its canvas through {@code this.$find('canvas')[0]} and assign the
+    instance to {@code this.chart}.
+
+    Neither is decoration. The chart script is evaluated with `this` bound to the plugin — `$find` is
+    how it is given its own DOM, and there is no `element` (or `document`-wide search) it may rely on.
+    A script that reaches for anything else throws BEFORE `new Chart` is ever called, so the box renders
+    empty — with the replacement queries returning data perfectly well, which is what makes it so hard
+    to place: every offline gate is green, the query editor shows rows, and the dashboard is blank.
+
+    And the redraw path calls `.destroy()` on `this.chart`; an unassigned instance leaks a canvas on
+    every re-render and eventually the chart stops updating.
+
+    ERROR, because a chart that never constructs is indistinguishable from one with no data. Every
+    reference export satisfies both — this is the shape the platform's own templates use.
+    (22-charts-params-and-filters.md)"""
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "chart.js.plugin":
+            continue
+        raw = _prop_string_value(node, "Javascript") or _prop_string_value(node, "model") or ""
+        if not raw.strip().startswith("{"):
+            continue
+        try:
+            js = (json.loads(raw).get("js") or "")
+        except Exception:
+            continue
+        if "new Chart(" not in js:
+            continue          # not a Chart.js chart (Plotly, mermaid, a hand-drawn gauge)
+        label = node.get("name") or node.get("identifier")
+        if not _CHART_CANVAS_RE.search(js):
+            r.err("chart %r does not reach its canvas with `this.$find('canvas')[0]` — the script is "
+                  "evaluated with `this` bound to the plugin and is given no other handle on its own "
+                  "DOM, so it throws before `new Chart` runs and the chart renders EMPTY while its "
+                  "queries return data. (22-charts-params-and-filters.md)" % label)
+        if not _CHART_INSTANCE_RE.search(js):
+            r.err("chart %r never assigns `this.chart` — the redraw path calls `.destroy()` on it, so "
+                  "the instance leaks a canvas on every re-render and the chart stops updating. "
+                  "(22-charts-params-and-filters.md)" % label)
+
+
+def _check_query_placeholder_shape(p, r):
+    """A CHART query's `{name:…}` placeholder must be a BARE right-hand operand — never wrapped.
+
+    A chart runs with its filters EMPTY by default, and an unsupplied placeholder is not bound to
+    null: it is NEUTRALISED. The engine walks back to the nearest WHERE/AND/OR/HAVING/ON, blanks every
+    token from there to the placeholder and writes `1=1` — leaving everything AFTER the placeholder
+    dangling. So a hand-written "empty means all" guard like
+
+        AND ({name:'since'} = '' OR d.dt >= CAST({name:'since'} AS date))
+
+    ships as `AND 1=1 = '' OR 1=1 AS date ) )` on the very first render, and every chart on the page
+    shows an error toast. The authored SQL is valid SQL, which is why nothing else offline sees it.
+
+    Write `<column> <operator> {name: …}` and nothing else — no CAST, no COALESCE, no extra parens, no
+    self-authored guard: an unsupplied placeholder ALREADY means "no filter". A period filter has to
+    be a `dropdown-string` over a lookup query, or be left out (22-charts-params-and-filters.md).
+
+    Scope is deliberately CHART queries only. An autocomplete or picker query is wrapped the same way
+    on purpose and always has a value — the platform's own baseline ships three of them."""
+    for label, sql in _chart_query_sources(p):
+        if not _QUERY_PARAM_RE.search(sql):
+            continue
+        dangling = _dangling_placeholder_spans(sql)
+        if dangling:
+            ph, span = dangling[0]
+            r.err("%s wraps a {name:…} placeholder (in CAST/COALESCE/parentheses). A chart renders with "
+                  "its filters EMPTY, and an empty placeholder is neutralised to `1=1` with everything "
+                  "back to the nearest WHERE/AND/OR blanked — the `(` opened in `%s` loses its opener "
+                  "and the statement stops parsing. Write `<column> <operator> %s` and nothing else. "
+                  "(22-charts-params-and-filters.md)" % (label, span, ph[:40]))
+            continue
+        for m in _QUERY_PARAM_RE.finditer(sql):
+            tail = sql[m.end():m.end() + 4].lstrip()
+            if tail[:2] in ("<=", ">=", "<>", "!=") or tail[:1] in ("=", "<", ">"):
+                r.err("%s puts a {name:…} placeholder on the LEFT of a comparison. Empty, it becomes "
+                      "`1=1 %s…`, which does not parse. The placeholder is only ever the right-hand "
+                      "operand. (22-charts-params-and-filters.md)" % (label, tail[:2].strip()))
+                break
+
+
+def _check_autofind_needs_count(p, r):
+    """An auto-paged `find` (GROOVY, no `ruleIdentifier`) without a sibling `count` makes the pager lie.
+
+    The wrapper calls `findAll`, then `count` for the total — and when there is no `count` method it
+    falls back to `rows.size()`. The total then equals the size of the CURRENT page, so `totalPages`
+    computes to 1 and the table shows one page of results however many rows the table really holds.
+    Nothing errors, and on a small demo data set it even looks right."""
+    _, cruds = _dynamic_crud_methods(p)
+    for c in cruds:
+        names = {m.get("methodName"): m for m in (c.get("methods") or []) if isinstance(m, dict)}
+        find = names.get("find")
+        if not find or find.get("methodType") != "GROOVY":
+            continue
+        if (find.get("ruleIdentifier") or "").strip():
+            continue  # a real hidden rule — it decides its own totals
+        if "findAll" in names and "count" not in names:
+            r.warn("dynamic CRUD %r has an auto-paged 'find' and a 'findAll' but NO 'count' — the wrapper "
+                   "falls back to the page size for totalElements, so the pager reports one page no matter "
+                   "how many rows exist. Add the sibling count method. "
+                   "(11-business-logic-dynamic-crud.md)" % c.get("alias"))
+
+
+def _check_single_slot_map_calls(p, r):
+    """A Map argument must never meet a SQL method whose parameter list is a SINGLE slot the map does
+    not name.
+
+    When a caller passes one Map, the executor unpacks it by parameter name — always with two or more
+    declared parameters, but with EXACTLY ONE only if the map actually mentions that parameter. If it
+    does not, the call falls back to POSITIONAL binding and the whole serialized map is bound into
+    that one slot.
+
+    This is the default shape of `count` on a table with exactly one filter: `count`'s parameter list
+    is `findAll`'s minus the paging keys, and the auto-paged `find` calls `count` with the SAME
+    argument map as `findAll`. A user who has typed nothing into the filter bar therefore sends
+    `{"rowsInPage":20,"pageNumber":0}` and the map never mentions the filter. On a scalar column the
+    request dies — `invalid input syntax for type boolean: "{"rowsInPage":20,…}"`. On a text column
+    nothing errors at all: the comparison runs against that JSON text, matches nothing, and the screen
+    shows an empty list — indistinguishable from "there is no data yet".
+
+    The fix is on the caller side: seed the map with EVERY declared filter key, `null` where the user
+    supplied nothing. A null means "no filter" to the usual `IS NULL OR` guard, so naming the key
+    changes no result and removes the fallback. Seeding inside a conditional does NOT count — a scope
+    block that runs only for non-privileged users leaves the key absent for everyone else."""
+    _, cruds = _dynamic_crud_methods(p)
+    if not cruds:
+        return
+    declared = {}
+    for c in cruds:
+        for m in c.get("methods", []) or []:
+            declared[(c.get("alias"), m.get("methodName"))] = (
+                m.get("methodType"),
+                [(x.get("parameterName"), x.get("parameterType"))
+                 for x in (m.get("parameters") or []) if isinstance(x, dict)])
+
+    sources = []
+    for rule in p.rep.get("rules", []) or []:
+        rr = rule.get("rule")
+        if isinstance(rr, dict):
+            sources.append(("rule %r" % rule.get("name"), rr.get("ruleScriptStr", "") or ""))
+    for c in cruds:
+        for m in c.get("methods", []) or []:
+            if m.get("methodType") == "GROOVY" and m.get("script"):
+                sources.append(("crud %r method %r" % (c.get("alias"), m.get("methodName")),
+                                m.get("script") or ""))
+
+    seen = set()
+    for label, body in sources:
+        for hit in _CRUD_CALL_RE.finditer(body):
+            alias, method = hit.group(1), hit.group(2)
+            arg = _balanced_call_arg(body, hit.end())
+            if not arg:
+                continue
+            keys = _known_map_keys(arg, body)
+            if keys is None:
+                continue
+            # the auto-paged `find` fans out to findAll AND count with the same argument
+            targets = [(alias, "findAll"), (alias, "count")] if method == "find" else [(alias, method)]
+            for target in targets:
+                info = declared.get(target)
+                if not info:
+                    continue
+                mtype, plist = info
+                if mtype != "SQL" or len(plist) != 1:
+                    continue
+                slot, ptype = plist[0]
+                if not slot:
+                    continue
+                # The executor accepts the slot under several spellings: the name itself, its
+                # camelCase form, the ROOT of a `<ref>__id` join path (the caller sends {ref:{id:…}}),
+                # and the canonical localization key. Matching only the literal name reports correct
+                # code as broken.
+                accepted = {slot, _to_camel_case(slot)}
+                if "__" in slot:
+                    accepted.add(slot.split("__", 1)[0])
+                    accepted.add(_to_camel_case(slot.split("__", 1)[0]))
+                accepted.add(LOCALIZATION_CANONICAL_KEY)
+                if accepted & keys:
+                    continue
+                key = (label, target, slot)
+                if key in seen:
+                    continue
+                seen.add(key)
+                scalar = (ptype or "").strip().lower() in _SCALAR_PARAM_TYPES
+                where = ("via the auto-paged find" if method == "find" else "directly")
+                if scalar:
+                    r.err("%s calls service.crud.%s.%s(...) %s with a map that never names its ONLY "
+                          "parameter %r (%s) — the executor binds the whole serialized map into that "
+                          "slot and PostgreSQL answers `invalid input syntax for type %s`. Seed the key "
+                          "in the map literal with null. (11-business-logic-dynamic-crud.md)"
+                          % (label, target[0], target[1], where, slot, ptype,
+                             (ptype or "?").lower()))
+                else:
+                    r.warn("%s calls service.crud.%s.%s(...) %s with a map that never names its ONLY "
+                          "parameter %r (%s) — the executor binds the whole serialized map into that "
+                          "slot. On a text column this does not error: the comparison matches nothing "
+                          "and the screen shows an empty list. Seed the key in the map literal with "
+                          "null. (11-business-logic-dynamic-crud.md)"
+                          % (label, target[0], target[1], where, slot, ptype))
+
 
 def _check_pdf_template_fonts(p, r):
     """A pdfme template may only name a font the RENDERER actually has — and it has exactly one.
@@ -5011,9 +5624,14 @@ def _check_workflow_xml(p, r):
 # Admin/system "management console" pages that ship in the REPORT base. The builder ADDS business pages; it must
 # NEVER delete these. HARD set = present in every REPORT base ever shipped (zero-FP ERROR). SOFT set = shipped
 # by the current `empty` base but not by older ones (WARN — an old base legitimately lacks them).
+# The MANAGEMENT CONSOLE — the pages the platform itself routes to. Removing one breaks a feature.
+# ⛔ `advisory`, `insights`, `ontology`, `pdf` and `reports` were once in this list and are NOT console
+# pages: they were demo screens wired to a sample dataset the platform does not ship, and a project
+# created from a baseline that still carries them starts life with ~20 charts querying tables that do
+# not exist. A baseline is entitled to drop them, so their absence is not an error — and never was.
 _ADMIN_BASE_ALIASES_REQUIRED = {
-    "401", "404", "advisory", "audit-logs", "contexts", "database", "form", "insights", "landing", "ontology",
-    "pdf", "processes", "profile", "queries", "query", "reports", "roles", "rules", "schedulers", "script",
+    "401", "404", "audit-logs", "contexts", "database", "form", "landing",
+    "processes", "profile", "queries", "query", "roles", "rules", "schedulers", "script",
     "sources", "users", "workflow", "workflows",
 }
 _ADMIN_BASE_ALIASES_SOFT = {"settings", "pdf-templates", "mail-templates", "bl", "branches"}

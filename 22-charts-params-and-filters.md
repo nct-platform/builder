@@ -775,6 +775,19 @@ WHERE team_project = {name: 'Project name', type: 'dropdown-string',
 > caught it because the authored SQL is valid SQL; only the SUBSTITUTED form is broken. When you must check a
 > chart query offline, substitute BOTH states by hand (the `1=1` rewrite and a literal value) and parse each.
 >
+> `validate` now performs the first half of that for you: it applies the `1=1` rewrite to every CHART query
+> (the rep-object AND the copy embedded in the chart's model, which is the one the page runs) and ERRORs when
+> the neutralised form stops being balanced, or when a placeholder stands on the LEFT of a comparison. It is
+> scoped to charts on purpose — an autocomplete or picker query is wrapped the same way deliberately and always
+> has a value, and the platform's own baseline ships three of them.
+>
+> ⚠️ **The gap in that gate:** it does not read a placeholder that carries a nested map, which is exactly the
+> `{name:'Year', type:'dropdown-string', dropDownPopulation:{…}}` shape recommended just above. Widening it was
+> tried and reverted — the keyword scan standing in for the engine's AST walk then anchors too far back on
+> queries that put a placeholder inside a select-list function call, and the platform's own demo charts do that,
+> so every project went red on baseline content. Check the dropdown form by eye against the same rule: bare
+> right-hand operand, nothing wrapped around it.
+>
 > ### ⛔ For a filter-bar param, use `dropdown-string`. A scalar `date` param does NOT substitute.
 >
 > `setVal` only renders a **Number** (bare) or a **String** (quoted) — anything else returns null. A date
@@ -1431,7 +1444,8 @@ on the node, and the only thing a click can change is a **param value**.
 Rule of thumb: **cross-filter changes the FILTER, a drill changes the GRAIN.** Offer cross-filter first, and add
 at most one drill per dashboard — to the worklist/detail page ([07](07-workflows-and-tasks.md) "Step 5 — the
 worklist page (NOT optional)"). **Not machine-checkable:** `validate` never resolves a URL you built in JS, and
-never opens a browser (Gotcha 10) — click every drill on the live import.
+never opens a browser (Gotcha 10) — so every drill needs its own numbered scenario in `test-scenarios.md`,
+naming what to click and what should narrow.
 
 ---
 
@@ -2048,6 +2062,68 @@ Full starter list (copy one): Column, Bar (Horizontal), Grouped Bar, Stacked Bar
 Area, Stacked Area, Combo (Bar + Line), Pie, Doughnut, Polar Area, Radar, Scatter, Bubble, Histogram, Sparkline,
 Horizontal Stacked Bar, Time-Series Line, Stepped Line, Waterfall, Diverging Bar, Bullet (KPI vs Target), Range Bar,
 Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line.
+
+
+### 9.3 The full starter catalogue — all 88, by engine
+
+Every card in the gallery, so a starter can be chosen from the docs and looked up by `key` in the
+editor. The `key` is what the gallery stores; the name is what the card shows. Counts per engine:
+**chartjs 29 · plotly 24 · echarts 20 · mermaid 15**.
+
+> ⛔ **Copy a starter; do not invent the JS.** A starter's `js` already carries the right canvas handle
+> for its engine, the `$$('Name', <single-default>, 'Type')` markers in the right places, and the
+> construction order the engine needs. Hand-rolled chart JS is where `element.querySelector` and other
+> handles that do not exist come from — and a chart whose script throws renders an empty box while its
+> queries return data perfectly well.
+
+**chartjs** (29)
+
+| category | starters (`key`) |
+|---|---|
+| Comparison | Column (`column`), Bar (Horizontal) (`bar`), Grouped Bar (`grouped-bar`), Combo (Bar + Line) (`combo`), Polar Area (`polar-area`), Radar (`radar`), Waterfall (`waterfall-chartjs`), Diverging Bar (`diverging-bar`), Multi-Series Radar (`multi-radar`), Stacked Bars + Line (`mixed-stacked-line`) |
+| Distribution | Histogram (`histogram`), Range Bar (`range-bar`) |
+| KPI | Bullet (KPI vs Target) (`bullet-kpi`) |
+| Part-to-whole | Stacked Bar (`stacked-bar`), 100% Stacked Bar (`stacked-bar-100`), Pie (`pie`), Doughnut (`doughnut`), Horizontal Stacked Bar (`horizontal-stacked`), Nested Doughnut (`nested-doughnut`) |
+| Relationship | Scatter (`scatter`), Bubble (`bubble`), Scatter with Trendline (`scatter-trendline`) |
+| Trend | Line (`line`), Multi-line (`multi-line`), Area (`area`), Stacked Area (`stacked-area`), Sparkline (`sparkline`), Time-Series Line (`ts-line`), Stepped Line (`stepped-line`) |
+
+**plotly** (24)
+
+| category | starters (`key`) |
+|---|---|
+| 3D | 3D Scatter (`scatter3d`), 3D Surface (`surface3d`) |
+| Distribution | Box Plot (`box-plot`), Heatmap (`heatmap`), Violin Plot (`violin`), 2D Histogram (`histogram-2d`), Contour Plot (`contour`) |
+| Financial | Candlestick (`candlestick`), OHLC Chart (`ohlc`) |
+| Flow | Sankey Diagram (`sankey`), Waterfall (`waterfall`) |
+| Geo | Choropleth Map (USA) (`choropleth-usa`), Bubble Map (Scatter Geo) (`scatter-geo-bubble`), Wind Rose (`wind-rose`) |
+| KPI | Gauge (`gauge`), KPI Number (`kpi-number`), Bullet Gauge (`bullet-gauge`), KPI Number + Delta + Trend (`kpi-number-delta-trend`) |
+| Part-to-whole | Funnel (`funnel`), Treemap (`treemap`), Sunburst (`sunburst`), Icicle (`icicle`) |
+| Relationship | Parallel Coordinates (`parallel-coordinates`), Parallel Categories (`parallel-categories`) |
+
+**echarts** (20)
+
+| category | starters (`key`) |
+|---|---|
+| Comparison | Bar Chart (`ec-bar`), Horizontal Bar (`ec-horizontal-bar`), Radar Chart (`ec-radar`) |
+| Distribution | Heatmap (`ec-heatmap`), Box Plot (`ec-boxplot`) |
+| Financial | Candlestick (`ec-candlestick`) |
+| Flow | Sankey Diagram (`ec-sankey`), Funnel Chart (`ec-funnel`) |
+| KPI | Gauge (`ec-gauge`) |
+| Part-to-whole | Stacked Bar (`ec-stacked-bar`), Pie Chart (`ec-pie`), Nightingale Rose (`ec-rose`), Treemap (`ec-treemap`), Sunburst (`ec-sunburst`) |
+| Relationship | Scatter Plot (`ec-scatter`), Network Graph (`ec-graph`) |
+| Trend | Line Chart (`ec-line`), Smooth Line (`ec-smooth-line`), Area Chart (`ec-area`), Stacked Area (`ec-stacked-area`) |
+
+**mermaid** (15)
+
+| category | starters (`key`) |
+|---|---|
+| Flow | Flowchart (`mermaid-flowchart`), State Diagram (`mermaid-state`), Git Graph (`mermaid-gitgraph`), Sankey Diagram (`mermaid-sankey`) |
+| Hierarchy | Mindmap (`mermaid-mindmap`) |
+| Journey | User Journey (`mermaid-journey`) |
+| Project | Gantt Chart (`mermaid-gantt`), Timeline (`mermaid-timeline`) |
+| Relationship | Entity Relationship (`mermaid-er`), Requirement Diagram (`mermaid-requirement`) |
+| Sequence | Sequence Diagram (`mermaid-sequence`) |
+| Structure | Class Diagram (`mermaid-class`), Quadrant Chart (`mermaid-quadrant`), Pie Chart (`mermaid-pie`), C4 Context (`mermaid-c4context`) |
 
 ### 9.2 `data` — labels + datasets (this is what you bind to `$$()`)
 

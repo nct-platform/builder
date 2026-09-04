@@ -299,11 +299,15 @@ caused it ([23](23-distribution-and-known-gaps.md) §2). Validate after each uni
 
 ---
 
-## 5. The live-import acceptance loop (the finish line — REQUIRED)
+## 5. The acceptance sweep — what the person who imports it drives, in this order
 
-`validate` never imports; it does not deserialize into the platform DTOs. **The deliverable is proven only by a
-live run** ([23](23-distribution-and-known-gaps.md) §2 is the reference). Import into a **REPORT** tenant, then
-drive it in this order (fail fast on the load-bearing screens):
+`validate` never imports; it does not deserialize into the platform DTOs, and no offline gate opens a page. So
+the deliverable is proven by a live run — **but not by yours.** You do not have a platform and you do not ask
+for one (the contract's Operating Principle 0); the person who ran you owns the project and drives it with the
+`test-scenarios.md` you write. This section is therefore the SPEC for that file: the order below is the order
+its scenarios must appear in, because it fails fast on the load-bearing screens. Anything you cannot prove
+offline belongs here as a numbered scenario, phrased so someone who never read the PRD can execute it and tell
+pass from fail ([23](23-distribution-and-known-gaps.md) §2 is the reference for what goes wrong at each step).
 
 1. **Home / front door** — the bare project URL must render real content: the dashboard's charts are visible
    (not a blank shell, not a redirect to nothing). If Home IS the dashboard, prefer building the charts **into
@@ -325,8 +329,12 @@ drive it in this order (fail fast on the load-bearing screens):
 7. **`log/ui.log`** — scan for the scattered import-aborts (Jackson `MismatchedInputException`/`InvalidFormatException`)
    that show as "No source selected" / empty context / "data gone" rather than a clean error.
 
-Fix → re-pack → re-drive until every screen is clean. **Only then is the project done.** If you have no live
-platform, say so and label the deliverable **UNVERIFIED** — never imply an un-driven build works.
+Every one of the seven is a scenario in `test-scenarios.md`, with its expected result written down. Your own
+finish line is the four offline gates (`validate`, `crud verify --db`, `coverage --plan`, the independent
+acceptance re-derivation) plus this file — and the hand-over must say, in one unambiguous sentence, that the
+export **has not been imported or run anywhere**. A build described as "done" that was never driven reads as
+tested; a build described as "gated offline, not yet driven" sets the reader up to find, in twenty minutes,
+exactly the layout, dropdown and locale faults the file gates structurally cannot see.
 
 ---
 
@@ -506,8 +514,10 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       that makes "nothing skipped" checkable, not hoped.
 - [ ] **Every Phase-1a trigger whose PRODUCT is a CASE ends in `service.workflow.start`** — its three plan rows
       are there (trigger + workflow + start rule, §2 rule 1), the named rule's body really contains the call
-      (`coverage` indexes names, it cannot see the call), and the live run-twice test opened **exactly one** case,
-      visible to a non-admin ([27 §8.3](27-event-driven-process-start.md)). A CASE row whose rule ends in
+      (`coverage` indexes names, it cannot see the call), and the rule carries its idempotency guard — a
+      candidate filter, an atomic claim and a marker column — because nothing offline can run it twice for you.
+      The run-twice test itself ("still exactly ONE case, visible to a non-admin") is scenario material for
+      `test-scenarios.md` ([27 §8.3](27-event-driven-process-start.md)). A CASE row whose rule ends in
       `service.notification.*` is a downgrade, not a build.
 - [ ] Each unit passed T1 (`validate` 0 errors) + T2; the whole project passes `validate`; **`crud verify --db` was
       run** against a throwaway Postgres (§3a — "no DB" is not an excuse) and **every remaining FAIL is triaged** to
@@ -519,13 +529,15 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       action submitted **and its row re-opened showing the new value** (a success toast is not evidence —
       §5 step 4); workflow starts run; mail/PDF render branded; `log/ui.log` clean. Each of these is a
       numbered scenario in `test-scenarios.md`, not something you tick off yourself.
-- [ ] **Every workflow was driven end to end, one case per branch** — start it, and on EVERY user task read the
-      form before pressing the button: a form whose fields are blank is a binding fault, not a data gap. Take
-      each gateway branch at least once (a predicate that is silently false looks exactly like "the flow went
-      that way"). `validate` reports 0 process-context findings for this to be worth doing at all.
+- [ ] **Every workflow has an end-to-end scenario, one case per branch**, written for the tester: start it, and
+      on EVERY user task read the form before pressing the button (a form whose fields are blank is a binding
+      fault, not a data gap), and take each gateway branch at least once (a predicate that is silently false
+      looks exactly like "the flow went that way"). `validate` must report 0 process-context findings before
+      that scenario is worth anyone's time.
 - [ ] An **independent re-check** found nothing missing vs the PRD.
-- [ ] The user report states what was built, what was driven live, and the result — or an explicit **UNVERIFIED**
-      with the reason.
+- [ ] The user report states what was built, the result of each of the four offline gates, and — in one plain
+      sentence — that the export has not been imported or run anywhere, pointing at `test-scenarios.md` for
+      what to click first.
 
 If any box is unchecked, it is **not done** — say what remains rather than implying completion.
 

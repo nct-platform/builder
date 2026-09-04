@@ -162,6 +162,56 @@ flags a known-good project is worse than no check, so those classes are caught b
 > report green — every artifact exists, none of them is wired to its neighbour. The general lesson stands: **the offline gates check that artifacts EXIST and are well-formed; only a live open
 > checks that they are WIRED TO EACH OTHER.**
 
+> **2026-09 addition — the two classes that only an IMPORT and a first click used to find.** Both shipped a
+> green `validate`, and both are now in the net.
+>
+> 1. **`_check_platform_required_fields` + `_check_query_reference_integrity` — an object the platform
+>    REJECTS at import.** The platform's DTOs declare fields mandatory that this format is happy to leave
+>    blank. The one that bites: a scaffolded CRUD mints a paired query record per method, `create`/`update`/
+>    `delete` later become GROOVY orchestrators, nothing ever fills those three records, and they ship as
+>    `"query": ""`. Objects import in a fixed order (queries first), so on a platform that stops at the first
+>    rejection the project arrives with a database and blank screens while the card says only "imported with
+>    warnings". ERROR on the blank mandatory field and on a method pointing at a query that is not in the
+>    export; WARN on the leftover record itself.
+>
+> 2. **`_check_single_slot_map_calls` — a Map argument meeting a single-slot SQL method the map does not
+>    name.** The executor unpacks a one-Map argument by parameter name, but with EXACTLY ONE declared
+>    parameter only if the map mentions it; otherwise it binds positionally and the whole serialized map goes
+>    into that slot. This is the default shape of `count` on a table with exactly one filter — `count` is
+>    `findAll` minus the paging keys, and auto-find calls both with the same map — so an empty filter bar
+>    sends a map that never names the filter. On a scalar column: `invalid input syntax for type boolean:
+>    "{"rowsInPage":20,…}"`. On a text column: no error at all, the comparison matches nothing, and the
+>    screen shows an empty list. ERROR on the scalar shape, WARN on the silent text one.
+>
+> 3. **`_check_query_placeholder_shape` — a chart query that only breaks once a filter is EMPTY.** A chart
+>    renders with its filters empty by default, and an unsupplied `{name:…}` is not bound to null: the engine
+>    neutralises it to `1=1` and blanks every token back to the nearest `WHERE`/`AND`/`OR`, leaving whatever was
+>    written after the placeholder dangling. A hand-written "empty means all" guard —
+>    `AND ({name:'since'} = '' OR d.dt >= CAST({name:'since'} AS date))` — therefore ships as
+>    `AND 1=1 = '' OR 1=1 AS date ) )` on the first render and every chart on the page shows an error toast. The
+>    authored SQL is valid SQL, so no other gate can see it; the check applies the rewrite and ERRORs when the
+>    result stops being balanced. [22](22-charts-params-and-filters.md) had documented the trap in full — the
+>    build simply did the forbidden thing, which is the argument for a gate rather than a paragraph.
+>
+> 4. **`_check_chart_js_contract` — a chart script that never constructs.** The script is evaluated with `this`
+>    bound to the plugin: the canvas is reached with `this.$find('canvas')[0]`, and the instance must be assigned
+>    to `this.chart`, which the redraw path calls `.destroy()` on. A script that reaches for anything else — a
+>    plausible-looking `element.querySelector('canvas')`, say — throws BEFORE `new Chart` runs, so the box renders
+>    empty. This is the nastiest of the four to place: every offline gate is green, the query editor shows rows,
+>    the replacement queries return data, and the dashboard is blank. Both shapes are ERRORs; every reference
+>    export already satisfies them.
+>
+> All four were found by importing a build and opening one screen — which is the point of the general lesson
+> above.
+>
+> ⛔ **And the lesson under the lesson.** Every one of these four was already DOCUMENTED, in this library, in
+> full, before the build that broke it — the bare-operand rule and the `this.$find`/`this.chart` contract are
+> both written out in [22](22-charts-params-and-filters.md) with worked examples. Prose did not stop it. What
+> stops it is a gate that fails the build, which is why the rule at the top of this section — *when you hit a bug
+> the net did not catch, add it to the net* — is not a nicety. A class that can only be caught by a human
+> remembering a paragraph will be shipped again. The lesson they add to it: **a class that only a live run can find today is a candidate for the net
+> tomorrow.** When the live run is not yours to make, the gate has to grow to cover what it would have seen.
+
 Currently NOT caught offline (must be verified by driving the UI):
 - **Semantic correctness of rule *logic*** — a rule that runs but computes the wrong value (validate checks shape,
   not business logic).

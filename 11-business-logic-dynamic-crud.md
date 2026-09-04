@@ -19,6 +19,32 @@ through the **system CRUD `bl`** (see below) — a thin RSocket wrapper over the
 > **🔧 Tooling.** For these entities, run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
 > `source add --dbtype POSTGRESQL ...`, `crud add --alias <a> --source <s> --schema <s> --field n:Type... --scaffold-methods` (creates 7 methods + paired queries `crud_<alias>_<method>`), `crud add-method <a> --type SQL|GROOVY`, `crud list`, `query add`. The full index and rules are in [`tools/README.md`](tools/README.md); before re-importing — `mrjun.py validate`.
 
+> ⛔⛔ **Turning a scaffolded method into GROOVY leaves its paired query behind with an EMPTY body — and the
+> import REJECTS it.** The scaffold creates the methods *and* the query records `crud_<alias>_<method>`; the
+> SQL bodies get filled in afterwards. The moment `create`/`update`/`delete` become GROOVY orchestrators (the
+> normal shape for a header+lines document) those methods carry `queryIdentifier: null`, nothing ever fills
+> their query records, and they ship as `"query": ""`.
+>
+> `QueryDto.query` is `@NotBlank`. Queries import BEFORE workflows, rules, contexts, form groups, forms,
+> settings and process groups — so on a platform that stops at the first rejected object, the project arrives
+> with a database and nothing else: every screen blank, and the only clue a card that says
+> `Imported with warnings`. `validate` now ERRORs on a blank body and WARNs on a leftover paired
+> record; `crud verify` runs the method's own `script` and never opens the query record at all.
+>
+> **Before packing, drop every query whose body is blank — but assert first that no method points at it.**
+> A blank body on a query a method still references is a MISSING SQL body, not an orphan, and deleting the
+> record would hide a real bug instead of fixing one:
+>
+> ```
+> referenced = { m.queryIdentifier  for every method of every crud }
+> blank      = { q  for q in queries  if not q.query.strip() }
+> assert not (blank & referenced)     # a live method with no SQL — fix the method, do not delete
+> queries   -= blank                  # the rest are scaffold leftovers — drop them
+> ```
+>
+> Then confirm the identifiers you dropped survive nowhere else in the export: a chart or an embed keeping a
+> reference to a deleted query is as silent as the empty body was.
+
 > 🧭 **META-RULE — for any non-trivial dynamic-CRUD method SQL (param casts, null-handling, parent filtering,
 > paging), TRANSCRIBE it from a REAL working export, byte-for-byte; do NOT hand-derive it from platform Java
 > source.** A method's SQL runs through `DynamicMethodExecutor`, whose **param binding is not what a raw `psql`
@@ -551,6 +577,53 @@ The Java semantics of auto-find (important when building a CRUD by hand without 
 (`DynamicMethodExecutor.java`) **requires** a sibling `findAll` (throws at if there is none), calls
 `count` with the **same** `jsonParameters` as `findAll`, and if there is no `count` method — falls back
 `totalElements` to `rows.size()`. The resulting shape: `{content, totalElements, totalPages, pageNumber}`.
+
+> ⛔⛔ **A method whose `parameters[]` holds EXACTLY ONE entry must be NAMED by the map that calls it —
+> otherwise the whole map is bound into that single slot.**
+>
+> When a caller passes one Map argument, the executor unpacks it by parameter name. With **two or more**
+> declared parameters it always does. With **exactly one** it unpacks only if the map actually mentions that
+> parameter — by name, by its camelCase form, or as the root of a `<ref>__id` path. If it does not, the call
+> falls back to **positional** binding, and position 0 is the serialized map.
+>
+> This is not an exotic shape. It is the DEFAULT shape of `count` on any table with exactly one filter:
+> `count`'s parameter list is `findAll`'s minus the paging keys, so one filter ⇒ one slot. Auto-find then
+> calls `count` with the same argument map as `findAll` (paragraph above). A user who has typed nothing into
+> the filter bar therefore sends `{"rowsInPage":20,"pageNumber":0}`, that map never mentions the filter, and:
+>
+> * on a scalar column the request dies —
+>   `SQL execution failed: ERROR: invalid input syntax for type boolean: "{"rowsInPage":20,"pageNumber":0}"`;
+> * on a **text** column nothing errors at all. The comparison runs against that JSON text, matches nothing,
+>   and the screen shows an empty list with a `totalElements` of 0. Silent, and indistinguishable from
+>   "there is no data yet".
+>
+> **Fix it on the CALLER side and do it unconditionally** — seed the map with every declared filter key,
+> `null` where the user supplied nothing. A `null` means "no filter" to the usual
+> `(CAST(NULLIF(CAST(:x AS text),'') AS <type>) IS NULL OR col = …)` guard, which is exactly what an absent key
+> was meant to mean, so naming the key changes no result and removes the fallback:
+>
+> ```groovy
+> // every declared filter slot named up front — to the parameter binder, absent ≠ null
+> def filter = ['rowsInPage': attrs?.get('rowsInPage')?.asInt(),
+>               'pageNumber': attrs?.get('pageNumber')?.asInt(),
+>               'status': null, 'department': null]   // ← the declared filters, seeded
+> ```
+>
+> ⚠️ **Seeding inside a conditional does not count.** A row-scope block that only runs for non-privileged
+> users leaves the key absent for everyone else, so the privileged path takes the positional fallback — and
+> on a text scope column returns nothing, silently, to exactly the people allowed to see everything. Seed the
+> key in the literal; narrow it later.
+>
+> An offline gate catches this cheaply: for every `service.crud.<alias>.<method>(<map>)` in every rule, expand
+> `find` to `findAll` + `count`, and fail when the target declares exactly one parameter the map literal never
+> names. Where the argument is a local, read its literal plus any later `name['key'] =` assignment.
+>
+> ⚠️ **What that gate can and cannot reach.** It reads GROOVY callers — rule bodies and GROOVY method
+> scripts — because those are the only call sites an export spells out. The caller named above as the
+> default one, the table plugin sending its own filter map, is NOT a call site in the file: the plugin
+> assembles the map at runtime from its filter controls. So a green gate proves your rules are safe,
+> not that the table is. Seed the key in the map literal AND keep the parameter list of `count` from
+> being a lone scalar — a filter set of two or more is immune by construction.
 
 **Variant B — a real hidden rule (the minority: the handful of CRUDs whose `find` needs logic).** Here the
 user saved `find` as a genuine Groovy rule through the method editor → `ruleIdentifier` = UUID,
