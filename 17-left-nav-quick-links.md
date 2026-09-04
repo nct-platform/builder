@@ -35,13 +35,39 @@ string in the node's property **`modelGroups`**.
 
 > ✅ **After building business pages, ADD THEM to the left-nav** — a page the user can't reach from the nav is
 > effectively invisible. Every `crud.table` / `crud.tree` / `process.table` / dashboard page you create should
-> get a `quicklink add --page <name> --group <Group>`. **Put them in the group the user actually browses** —
-> the shipped default group in the shared node is literally named **`Pages`** (it holds the management-console
-> links); dropping your business pages into a *separate* new group (e.g. "Operations") is technically valid but
-> users look under **`Pages`** and report "I don't see any links to my table pages". Prefer `--group "Pages"`
-> for the primary business pages. Note `quicklink add` only edits **already-populated** left-navs (it skips
-> empty `{}` navs), and it resolves `--page` to the page's current `identifier` — so run it **after** all pages
-> exist (a rebuild that regenerates page identifiers invalidates links added earlier).
+> get a `quicklink add --page <name> --group <Group>`. Note `quicklink add` only edits **already-populated**
+> left-navs (it skips empty `{}` navs), and it resolves `--page` to the page's current `identifier` — so run it
+> **after** all pages exist (a rebuild that regenerates page identifiers invalidates links added earlier).
+
+> ⛔ **`Pages` IS THE AUTHOR'S DRAWER, NOT THE USER'S.** The group the baseline ships under that name holds the
+> management console — Sources, Queries, Rules, Contexts, Database, Business Logic, Users, Roles, Schedulers,
+> Settings, Audit Logs, Mail/PDF templates, Workflows, Processes, Form Groups. Those exist for the integrator
+> who BUILDS the project, not for the clerk who USES it. Putting business pages in there buries them among
+> twenty admin links and tells the end user that this product is a developer console.
+>
+> **So: business pages go in BUSINESS-NAMED groups**, in the words the PRD uses — "Case management",
+> "Procurement", "Regulator and audit", "Stock". Group headings are localized (`--group-loc`, doc 20).
+>
+> ⛔ **And `Home` must be MOVED OUT of `Pages`.** Home is the product's front door — the dashboard, the main
+> worklist, the screen a role lands on at login. It is not an authoring page and it must not sit in the
+> authoring drawer, which is where a build that only ever calls `quicklink add` leaves it. Two commands, and
+> the second one names it in business terms rather than "Home":
+>
+> ```bash
+> mrjun.py quicklink rm  --project ./app --label Home
+> mrjun.py quicklink add --project ./app --page Home --group "<first business group>" \
+>          --label-loc en_US="Cockpit" --label-loc hy_AM="…" --icon pe-7s-graph2
+> ```
+>
+> It goes **FIRST in the FIRST business group** — the top item of the sidebar, above the registers it links to
+> — with a chart/dashboard icon (`pe-7s-graph2`, `pe-7s-display1`, `pe-7s-airplay`), never the generic
+> `pe-7s-angle-right`. Call it what the business calls that screen ("Cockpit", "Command centre", "My work"),
+> not "Home": "Home" is the node's name, not a menu label anyone asked for.
+>
+> While you are there, clear the baseline's own demo links out of `Pages` — it ships `Sourcese` (sic),
+> `Queries` and `Dashboars` (sic), and the last one is DANGLING: it points at a page identifier the baseline
+> no longer has, which is one of the warnings in `initialtemplates/empty-validate.txt`. `quicklink rm --label`
+> matches the label, including the typos, and matches per-locale labels too.
 
 > ✅ **The other half of the mandate is WORKFLOW-driven, not page-driven.** The rule above walks PAGES, so a
 > worklist parked in a tab of an already-linked page satisfies it vacuously — nothing warns, because the
@@ -50,7 +76,8 @@ string in the node's property **`modelGroups`**.
 > ⭐ recipe, Placement). So also walk `rep-objects.json.workflows[]`: **every workflow must have a worklist page
 > that is itself a quick link** ([07](07-workflows-and-tasks.md) §"Step 5 — the worklist page (NOT optional)") —
 > a workflow reachable only from a tab, a row action or the admin Processes console is one users never run. And
-> **the front door page gets a quick link too**, so a user who navigated away can get back to it
+> **the front door page gets a quick link too**, so a user who navigated away can get back to it — as the FIRST
+> item of the FIRST business group, never inside `Pages` (see the ⛔ above)
 > ([21](21-homepage-and-redirect.md) §"Choosing the front door — chart dashboard or main worklist").
 
 Read this doc when you need to **add a quick link (or a whole group) to the left nav directly in the export

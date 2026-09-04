@@ -104,10 +104,9 @@ user **reimports** to get a working application with **dynamic CRUD integration*
   pages, by alias: `401`, `404`, `audit-logs`, `bl`, `contexts`, `database`, `form`, `landing`,
   `mail-templates`, `pdf-templates`, `processes`, `profile`, `queries`, `query`, `roles`, `rules`,
   `schedulers`, `script`, `settings`, `sources`, `users`, `workflow`, `workflows`.
-  ⚠️ The demo pages a previous baseline carried — `Insights`, `Advisory`, `Ontology`, `Branches`, `reports` —
-  are **gone**. Nothing in this library holds them up as a reference: a dashboard's shape is your decision
-  under [21](21-homepage-and-redirect.md) and [22](22-charts-params-and-filters.md), not a copy of a deleted
-  demo page. Plus
+  ⚠️ The platform's old demo pages are **gone** from every bundled archive in this library — the baseline and
+  both ERP references alike. They are not a model for anything: a dashboard's shape is your decision under
+  [21](21-homepage-and-redirect.md) and [22](22-charts-params-and-filters.md) §2B. Plus
   `virtualPlugins[]` — the palette of layout/controls (`1-col`…`4-col Layout`, `Main`, `Form`, `Nct layout`,
   `Nct left nav`, `Card`, `Logo`, `Pdf`, `Form Submit Button`, `Text Label Field`, `Drop Down Label Field`,
   `Date Picher Label Field` (sic), `Auto Complete Label Field`, `File Upload Label Field`, …).

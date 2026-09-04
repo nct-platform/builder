@@ -29,6 +29,12 @@ platform, and where the docs are *necessary but not sufficient*.
   every-value-written-NULL bug [11](11-business-logic-dynamic-crud.md) warns about. Copy node/JSON *shapes* from
   them; do not copy a pattern `validate` rejects, and do not read that FAIL as a tooling bug. **Both** ERP
   exports fail: `dynamic.mrjun` with 27 errors, `initial_erp.mrjun` with 5.
+  ⛔ **The platform's old demo pages have been REMOVED from both** (`insights`, `advisory`, `ontology`,
+  `reports`, and the quick links into them). They were never a reference for anything — least of all a
+  dashboard, whose standard is [22](22-charts-params-and-filters.md) §2B — and leaving a 42-cell uniform grid
+  painted from an index palette inside a "copy the shapes from here" archive taught exactly the wrong lesson.
+  Nothing in this library holds them up as a model; if you meet them in a project you inherited, treat them
+  as content to delete, not to imitate.
   ⚠️ **No bundled export is error-free, including `initialtemplates/empty.mrjun`** — it ships a handful of warnings
   and 1 error (a left-nav link with only one locale, which disappears on a single-locale tenant). Its exact output is
   recorded in [`initialtemplates/empty-validate.txt`](initialtemplates/empty-validate.txt): **diff against that

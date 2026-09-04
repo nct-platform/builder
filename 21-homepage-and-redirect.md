@@ -63,6 +63,13 @@ A value that doesn't resolve is a **dead front door** (404 on the root).
 
 ## Choosing the front door — chart dashboard or main worklist
 
+> ⛔ Two things the front door owes you beyond existing. **(1) It is COMPOSED, not emitted** — a title, a KPI
+> strip, named sections, unequal columns, four distinct chart shapes; the whole standard plus working code is
+> [22](22-charts-params-and-filters.md) §2B, and §2B.1 names the grid-dump failure it exists to prevent.
+> **(2) Its quick link lives in a BUSINESS group, not in `Pages`** — `Pages` is the authoring console, so the
+> baseline's `Home` link must be REMOVED from it and re-added, first, to the first business group, under the
+> name the business uses for that screen ([17](17-left-nav-quick-links.md)).
+
 You pick this yourself, from the case's own data model — there is nobody to ask. Walk the ladder top-down and
 stop at the first rung that fires.
 

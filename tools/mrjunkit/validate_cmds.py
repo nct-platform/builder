@@ -292,6 +292,8 @@ def cmd_validate(args):
     _check_chart_js_contract(p, r)
     _check_filter_form_layout(p, r)
     _check_dashboard_layout(p, r)
+    _check_dashboard_composition(p, r)
+    _check_chart_colour_by_index(p, r)
     _check_localized_fields(p, r)
     _check_field_rule_refs(p, r)
     _check_table_fetch_rules(p, r)
@@ -2385,6 +2387,171 @@ def _check_filter_form_layout(p, r):
                "each renders full width, so the bar is one stacked row per field. Wrap them in an "
                "`nct.html.plugin` row of `col-*` cells, one `<plugin id=… name=\"nct.parsis.plugin\">` "
                "per cell (04-crud-table-plugin.md)." % (node.get("name"), len(fields)))
+
+
+_COL_RE = re.compile(r"\bcol-(?:xs|sm|md|lg|xl|xxl)-(\d{1,2})\b")
+
+
+_CHART_CONSTRUCTORS = ("new Chart(", "Plotly.newPlot(", "Plotly.react(", "echarts.init(",
+                       "mermaid.init(", "mermaid.run(")
+
+
+def _draws_a_chart(js):
+    """⛔ A `chart.js.plugin` node is not necessarily a chart.
+
+    The plugin is also the platform's general-purpose HTML+JS widget, and real projects use it for
+    collapsible panels, banners and other decoration that draws nothing. Counting those toward a
+    dashboard makes every count wrong — and makes the shape census report a page of accordions as
+    "one chart shape". Only a node that actually CONSTRUCTS something is a chart."""
+    return any(c in (js or "") for c in _CHART_CONSTRUCTORS)
+
+
+def _chart_shape(js):
+    """The visual FAMILY of a chart script — what the reader sees, not which library drew it."""
+    t = (js or "")
+    low = t.lower()
+    if "type:'indicator'" in t.replace(" ", "") or '"indicator"' in t:
+        return "gauge" if "gauge" in low else "indicator"
+    m = re.search(r"type\s*:\s*['\"](\w+)['\"]", t)
+    base = (m.group(1).lower() if m else "")
+    if base in ("doughnut", "pie", "polararea", "radar", "scatter", "bubble", "line"):
+        return base
+    if base == "bar":
+        if re.search(r"type\s*:\s*['\"]line['\"]", t[t.find("datasets"):] if "datasets" in t else ""):
+            return "combo"
+        if "stacked:true" in t.replace(" ", ""):
+            return "stacked-bar"
+        if re.search(r"indexAxis\s*:\s*['\"]y['\"]", t):
+            return "hbar"
+        return "bar"
+    if "mermaid" in low:
+        return "diagram"
+    if "plotly" in low:
+        return "plotly-" + (base or "other")
+    return base or "other"
+
+
+_HEX_ARRAY_RE = re.compile(
+    r"(background|border|hover(?:Background|Border))Color\s*:\s*\[\s*"
+    r"((?:['\"]#[0-9A-Fa-f]{3,8}['\"]\s*,\s*){1,}['\"]#[0-9A-Fa-f]{3,8}['\"])\s*,?\s*\]",
+    re.I)
+
+
+def _check_chart_colour_by_index(p, r):
+    """A colour array assigns BY POSITION, so the mapping rides on the query's row order.
+
+    `backgroundColor:['#8b1a2b','#22a7f0','#63bff0',…]` looks deliberate and is not: the third slice is that
+    blue only while the third row is what it was when the author looked. Re-order the SQL, add a category,
+    or — the case that bites hardest — click a cross-filter, which RE-RUNS every query on the board, and the
+    survivors are repainted. The shipped defect doc 22 §6.1 opens with came from exactly this: HIGH landed on
+    dark red while MEDIUM and LOW landed on two blues, so a risk chart no longer read as a risk chart.
+
+    Map from the LABEL instead — `var C={'HIGH':'#e0483a',…}; labels.map(l => C[l] || '#9aa2ad')` — which is
+    stable under any order and makes an unknown value show up as a grey build alarm.
+
+    WARN: a single-series chart whose slice order is genuinely fixed can use an array and be right. It is the
+    one colour failure a file can see at all — the rest of §2B.6 (is the family right for this axis? is the
+    same measure the same colour across the board?) needs eyes. (22-charts-params-and-filters.md §6.1, §2B.6)"""
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "chart.js.plugin":
+            continue
+        raw = _prop_string_value(node, "Javascript") or _prop_string_value(node, "model") or ""
+        if not raw.strip().startswith("{"):
+            continue
+        try:
+            js = json.loads(raw).get("js") or ""
+        except Exception:
+            continue
+        if not _draws_a_chart(js):
+            continue
+        m = _HEX_ARRAY_RE.search(js)
+        if not m:
+            continue
+        n_colours = m.group(2).count("#")
+        if n_colours < 3:
+            continue          # two fixed series (e.g. a stacked pair) is a deliberate, stable choice
+        r.warn("chart %r paints %d colours from an INDEX array (%sColor:[…]) — the mapping rides on the "
+               "query's row order, so adding a category or clicking a cross-filter repaints the survivors. "
+               "Map by label: `var C={'<VALUE>':'#..',…}; labels.map(function(l){return C[l]||'#9aa2ad';})`. "
+               "(22-charts-params-and-filters.md §6.1)"
+               % (node.get("name") or node.get("identifier"), n_colours, m.group(1)))
+
+
+def _check_dashboard_composition(p, r):
+    """A dashboard is COMPOSED. A GRID DUMP passes every other gate and is still a defect.
+
+    Judged PER PAGE, because a dashboard is a page — a project's chart count summed over three screens says
+    nothing about any of them. For each page carrying enough charts to be a board, three things a file CAN
+    see: no big-number tile anywhere on it, one chart shape answering every question, and a grid whose every
+    cell is the same width. Those are the three that separated the two builds doc 22 §2B compares. The rest
+    of that page — its title, its humanised labels, its integer ticks — is visible only on screen, which is
+    why §2B.6 ends with "would you put this screenshot in a proposal?".
+
+    WARN throughout: a deliberately austere board is a defence, and a file cannot hear it.
+    (22-charts-params-and-filters.md §2B)"""
+
+    def pages(node, page=None):
+        if node.get("pluginName") == "siteMapPage":
+            page = node
+        yield node, page
+        for c in node.get("children") or []:
+            yield from pages(c, page)
+
+    charts_by_page, widths_by_page = {}, {}
+    for node, page in pages(p.root_content):
+        if page is None:
+            continue
+        key = id(page)
+        if node.get("pluginName") == "chart.js.plugin":
+            raw = _prop_string_value(node, "Javascript") or _prop_string_value(node, "model") or ""
+            if not raw.strip().startswith("{"):
+                continue
+            try:
+                js = json.loads(raw).get("js") or ""
+            except Exception:
+                continue
+            if not _draws_a_chart(js):
+                continue          # a decoration node, not a chart — see _draws_a_chart
+            charts_by_page.setdefault(key, (page, []))[1].append((node, js))
+        elif node.get("pluginName") in ("nct.html.plugin", "html.plugin"):
+            html = _prop_string_value(node, "html") or _prop_string_value(node, "Html") or ""
+            if "nct.parsis.plugin" in html:
+                widths_by_page.setdefault(key, []).extend(
+                    w for w in _COL_RE.findall(html) if w != "12")
+
+    for key, (page, charts) in charts_by_page.items():
+        if len(charts) < 4:
+            continue                 # not a board; nothing to compose
+        label = page.get("alias") or page.get("name") or "?"
+
+        shapes, has_number = set(), False
+        for _n, js in charts:
+            shape = _chart_shape(js)
+            shapes.add(shape)
+            if shape in ("indicator", "gauge"):
+                has_number = True
+
+        if shapes and len(shapes) < 3:
+            r.warn("page %r: %d charts, %d chart shape(s) (%s) — one shape answering every question reads as "
+                   "a report dump, not a board. Doc 22 §2B.6 asks for at least four: an indicator or gauge, a "
+                   "doughnut, a ranked horizontal bar, and a combo or stacked bar."
+                   % (label, len(charts), len(shapes), ", ".join(sorted(shapes))))
+
+        if not has_number:
+            r.warn("page %r has %d charts and no KPI tile — no big number, no gauge. The figures the audience "
+                   "came for are buried inside charts. Open with a strip of 3-5 `indicator` tiles, at least "
+                   "one of them a gauge (22-charts-params-and-filters.md §2B.4a/b)." % (label, len(charts)))
+
+        # ⛔ Judged over the whole PAGE, never row by row. An even row is fine and common — a KPI strip IS
+        # 4x col-3 and a three-chart section IS 3x col-4. What no laid-out board has is ONE width used
+        # everywhere: that is the loop's signature, and on the build this was written from it was col-6
+        # from the top of the page to the bottom.
+        cells = widths_by_page.get(key) or []
+        if len(cells) >= 4 and len(set(cells)) == 1:
+            r.warn("page %r: every laid-out cell is the same width (col-*-%s, %d cells) — one column width "
+                   "for a whole board is what a loop produces, not a layout. Width follows the chart's "
+                   "shape: a time series earns col-xl-8, the ranked bar beside it col-xl-4, a KPI tile "
+                   "col-xl-3 (22-charts-params-and-filters.md §2B.2)." % (label, cells[0], len(cells)))
 
 
 def _check_dashboard_layout(p, r):

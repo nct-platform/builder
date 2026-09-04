@@ -1118,7 +1118,8 @@ python3 tools/mrjun.py node add   --parent "<Process> queue" --plugin dynaform.f
 #   ^ then hand-author its filter.parsis subtree + filterKeys ([05] Part 2) — one command cannot build it
 python3 tools/mrjun.py node add   --parent "<Process> queue" --plugin process.table.pluin --name "Process Table" --project ./app
 python3 tools/mrjun.py node set-model <node-identifier> --json @worklist-model.json --project ./app   # ← also syncs settings[]
-python3 tools/mrjun.py quicklink add --page "<Process> queue" --group "Pages" --label "<Process> queue" --project ./app
+# ⛔ a BUSINESS group, never "Pages" — that one is the authoring console (doc 17)
+python3 tools/mrjun.py quicklink add --page "<Process> queue" --group "<business group>" --label "<Process> queue" --project ./app
 ```
 
 **A worklist nested as a secondary TAB does not count.** Two independent reasons:

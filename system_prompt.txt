@@ -775,6 +775,34 @@ NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you 
   ⚠️ `validate` sees only TWO of the three: the dashboard (ERROR on the front door — which it resolves through
   Home's `Redirect` — WARN elsewhere) and the filter bar (WARN). A DATA-ENTRY FORM'S LAYOUT IS NOT MACHINE-
   CHECKED — it is on you, and a green run says nothing about it.
+- ⛔ A DASHBOARD IS COMPOSED, NOT EMITTED. The commonest failure is not a wrong chart — it is a GRID DUMP: six
+  identical cards in a rigid 2-column grid, no title, no KPI strip, no section headings, every chart a plain
+  vertical bar, `0.5 / 1.5` ticks on a count and `UNDER_INVESTIGATION` printed at a business audience. It
+  passes every gate and it is a DEFECT. The shape that works, in full, with working code for the four
+  recipes a grid dump never reaches: 22-charts-params-and-filters.md **§2B**. The floor:
+    · a page TITLE plus one sentence saying what the board shows and that it filters on click;
+    · a KPI STRIP first — 3-5 tiles, at least one gauge or rate, big type (Plotly `indicator`, §2B.4a/b);
+    · SECTIONS with a heading and an icon, ONE card per section holding several charts — never one card per chart;
+    · rows that DIFFER in chart count (4 / 3 / 2 / 3, not 2 / 2 / 2 / 2) and columns that are UNEQUAL inside a
+      row (`col-xl-8` + `col-xl-4`), width chosen by the chart's shape (§2B.2);
+    · AT LEAST FOUR distinct chart shapes on the board — indicator, doughnut, horizontal bar, combo dual-axis,
+      stacked. Six vertical bars is one shape used six times;
+    · theme-aware colours (`getComputedStyle(host).color`), `precision:0` on counts, a bn/mn/k formatter on
+      amounts, humanised enum labels, click affordance.
+- ⛔ EVERY CHART MAKES A COLOUR DECISION — colour is data, not decoration. Ask what the AXIS is, THEN pick the
+  family: ordered-with-a-verdict (severity, RAG, SLA) -> traffic light mapped BY LABEL; identity (branch,
+  channel, type) -> a qualitative palette, one hue per value; ordered magnitude with no verdict -> one hue,
+  lightness stepped; signed around a real zero -> diverging with a NEUTRAL middle. Painting a nominal axis in
+  red/amber/green invents a verdict; painting a risk axis in two blues is a defect that has shipped.
+  ⛔ Never leave it to the library's default palette, and never use an INDEX array
+  (`backgroundColor:['#..','#..']`) — that binds colour to row ORDER, so a cross-filter board repaints its
+  survivors on every click. Map by label. ⛔ Same measure = same colour in EVERY cell of the board and on the
+  drill target; loss is red everywhere or the page reads as unrelated pictures. And keep it BEAUTIFUL: ~4-6
+  hues per board, one accent spent on the number that matters, a single-series ranked bar in ONE colour,
+  transparent chart backgrounds. Decision table + the aesthetic rules: doc 22 §2B.6; palettes, verified hexes,
+  contrast and colour-blind separations: §6.1.
+  Run §2B.6's nine questions against your own screen before calling a dashboard done. Answer 9 is the real
+  gate: would you put this screenshot in a proposal?
 - ⛔ HOME MUST RENDER REAL CONTENT (charts), not a blank shell. If the PRD has a dashboard, either build the
   `chart.js.plugin` grid **into Home's own parsis** (preferred — no redirect that can land on nothing) or redirect
   Home to a dashboard page. A grid of empty `nct.html.plugin`

@@ -732,6 +732,263 @@ its axis. Both passes end the same way — what changed goes into the case note,
 
 ---
 
+## 2B. DASHBOARD CRAFT — the layout IS the deliverable
+
+Charts are the easy half. The half that decides whether the screen reads as a product or as a report dump is
+the **composition**: how the page is broken into sections, how wide each chart is, and whether the numbers a
+director needs are readable in two seconds without scrolling.
+
+This section exists because two builds of the SAME brief came out at opposite ends of that scale. Both had
+correct SQL, both passed every gate, and only one of them would survive a demo. What separated them was not
+effort — it was that the second one never made a single layout decision.
+
+### 2B.1 The failure mode, named: THE GRID DUMP
+
+Symptoms, all visible in one screenshot and none visible to `validate`:
+
+| what the screen shows | what it means |
+|---|---|
+| A rigid **2-column grid**, every card identical width, identical height | nobody chose a layout; the charts were emitted in a loop |
+| No page title, no one-line explanation | the reader has to infer what board they are on and that it is clickable |
+| **No KPI strip** — no big numbers, no gauges | the three figures the audience actually came for are hidden inside charts |
+| No sections, no headings, no icons — six anonymous cards in a column | the page has no argument; it is an inventory of queries |
+| Nearly every chart is a **plain vertical bar** | one chart type used for six different questions |
+| Y axis reads `0.5 / 1.5 / 2.5` on a **count** | fractional cases. Nothing is more instantly unserious |
+| Category labels read `UNDER_INVESTIGATION`, `PENDING_DECISION` | raw enum keys shipped to a business audience |
+| A chart with **one visible bar** | either the wrong chart for that question or demo data too thin to show it (§2.6) |
+
+⛔ **A grid dump is a DEFECT, not a style.** Rebuild it. Every item above is fixable in the JS and the wrapper
+HTML you are already writing; none of them costs a new query.
+
+### 2B.2 The shape that works: a NARRATIVE of sections
+
+A good board is read top to bottom as an argument, and each band answers one question:
+
+```
+  <title>            one h4 + one muted sentence that says what the board shows AND that it is clickable
+  <filter bar>       global.replacement.plugin, its own card
+  <KPI strip>        ONE row, 3-5 tiles: the numbers the audience came for. Big type. Gauges for rates.
+  <section 1>        "WHERE THE LOSSES ARE"     — a card with a heading + icon, 3 charts of UNEQUAL width
+  <section 2>        "THE MONEY STORY"          — a card with a heading + icon, 2 charts, 8/4 split
+  <section 3>        "OPERATIONS"               — a card with a heading + icon, 3 charts
+```
+
+Three rules follow from that shape, and they are the ones a grid dump breaks:
+
+1. **ONE CARD PER SECTION, not one card per chart.** A card is a band of the argument; the charts inside it
+   share a heading and read together. A page of N identical single-chart cards has no argument at all.
+2. **ROWS DIFFER IN COUNT AND IN WIDTH.** Across the page, use 4 tiles / 3 charts / 2 charts / 3 charts —
+   not 2, 2, 2, 2. And *inside* a row the columns are unequal: a time series earns `col-xl-8`, the ranked bar
+   beside it takes `col-xl-4`. Equal columns everywhere is the signature of the loop.
+3. **WIDTH FOLLOWS THE CHART'S SHAPE**, never the grid's convenience:
+
+   | chart | width | why |
+   |---|---|---|
+   | KPI number / gauge | `col-md-6 col-xl-3` | it is one figure; four fit on a row |
+   | doughnut / pie | `col-md-6 col-xl-4` | it is square — extra width becomes empty background |
+   | ranked horizontal bar (`indexAxis:'y'`) | `col-md-6 col-xl-4` … `col-xl-5` | needs height per row, not width |
+   | time series / combo | `col-md-12 col-xl-7` … `col-xl-8` | the x axis is the whole point; starving it is what makes months illegible |
+   | a wide table-like bar with long labels | `col-xl-12` | give it the row |
+
+### 2B.3 The grid skeleton (copy this)
+
+A section is an `nct.html.plugin` whose markup is the card, with one `<plugin id=… name="nct.parsis.plugin">`
+per cell and a `nct.label.plugin` for the heading (a label node, so the heading is localizable — doc 20):
+
+```html
+<div class="main-card mb-3 card">
+  <div class="card-header">
+    <i class="header-icon lnr-chart-bars icon-gradient bg-plum-plate"></i>
+    <plugin id="sec_dims_hdr" name="nct.label.plugin"></plugin>
+  </div>
+  <div class="card-body">
+    <div class="row gy-3">
+      <div class="col-md-6 col-xl-4"><plugin id="cell_severity" name="nct.parsis.plugin"></plugin></div>
+      <div class="col-md-6 col-xl-4"><plugin id="cell_branch"   name="nct.parsis.plugin"></plugin></div>
+      <div class="col-md-6 col-xl-4"><plugin id="cell_channel"  name="nct.parsis.plugin"></plugin></div>
+    </div>
+  </div>
+</div>
+```
+
+The KPI strip is the same card with no header and `col-md-6 col-xl-3` cells. The money row is the same card
+with `col-md-6 col-xl-8` + `col-md-6 col-xl-4`. Header icons come from the bundled Linearicons set —
+`lnr-chart-bars`, `lnr-diamond`, `lnr-sync`, `lnr-users`, `lnr-alarm`, `lnr-briefcase` — with
+`icon-gradient bg-plum-plate` for the tint (24b for the full HTML/plugin-tag grammar).
+
+⛔ `col-md-*` AND `col-xl-*` together, always. `col-xl` alone collapses to full width on a laptop; `col-md`
+alone never uses a wide screen. The pairs above are the tested ones.
+
+### 2B.4 Recipes the grid dump never reaches
+
+Four shapes carry most of the difference. All four are working code — copy and rebind.
+
+**(a) KPI number tile** — Plotly `indicator`. One figure, big, coloured, no axes.
+
+```js
+var el=this.$find('.plot')[0];var fg=getComputedStyle(el).color;
+var v=$$('Value',[0],'Double[]')[0];
+var data=[{type:'indicator',mode:'number',value:v,
+  number:{font:{color:'#22a7f0'},valueformat:','},
+  title:{text:"Open cases",font:{size:11,color:fg}}}];
+var layout={autosize:true,margin:{t:26,b:12,l:24,r:24},
+  paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',font:{color:fg}};
+Plotly.newPlot(el,data,layout,{displayModeBar:false,responsive:true});
+if(window.ResizeObserver){new ResizeObserver(function(){Plotly.Plots.resize(el);}).observe(el);}
+```
+html: `<div class="plot" style="position:relative;height:140px;"></div>` (no `<canvas>` — Plotly owns the div).
+
+**(b) Gauge with target bands** — the same `indicator`, `mode:'gauge+number'`. `steps` paint the
+red/amber/green bands, `threshold` draws the target line. This is how a RATE reads at a glance.
+
+```js
+gauge:{axis:{range:[0,20],tickwidth:1,tickfont:{size:10}},
+  bar:{color:'#47CC29',thickness:0.7},borderwidth:0,
+  steps:[{range:[0,8],color:'rgba(224,72,58,.18)'},
+         {range:[8,15],color:'rgba(242,187,48,.18)'},
+         {range:[15,20],color:'rgba(71,204,41,.18)'}],
+  threshold:{line:{color:'#8b1a2b',width:3},thickness:0.9,value:15}}
+```
+
+**(c) Combo, dual axis** — bars for the amounts, a LINE for the percentage on a right-hand axis. One chart
+that answers "how much" and "how well" together, which two separate charts never do.
+
+```js
+datasets:[
+ {label:"Gross loss",data:$$('Gross',[0],'Double[]'),backgroundColor:'#e0483a',yAxisID:'y',order:2},
+ {label:"Recovered", data:$$('Recovered',[0],'Double[]'),backgroundColor:'#47CC29',yAxisID:'y',order:2},
+ {label:"Recovery %",data:$$('Pct',[0],'Double[]'),type:'line',borderColor:'#22a7f0',
+  borderWidth:2,tension:0.3,pointRadius:2,yAxisID:'y1',order:1}],
+…
+scales:{ y:{beginAtZero:true,position:'left'},
+         y1:{beginAtZero:true,position:'right',max:100,grid:{drawOnChartArea:false},
+             ticks:{callback:function(v){return v+'%';}}} },
+interaction:{mode:'index',intersect:false}
+```
+`order:1` on the line keeps it drawn ON TOP of the bars; `drawOnChartArea:false` stops the second axis
+double-printing gridlines.
+
+**(d) Stacked horizontal bar** — "of these, how many were severe?" in one row per category.
+
+```js
+options:{indexAxis:'y', scales:{x:{stacked:true,beginAtZero:true,ticks:{precision:0}},
+                                y:{stacked:true,grid:{display:false}}}}
+```
+
+### 2B.5 The polish checklist — every chart, every time
+
+None of these costs a query. All of them are visible in a screenshot.
+
+- **Theme-aware text.** Never hard-code a label colour: `var fg=getComputedStyle(host).color;` and feed `fg`
+  into every `ticks.color`, `title.color` and `legend.labels.color`. Grid lines `rgba(128,128,128,.18)` read
+  on all five skins. A chart with black axis text is invisible on the dark theme.
+- **Integer ticks on a COUNT.** `ticks:{precision:0}` — otherwise Chart.js prints `0.5 / 1.5 / 2.5` cases.
+- **Money formatter on an AMOUNT.** A raw `1250000000` is unreadable:
+  ```js
+  ticks:{callback:function(v){var a=Math.abs(v);
+    if(a>=1e9)return (v/1e9).toFixed(a>=1e10?0:1)+' bn';
+    if(a>=1e6)return (v/1e6).toFixed(a>=1e7?0:1)+' mn';
+    if(a>=1e3)return Math.round(v/1e3)+' k';return v;}}
+  ```
+- **Humanise enum labels.** `UNDER_INVESTIGATION` → `Under investigation`. Do it in the tick callback (or the
+  legend's `generateLabels`), never by changing the value the click-filter sends:
+  `String(this.getLabelForValue(v)).replace(/_/g,' ').toLowerCase().replace(/^./,c=>c.toUpperCase())`
+- **Wrap long category labels** to at most two lines so they stop eating the plot area — split on spaces at
+  ~16 characters and `return` an array of lines from the tick callback.
+- **Semantic colour, consistent across the whole board.** Map the value, do not let the palette cycle:
+  `{"CRITICAL":"#8b1a2b","HIGH":"#e0483a","MEDIUM":"#F2BB30","LOW":"#47CC29"}[label] || '#22a7f0'`.
+  Red = loss/bad, green = recovered/good, amber = middle, blue = neutral volume. The same status must be the
+  same colour in every chart on the page.
+- **Legend at the bottom**, `boxWidth:10`, coloured `fg`. A right-hand legend steals width from the plot.
+- **Title inside the chart**, `align:'start'` — so the chart names itself even when the card header does not.
+- **Click affordance.** With `crossFilter` wired (§5), also set the cursor and a tooltip so the reader
+  discovers it: `onHover` → `e.native.target.style.cursor = els.length ? 'pointer' : 'default'`, and
+  `this.$find('canvas')[0].title='Click to filter'`.
+- **Doughnut, not pie**, `cutout:'58%'` — the hole is where a total can live and it reads less like 1998.
+- **A second measure in the tooltip.** `tooltip:{callbacks:{afterLabel:…}}` costs one more column in the same
+  query and turns a count chart into two facts.
+
+### 2B.6 COLOUR IS A DECISION, TAKEN BEFORE YOU TYPE A HEX
+
+Two builds of the same brief differ more in colour than in anything else, and colour fails in two independent
+ways: it can be **meaningless** (the reader cannot tell bad from good) and it can be **ugly** (the reader can,
+but does not want to look). Both are defects. Neither is caught by a gate.
+
+**§6.1 is the reference** — the four palette families, the verified hexes, the measured contrast and
+colour-blind separations, the one-entity-one-colour rule. Read it before authoring any chart. What follows is
+the part that belongs to the BOARD rather than to a chart: how to decide, and how to keep a page of eight
+charts looking composed rather than assembled.
+
+#### The decision, in four questions
+
+Ask them of the AXIS, before writing a single `backgroundColor`. The answer picks the family; §6.1 supplies
+the hexes.
+
+| what is the axis? | example | family | ⛔ never |
+|---|---|---|---|
+| ordered with a **verdict** | severity, RAG, SLA, pass/fail, overdue | **traffic light** — green → amber → red → dark red, mapped BY LABEL | a rotating palette. Two blues for LOW and MEDIUM is a real shipped defect (§6.1) |
+| **identity**, no order | branch, channel, department, type | **qualitative** — one distinct hue per value, §6.1's 8-slot order | traffic light. "By document type" in green/amber/red invents a verdict the data does not have |
+| ordered **magnitude**, no verdict | age tier, size bucket, funnel stage | **sequential** — one hue, lightness stepped, dark = more | a rainbow. Hue jumps destroy the ordering the ramp exists to show |
+| signed around a **real zero** | variance vs target, delta vs last period | **diverging** — two hues, NEUTRAL middle | a hue in the middle, or using it where there is no zero |
+
+⛔ And the fifth question, which decides more than the other four: **is this measure the same measure as on the
+chart beside it?** If yes it takes the same colour there. A dashboard is read by following one thing across
+cells; loss must be red in every chart on the page, recovered green in every chart on the page.
+
+#### The aesthetic half — restraint is what makes it look designed
+
+Correct colour that is still ugly is still a rejected screen. Six rules, all visible in a screenshot:
+
+1. **Few hues per board, not per chart.** A composed page uses roughly 4-6 hues in total and repeats them with
+   intent. A page where every chart introduces its own new colours reads as eight unrelated pictures — which is
+   precisely what happens when each chart is authored in isolation and the palette is left to cycle.
+2. **One accent, and spend it on the point.** Pick the single colour that means "this is the number that
+   matters" (usually the primary measure) and let everything else recede to neutrals and muted tones. A chart
+   where all eight bars shout has no focus; a chart where one bar is `#e0483a` and the rest are `#9aa2ad` has
+   an argument.
+3. **A magnitude bar does not need eight colours.** A ranked "top N by value" is ONE series: paint it one
+   colour and let the axis labels identify the rows (§6.1 says the same — a flat tone is right exactly here).
+   Multi-colouring a single-series bar is the most common way a board turns into a fruit salad.
+4. **Fills are solid; opacity is for area, not for a second series.** `rgba(…,.5)` under a line is right.
+   Faking a second category by lightening the first is not — it collapses on the four dark skins and cannot be
+   told from the first at a glance.
+5. **Match the weight to the mark.** A fill can be mid-toned; a 1px line or a small point needs more contrast
+   than a fill does (§6.1 measures this: `#4e79a7` is 2.8:1 on a dark card — fine filled, thin as a line, so
+   raise `borderWidth` to 2-3 rather than swapping the colour).
+6. **Backgrounds stay out of it.** `paper_bgcolor:'rgba(0,0,0,0)'`, no card fill from the chart, gridlines at
+   `rgba(128,128,128,.18)`. Every colour the reader sees should be DATA. A chart that paints its own background
+   is the one that turns into a white rectangle on four of the five skins (§6).
+
+#### The two failures that ship most often
+
+- **The default palette.** Writing no `backgroundColor` at all and letting Chart.js cycle its own colours.
+  It is fast, it is never semantic, and it changes when the data reorders. If a chart has no explicit colour
+  decision in its `js`, that decision has not been made.
+- **The index array.** `backgroundColor:['#8b1a2b','#22a7f0','#63bff0',…]` assigns by POSITION, so the mapping
+  rides on the query's row order — and a cross-filter dashboard re-runs its queries on every click, repainting
+  the survivors each time (§6.1). Map by label, always. `validate` warns on a hex array in a chart's `js` for
+  exactly this reason.
+
+### 2B.7 The bar to clear before you call a dashboard done
+
+Answer these against your own screen; each maps to a row of §2B.1:
+
+1. Does the page open with a **title and one sentence** telling the reader what this is and that it filters?
+2. Is there a **KPI strip** — at least three tiles, at least one of them a gauge or a rate?
+3. Are there **named sections with icons**, or is it an anonymous stack of cards?
+4. Do the rows **differ in chart count**, and are the columns inside them **unequal**?
+5. Are there **at least four distinct chart shapes** on the board (e.g. indicator, doughnut, horizontal bar,
+   combo, stacked)? Six vertical bars is one shape used six times.
+6. Is every **count axis integer** and every **amount axis formatted**?
+7. Is every label **human** — no `SCREAMING_SNAKE_CASE` anywhere on screen?
+7b. Did every chart make a **colour decision** (§2B.6)? No default palette, no index array, the family matching
+   the axis's job — and does the same measure carry the same colour in every cell of the board?
+8. Does every chart **have enough data to have a shape**? A single bar is a data problem (§2.6), not a chart.
+9. Would you put this screenshot in a proposal?
+
+⛔ `validate` sees items 3, 4, 5 and half of 7b (the index-palette array) only, and only roughly. The rest is your eye — which is exactly why the
+grid dump passed every gate.
+
 ## 3. Params — making a chart query filterable
 
 A chart query becomes filterable by declaring **parameters inside the SQL text** — an inline relaxed-JSON

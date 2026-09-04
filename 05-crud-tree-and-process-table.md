@@ -816,8 +816,9 @@ intake monitor:
      `dynaform.form.rimm.drop.down.field.plugin` with `enumName` + an `enumValues` snapshot for its options.
 
 3. **Placement**: put the monitor on a REAL, reachable page — **its own business page AND a quick link to that
-   page** in the shared `Nct left nav` node (`quicklink add --page "<Entity> Cases" --group "Pages" --label-loc
-   <locale>=<text>`, [17](17-left-nav-quick-links.md); per-page kicker nodes are dead data). A Home page that
+   page** in the shared `Nct left nav` node (`quicklink add --page "<Entity> Cases" --group "<business group>"
+   --label-loc <locale>=<text>`, [17](17-left-nav-quick-links.md); per-page kicker nodes are dead data).
+   ⛔ NOT `--group "Pages"` — that group is the authoring console, not the user's menu (doc 17). A Home page that
    `Redirect`s elsewhere never renders its process-table. Don't leave it on a baseline's `Home`/`Branches` demo
    nodes. Every workflow owes the user exactly one such page —
    [07](07-workflows-and-tasks.md) §"Step 5 — the worklist page (NOT optional)".
