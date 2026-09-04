@@ -309,7 +309,12 @@ HOW TO WORK (do this for every task)
    each phase DECIDE (with its defaults), AUTHOR (via the doc it points to + the mrjun.py command), and satisfy
    its DONE-WHEN gate before moving on. Build + `validate` each unit as you go (Operating Principle 2) — never
    author everything then validate once at the end. The build/write order + dependency graph is 13-master-playbook.
-3a. PUT THE PRD'S GAPS AND CONTRADICTIONS TO THE USER — ONCE, AS A LIST, WITH A RECOMMENDATION ON EACH.
+3a. PUT THE PRD'S GAPS TO THE USER, AND OFFER WHAT IT DID NOT THINK TO ASK FOR — ONCE, IN TWO LISTS.
+   LIST A = the PRD's own gaps and contradictions (below). LIST B = things the PRD does not ask for that
+   you would add anyway (3a-bis). Both go in ONE round, before you author anything. A is answered; B is
+   TICKED.
+
+   LIST A — GAPS AND CONTRADICTIONS, WITH A RECOMMENDATION ON EACH.
    A PRD is a business document. It is written by people who know the business and not the platform, so it
    will leave things open, and it will occasionally ask for two things that cannot both be true. Building
    over that silently is how a project comes out technically green and businessly wrong — and the person
@@ -335,6 +340,42 @@ HOW TO WORK (do this for every task)
    that no screen ever shows; a deadline with no clock to enforce it; an approval whose rejection path is
    never described; a report the PRD asks for whose data nothing in the PRD records; two clauses that
    disagree about who approves what. Each of those is a one-line question and a one-line recommendation.
+
+3a-bis. LIST B — WHAT YOU WOULD ADD THAT THE PRD NEVER ASKED FOR. CHECKBOXES, OPT-IN, DEFAULT OFF.
+   List A is about what the PRD got wrong. List B is about what it never thought of. A PRD is written by
+   people who know the business and have never seen the platform, so they cannot ask for what they do not
+   know is nearly free — an audit trail, a worklist, an overdue clock, a printable form of a document they
+   only described on screen. Those are not gaps in their document; there is nothing to correct. They are
+   OFFERS, and the only honest way to make an offer is to let the reader decline it.
+   So send them as a MULTI-SELECT AskUserQuestion — a checkbox list. One question, several boxes, tick what
+   you want. Each box is one line the reader can judge without knowing the platform:
+     - WHAT IT IS, in business words — "every status change recorded with who and when", not "an audit CRUD";
+     - WHAT IT BUYS — the business question it answers or the failure it prevents;
+     - WHAT IT COSTS — roughly, in build terms ("one table, one page" / "a workflow branch and a template");
+     - RECOMMEND / DO NOT RECOMMEND, and why. Offer things you would NOT recommend too, when the PRD's
+       shape suggests the reader may be expecting them — saying "you could have this, I advise against it,
+       here is why" is worth more than silently not mentioning it.
+   ⛔ DEFAULT OFF. An unticked box is NOT BUILT — no partial version, no scaffold "in case". It goes into
+   the hand-over under "offered and declined", so the next person knows it was a decision and not an
+   oversight. Never build an offer that was not ticked, and never treat no-answer as a yes: List B is the
+   one place where silence IS a no, precisely because it is not the PRD's own scope.
+   ⛔ A TICKED BOX BECOMES A PLAN ROW. Add it to `plan.json` like any PRD requirement, so `coverage` fails
+   the build if you then skip it. An offer accepted is a promise, and the anti-skip gate is what keeps it.
+   ⛔ NEVER PUT THE PRD'S OWN CONTENT IN LIST B. Anything the PRD asks for is mandatory (Operating Principle
+   3) and is not a checkbox. Turning a PRD requirement into an offer is how a build gets silently
+   downgraded with the user's own click as cover — the single worst failure this whole step can produce.
+   ⛔ KEEP IT SHORT AND RANKED. At most about eight boxes, best value first. A list of thirty makes the
+   reader tick nothing, or tick everything without reading — both are worse than not asking.
+   ⛔ BUSINESS ONLY, same as List A. Never offer an environment, a tool, a refactor of your own workflow, or
+   anything the reader cannot evaluate as a business outcome.
+   Typical offers, from real builds: an audit/history trail on the entities that change hands; a worklist
+   page for a process the PRD describes only as prose; an overdue/SLA clock and the scheduler that ticks it;
+   a PDF of a document the PRD only shows on screen; a dashboard tile for a number the PRD asks people to
+   compute by hand; a role group split the PRD implies but never names; a lookup table for a field the PRD
+   spells out as free text; a rejection/return path for an approval that only describes the happy road.
+   ⚠️ The CHART conversation is the same round, and doc 22 §2A already governs it: the charts a spec names
+   are a FLOOR, so proposed extra charts are List B boxes and objections to specified ones are List A items.
+   Do not run a separate chart round.
 
 3b. ⛔ DO NOT REIMPLEMENT A TOOLKIT PRIMITIVE. If you write a generator, IMPORT from `tools/mrjunkit/core.py`
    (`core.regen_ids`, `core.looks_uuid`, `core.iter_nodes`, `core.new_rep_object`, `core.set_inner_json`, …)
@@ -399,6 +440,12 @@ HOW TO WORK (do this for every task)
    you write in step 7. What you owe them here is not an attempt — it is an unambiguous sentence in the
    hand-over: *this export has not been imported or run anywhere; the four offline gates are green; here is
    what to click first.*
+
+   ⛔ THE HAND-OVER ALSO CARRIES THE STEP-3a LEDGER — two short sections, always, even when both are empty.
+   **"Assumed, because nobody answered"**: every List A item that went unanswered, written as the assumption
+   it became, in the user's own words. **"Offered and declined"**: every List B box that was NOT ticked, one
+   line each. Without the second section a declined offer is indistinguishable from something you never
+   thought of, and the next person re-litigates it — or worse, files it as a defect.
 
    That sentence is the whole point. A build described as "done" that was never run reads as tested, and the
    user finds out the hard way. A build described as "gated offline, not yet driven" sets them up to spend

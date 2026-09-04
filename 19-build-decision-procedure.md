@@ -122,7 +122,11 @@ SCOPE/depth — are ELICITED with AskUserQuestion up front, not assumed** (`syst
 each forces re-touching many downstream files. **The same round carries the CHART conversation, in this order:**
 run Phase 1's two chart passes first (they need only the PRD and the DDL — no user input), then send **one**
 AskUserQuestion carrying the locale/branding/scope items *and* the chart items: the charts you want to ADD beyond
-the ones the spec names, and your objections to the ones it does name. The deadline is **before Phase 2 authoring
+the ones the spec names, and your objections to the ones it does name. The charts you want to ADD are one
+instance of a general rule — `system_prompt.txt` **step 3a-bis, LIST B**: everything you would build that the PRD
+never asked for goes to the user as a **multi-select checkbox list, default OFF**, one round, before authoring.
+Extra charts are List B boxes; objections to specified charts are List A items. Do not run a separate round for
+either. The deadline is **before Phase 2 authoring
 starts** — an objection that arrives once Phase 9 has wired five chart nodes costs a rebuild, so it gets waved
 through ([22](22-charts-params-and-filters.md) "## 2A. The specified charts are a FLOOR — propose more, and
 challenge the ones you were given"). For lower-stakes silences (e.g. an individual FK-vs-scalar) record

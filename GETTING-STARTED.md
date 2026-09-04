@@ -119,6 +119,18 @@ disk to read, skip it if you don't.
 
 It will also ask before deleting anything, and it will ask who opens a case when your PRD does not say.
 
+**Then, once — before it writes a single byte — it comes back with two lists.** This is the round where you
+actually steer the build, so read it properly; everything after it is construction.
+
+| | what it is | how you answer |
+|---|---|---|
+| **List A — gaps** | places your PRD is silent or contradicts itself: a status named in one clause and missing from the state list, an approval with no rejection path, a report whose data nothing records. Each item quotes your own clause, says what is open, proposes one concrete option, and **takes a position — recommends it or not, with the reason** | you decide. An item nobody answers ships as a written assumption in the hand-over, never as a silent decision |
+| **List B — offers** | things your PRD never asked for, because nobody writing it knew the platform makes them nearly free: an audit trail, a worklist page, an overdue clock, a PDF of a document you only described on screen. Each box says what it is in business words, what it buys, roughly what it costs, and whether it is recommended | **checkboxes — tick what you want.** Unticked is not built, and is recorded as "offered and declined" so the next person knows it was your call |
+
+Two things this round is deliberately not. It never offers to *skip* something your PRD asks for — everything
+in the PRD is mandatory and is not a checkbox. And it is about your business, never about environments: no
+URLs, no realms, no logins.
+
 **It will NOT ask where to test.** No project URL, no realm, no client, no login, no localhost port. It does
 not import and does not drive the UI, so those answers would change nothing it can do — and being asked
 "where should I test this?" is a sign of an out-of-date CONTRACT, not a question worth answering. Point it at
