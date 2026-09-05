@@ -2104,10 +2104,41 @@ Clicking a bar now filters the whole page on `Project name`; clicking the same v
 
 ### Recipe D — a theme-safe Plotly KPI tile
 
-Use `html:"<div style=\"position:relative;height:160px;\"></div>"`, a single
+Use `html:"<div style=\"position:relative;height:160px;overflow:hidden;\"></div>"`, a single
 `$$('Value',[0],'Double[]')[0]` bound to a scalar query column, and the theme-safe Plotly layout from §6
 (`paper_bgcolor:'rgba(0,0,0,0)'`, live `font.color`), plus the `.kpi` container CSS in the model's
 `cssByTheme["*"]` (**not** an inline `<style>` in `html` — that leaks page-wide, §6).
+
+> ⛔ **Set `layout.height` EXPLICITLY on a Plotly tile — the height on the mount div is not enough.**
+> The chart body arrives in a **second AJAX round-trip** (Gotcha 17), so at `Plotly.newPlot()` time the
+> container is not always laid out yet. With only `autosize:true` Plotly then cannot measure it, falls back to
+> its own default height, and the **card grows to roughly four times the tile** — a KPI strip that should be
+> ~150 px eats the whole first screen, with the number stranded in the top corner and a field of empty card
+> beneath it. LIVE-FOUND 2026-09-05. Give the layout a real `height:` (the mount div keeps the same number,
+> plus `overflow:hidden` as the backstop), keep `autosize:true` for the width, and keep the
+> `ResizeObserver → Plotly.Plots.resize` from §6.
+>
+> ✅ **Put no title inside the tile.** A chart's `js` is ONE non-localized string (Gotcha 16), so a `title` baked
+> into the indicator is one hard-coded language on a multi-locale tenant. Caption the tile with a sibling
+> `nct.label.plugin` above it — that one carries all three locales — and let the plot draw only the number.
+>
+> ✅ **A delta arrow is only honest when the value and the reference are measured the same way.** `mode:'number+delta'`
+> invites a `delta.reference`, and the tempting reference — "the same measure over the previous 90 days" — is
+> **not comparable to a lifetime total**: a tile reading `154 ▲126` is not reporting growth, it is subtracting a
+> quarter from all of history. Decide which kind of number the tile is first:
+>
+> | kind | value | reference | example |
+> |---|---|---|---|
+> | **flow** — events inside a window | the last N days | the N before that | money lost, cases opened, decisions taken |
+> | **stock** — how many are open now | as of the newest row | the same predicate **as of N days earlier** (`opened_at < cut AND (closed_at IS NULL OR closed_at >= cut)`) | open cases, items awaiting approval |
+> | **rate** — a share | numerator ÷ denominator inside a window | the same ratio in the previous window | % within target, % answered on time |
+>
+> And window a **rate on the date it was SETTLED or FELL DUE**, never on the date it arrived: windowing
+> "deadlines met" on the arrival date drops every recent item that is still in flight out of the denominator and
+> the figure swings by tens of points (measured: 15.5 % on arrival date vs 60.0 % on deadline date, same data).
+> Anchor every window to the DATA (`(SELECT max(<col>) FROM …)`), never to `now()` — the dump is frozen
+> (§2.6 Rule 5). Finally, a metric shown on two boards must anchor on the **same column** on both, or the
+> cockpit and its drill-down print two different numbers for one thing.
 
 ### Recipe E — a complete filterable dashboard page
 
@@ -2546,3 +2577,28 @@ Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line
     are correct and an id/`:root` selector is rewritten), but nothing colour-lints it and it **cannot reach the
     canvas** — plot colours come from the chart config, not CSS (§6). An inline `<style>` in `html` is the
     opposite: global, un-themable, and it leaks onto other components.
+
+21. **⛔ What must be valid JavaScript is the SUBSTITUTED `js`, not the text you authored.** The panel does
+    `js.replace(group, value)` for every replacement and then hands the result to **`new Function(js)`**
+    (`ChartJsServiceImpl.replaceJs` → `ChartJsPanel.renderChartConfig`). So a config assembled by string
+    concatenation — the normal way a generator builds `var cfg = { … };` — can be **one brace short** and still
+    pass every offline gate: the JSON is valid, `group` is a byte-for-byte substring (Gotcha 1 is happy), the
+    export imports **0 errors**, the page loads, the query runs. The only symptom is in the browser console:
+
+    ```
+    SyntaxError: Unexpected token ';'
+        at Function (<anonymous>)
+        at rv.renderChartConfig (ChartJsPanel-….js:106)
+    ```
+
+    and the chart area is blank. LIVE-FOUND 2026-09-05: a generator grew a second axis on its bar template, the
+    added `y:{…}` swallowed the closer that used to end the `cfg` object, and **48 of 87 charts on eight boards
+    were dead** — with `validate` green and every SQL executed. The failure scales with the generator: one bad
+    template kills every chart built from it, which is why it reads as "the whole dashboard is broken".
+
+    `validate` now parses it for you (`_check_chart_js_parses`, ERROR): it substitutes each `group` — once with
+    a value, once with the replacement's own `defaultValue`, because §2.4 says a failed or empty query ships the
+    default — and runs `node --check` when node is on PATH, falling back to a bracket-balance scan when it is
+    not. Author-side rule of thumb: **count the closers**. `var cfg = { data:{…}, options:{ plugins:{…},
+    scales:{ x:{…}, y:{…} } } };` ends in `} } } };` — one for `y`'s parent `scales`, one for `options`, one for
+    `cfg`, then the semicolon; adding an axis adds a `}` **inside** `scales`, never at the end.

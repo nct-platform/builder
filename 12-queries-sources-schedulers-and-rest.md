@@ -547,6 +547,27 @@ are [16-groovy-service-api.md](16-groovy-service-api.md) §2.12.
 > restart of `nct-schedule`. Until it is enabled, nothing is logged and nothing runs — the predicate is never even
 > evaluated (`lastPredicateCheckTime` stays `null`), which is exactly what an imported project looks like.
 >
+> ⛔ **A scheduler is the ONLY object in a `.mrjun` whose import leaves the CMS process.** Everything else —
+> pages, rules, CRUDs, queries, forms, workflows, templates, the DB dump — is written by the CMS itself;
+> a schedule goes `CmsProjectServiceImpl → schedulerService.saveBackend/save` → **over the wire to
+> `nct-schedule`**. So when that service is unreachable the import reports exactly the schedulers as rejected
+> and nothing else, with a **socket** message rather than a validation one:
+>
+> ```
+> Imported with warnings
+> N objects in this archive were rejected and could not be imported:
+>   • scheduler — Can't assign requested address "…" (uuid), …
+> ```
+>
+> `Can't assign requested address` is `EADDRNOTAVAIL` — `nct-schedule` is down, its URL points at a host the
+> CMS container cannot reach, or the name resolves to an IPv6 address on a host without IPv6. **It is not a
+> defect in the export**, and no edit to the `ScheduleDto` changes it: the same message on every scheduler in
+> the archive is the signature of an unreachable endpoint, while a per-object fault (a duplicate `name`, a
+> quota) names itself. Fix the connectivity and re-import the same archive — `schedulers[]` is independent, so
+> a second import only adds them — or enter them by hand on the Schedulers screen. **Check first that
+> everything saved AFTER the schedulers actually landed** (workflows, rules, contexts, forms, settings,
+> templates — see the `name` row above), then compare object counts against the archive.
+>
 > On export, schedulers leave via `.schedulers(schedulers.stream().map(it -> it.toBuilder().id(null).build())…)`
 > (`CmsProjectServiceImpl.java`; the list is fetched by `schedulerService.findAllBackend`). A project
 > cap `QuotaConfig.maxSchedulersPerProject` (`nct-transfer/.../dto/QuotaConfig.java`) is enforced on **create** in

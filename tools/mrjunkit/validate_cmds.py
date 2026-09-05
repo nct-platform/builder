@@ -340,6 +340,12 @@ def cmd_validate(args):
     _check_chart_mount_matches_engine(p, r)
     # -- a chart replacement group that isn't a byte-for-byte substring of js → that series renders empty --
     _check_chart_group_in_js(p, r)
+    # -- a chart whose js stops being valid JS once $$() is substituted → blank chart, console-only --
+    _check_chart_js_parses(p, r)
+    # -- a replacement type outside ReplacementType silently becomes String -> quoted numbers --
+    _check_chart_replacement_type(p, r)
+    # -- a Plotly tile with no explicit layout.height -> the card inherits Plotly's default --
+    _check_plotly_explicit_height(p, r)
     _check_chart_query_embeds(p, r)
     _check_quicklinks(p, r)
     _check_localized_maps_distinct(p, r)
@@ -5792,6 +5798,188 @@ def _check_chart_group_in_js(p, r):
                        "quote-style diff between the stored group and the js `$$(...)` placeholder is enough). Make "
                        "the group IDENTICAL to its `$$(...)` text in js. (22-charts-params-and-filters.md / 14a)"
                        % (n.get("name"), rp.get("name"), g))
+
+
+def _js_unbalanced(src):
+    """Balance {} () [] outside strings, template literals and comments. Returns a short reason or None.
+
+    This is the fallback when `node` is not on PATH. It is deliberately conservative: it reports only a
+    bracket that is closed too many times or left open at EOF, which is the failure that a hand-built
+    config string produces and the only one worth an ERROR without a real parser."""
+    stack = []
+    i, n = 0, len(src)
+    pairs = {")": "(", "]": "[", "}": "{"}
+    while i < n:
+        ch = src[i]
+        if ch in "\"'`":
+            quote = ch; i += 1
+            while i < n:
+                if src[i] == "\\": i += 2; continue
+                if src[i] == quote: break
+                i += 1
+            i += 1; continue
+        if ch == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n": i += 1
+            continue
+        if ch == "/" and i + 1 < n and src[i + 1] == "*":
+            i = src.find("*/", i + 2)
+            if i < 0: return "unterminated /* */ comment"
+            i += 2; continue
+        if ch in "([{":
+            stack.append((ch, i))
+        elif ch in ")]}":
+            if not stack:
+                return "a stray %r at offset %d closes a bracket that was never opened" % (ch, i)
+            op, _at = stack.pop()
+            if op != pairs[ch]:
+                return "%r at offset %d closes a %r" % (ch, i, op)
+        i += 1
+    if stack:
+        op, at = stack[0]
+        line = src.count("\n", 0, at) + 1
+        return "%r opened on line %d is never closed (%d bracket(s) left open at end of script)" % (op, line, len(stack))
+    return None
+
+
+def _check_chart_js_parses(p, r):
+    """RENDER-FATAL (ERROR). The panel runs a chart through `new Function(js)` AFTER textually replacing
+    every `$$(...)` group with the fetched value (`ChartJsServiceImpl.replaceJs` → `ChartJsPanel.renderChartConfig`).
+    So the thing that must be valid JavaScript is the SUBSTITUTED text, not the authored one — and nothing else
+    in this file looks at it: `_check_chart_group_in_js` only proves the group is a substring.
+
+    A config assembled by string concatenation (the normal way a generator builds `var cfg = {...};`) can be one
+    brace short and still pass every other gate: the export imports 0-error, the page loads, and the only symptom
+    is `SyntaxError: Unexpected token ';'` in the browser console with the chart area blank. LIVE-FOUND 2026-09-05
+    on a dashboard where 48 of 87 charts were dead this way.
+
+    Both states 22 §2.4 names are checked: values present, and the DEFAULT (query failed or returned no rows).
+    Uses `node --check` when node is on PATH — a real parse; otherwise falls back to a bracket-balance scan."""
+    import shutil, subprocess, tempfile, os
+    node = shutil.which("node")
+    for n_, _pp, _pt in core.iter_nodes(p.root_content):
+        if n_.get("pluginName") != "chart.js.plugin":
+            continue
+        jv = (n_.get("properties") or {}).get("Javascript")
+        sv = jv.get("stringValue") if isinstance(jv, dict) else None
+        if not sv:
+            continue
+        try:
+            cm = json.loads(sv)
+        except json.JSONDecodeError:
+            continue
+        js = cm.get("js") or ""
+        if not js.strip():
+            continue
+        reps = [x for x in (cm.get("replacements") or []) if isinstance(x, dict)]
+        for mode in ("value", "default"):
+            src = js
+            for rp in reps:
+                g = rp.get("group")
+                if not (isinstance(g, str) and g.strip()):
+                    continue
+                if mode == "default":
+                    v = rp.get("defaultValue")
+                    v = v if isinstance(v, str) and v.strip() else "[]"
+                else:
+                    v = '["a","b"]' if str(rp.get("type") or "").startswith("String") else "[1,2]"
+                src = src.replace(g, v)
+            if node:
+                fd, path = tempfile.mkstemp(suffix=".js")
+                try:
+                    with os.fdopen(fd, "w") as f:
+                        f.write(src)
+                    res = subprocess.run([node, "--check", path], capture_output=True, text=True)
+                    if res.returncode:
+                        msg = ""
+                        for line in (res.stderr or "").splitlines():
+                            if "Error" in line:
+                                msg = line.strip(); break
+                        r.err("chart %r does not parse once its $$() placeholders are substituted (%s state): %s "
+                              "— the panel runs `new Function(js)` on the SUBSTITUTED text, so this chart renders "
+                              "nothing and only the browser console says so. (22-charts-params-and-filters.md)"
+                              % (n_.get("name"), mode, msg or "SyntaxError"))
+                        break
+                finally:
+                    try: os.unlink(path)
+                    except OSError: pass
+            else:
+                why = _js_unbalanced(src)
+                if why:
+                    r.err("chart %r is not balanced once its $$() placeholders are substituted (%s state): %s "
+                          "— the panel runs `new Function(js)` on the SUBSTITUTED text, so this chart renders "
+                          "nothing. Install node for a full parse. (22-charts-params-and-filters.md)"
+                          % (n_.get("name"), mode, why))
+                    break
+
+
+_REPLACEMENT_TYPES = {
+    "String", "Integer", "Long", "Float", "Double", "BigDecimal", "Boolean", "Full", "Json",
+    "String[]", "Integer[]", "Long[]", "Float[]", "Double[]", "BigDecimal[]", "Boolean[]",
+}
+
+
+def _check_chart_replacement_type(p, r):
+    """SILENT-WRONG-TYPE (WARN). `type` decides how the fetched value becomes a JS literal, and an
+    **unknown string falls back to `String`** (22 §2.3) — so `Number[]`, `Int[]`, `Numeric[]` or a typo emit a
+    QUOTED array, `["1","2"]`, where the chart expected numbers.
+
+    A plain bar survives it (Chart.js coerces), which is why it hides for months; a **stacked axis, a
+    dual-axis combo, a 100% stack, a line or a filled area does not** — it sums strings, or scales to a bound
+    computed from text. The fix is one word in the replacement and touches no query.
+    LIVE-FOUND 2026-09-05: a generator bound every numeric series as `Number[]`; nothing complained until the
+    same nodes were reshaped into combos and stacks."""
+    for n_, _pp, _pt in core.iter_nodes(p.root_content):
+        if n_.get("pluginName") != "chart.js.plugin":
+            continue
+        jv = (n_.get("properties") or {}).get("Javascript")
+        sv = jv.get("stringValue") if isinstance(jv, dict) else None
+        if not sv:
+            continue
+        try:
+            cm = json.loads(sv)
+        except json.JSONDecodeError:
+            continue
+        for rp in cm.get("replacements", []) or []:
+            if not isinstance(rp, dict):
+                continue
+            t = rp.get("type")
+            if isinstance(t, str) and t.strip() and t.strip() not in _REPLACEMENT_TYPES:
+                r.warn("chart %r replacement %r declares type %r, which is not a ReplacementType — unknown "
+                       "strings fall back to String, so this series is emitted as a QUOTED array and any "
+                       "shape that computes with it (stacked, dual-axis, 100%% stack, line, area) reads text. "
+                       "Legal: String/Integer/Long/Float/Double/BigDecimal/Boolean (+[]), Full, Json. "
+                       "(22-charts-params-and-filters.md §2.3)"
+                       % (n_.get("name"), rp.get("name"), t))
+
+
+def _check_plotly_explicit_height(p, r):
+    """BLOWN-LAYOUT (WARN). A Plotly chart whose `layout` carries no `height` relies on the container being
+    measurable at `newPlot()` time — and the chart body arrives in a SECOND ajax round-trip (22 Gotcha 17), so
+    it often is not. Plotly then falls back to its own default height and the CARD inherits it: a KPI strip
+    that should be ~150 px tall takes ~580 px and pushes the whole board below the fold, with the number
+    stranded at the top of an empty box. Nothing else reports it — the export imports 0-error and every query
+    runs. LIVE-FOUND 2026-09-05. Fix: pass a real `height:` in the layout (keep `autosize:true` for width).
+    (22-charts-params-and-filters.md Recipe D)"""
+    for n_, _pp, _pt in core.iter_nodes(p.root_content):
+        if n_.get("pluginName") != "chart.js.plugin":
+            continue
+        jv = (n_.get("properties") or {}).get("Javascript")
+        sv = jv.get("stringValue") if isinstance(jv, dict) else None
+        if not sv:
+            continue
+        try:
+            cm = json.loads(sv)
+        except json.JSONDecodeError:
+            continue
+        js = cm.get("js") or ""
+        if "Plotly.newPlot" not in js:
+            continue
+        if re.search(r"\bheight\s*:", js):
+            continue
+        r.warn("chart %r is a Plotly plot whose layout sets no `height` — at newPlot() the container may not "
+               "be laid out yet (the body arrives in a second ajax round-trip), so Plotly falls back to its "
+               "own default height and the card grows to several times the tile. Set layout.height explicitly "
+               "and keep autosize for the width. (22-charts-params-and-filters.md Recipe D)" % n_.get("name"))
 
 
 def _check_workflow_xml(p, r):
