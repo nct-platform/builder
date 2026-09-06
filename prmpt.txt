@@ -7,12 +7,28 @@ CONTRACT:  https://raw.githubusercontent.com/nct-platform/builder/main/system_pr
 LIBRARY:   https://github.com/nct-platform/builder
 BASE:      https://github.com/nct-platform/builder/raw/main/initialtemplates/empty.mrjun
 PRD:       <path-to-your-PRD>
+MCP:       <paste an MCP token here, or delete this whole line to stay offline>
 
 Read the CONTRACT first, in full, and follow it exactly. It tells you how to put the
 LIBRARY on disk, how to work, and what "done" means. Build the project the PRD describes
-from BASE, and write the finished export to ./project.mrjun.
+from BASE, and write the finished export to ./project.mrjun. Print the contract's
+CONTRACT-VERSION line as the first line of your first reply, so I can see which contract
+you are running.
 
-You get TWO files: ./project.mrjun and ./test-scenarios.md beside it. Do not import or run
-anything and do not ask me where to test it — I import it myself, into my own project, using
-your test-scenarios.md.
+You get TWO files either way: ./project.mrjun and ./test-scenarios.md beside it.
+
+NO MCP LINE — the default: do not import or run anything and do not ask me where to test it
+— I import it myself, into my own project, using your test-scenarios.md.
+
+WITH AN MCP TOKEN: import the finished export into that project yourself (CONTRACT step 6b)
+and report what the import actually returned — then still hand me test-scenarios.md, because
+an import is not a run and nothing has been driven. Even then, do not ask me for a URL, a
+realm, a client or a login: the token carries them. Minting one is not self-service — you
+must be admin/author in the TARGET project, which must be type == REPORT created from the
+"Empty project" template: Settings → Developer → MCP tokens.
+
+⚠️ TODAY THIS ALWAYS FALLS BACK. No platform serves the import tools yet, so a session given
+a token will check, find them missing, say so, and hand you the file exactly like an offline
+one. Pasting a token costs nothing and changes nothing until they ship; the two files above
+are still what you get.
 ============================================================================

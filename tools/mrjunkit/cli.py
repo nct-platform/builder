@@ -10,9 +10,9 @@ try:
 except ImportError:  # pragma: no cover
     dist_cmds = None
 
-from . import (case_cmds, content_cmds, core, coverage_cmds, crud_cmds, crudverify_cmds,
-               livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds, packaging, pdf_cmds,
-               quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
+from . import (case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
+               crudverify_cmds, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
+               packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
                workflow_cmds)
 
 
@@ -315,6 +315,37 @@ def build_parser():
     sp.add_argument("context", help="context id/alias/name")
     sp.add_argument("alias", nargs="+")
     sp.set_defaults(func=rep_cmds.cmd_context_add_alias)
+
+
+    # -- handoff -------------------------------------------------------------
+    # NOT a subcommand of `context`: in this library "context" is the rep-objects object that binds
+    # crudAliases (doc 08), and overloading that word for the session handoff costs a reader a wrong
+    # turn in the one place where precision is the whole product. The library already HAS a word for
+    # this — OP 7c calls plan.json plus the case notes "the handoff" — so reuse it.
+    hnd = sub.add_parser("handoff", help="what a NEW session needs to resume this project "
+                         "(CLAUDE.md + one skill + .dokie/project.json)").add_subparsers(dest="sub", metavar="<sub>")
+    sp = hnd.add_parser("emit", help="(re)generate the context a NEW Claude Code session needs to resume "
+                                     "this project: CLAUDE.md + one skill + .dokie/project.json")
+    _add_project(sp)
+    sp.add_argument("--out", help="folder to write into (default: the PARENT of --project — the "
+                                  "delivered project folder the run prompt lives in)")
+    sp.add_argument("--format", choices=("claude", "markdown"), default="claude",
+                    help="claude: CLAUDE.md + .claude/skills/dokie-project/SKILL.md; "
+                         "markdown: one PROJECT-CONTEXT.md and no .claude/ plumbing (default: claude)")
+    sp.add_argument("--mode", choices=("build", "support"), default=None,
+                    help="which rule set the emitted files hand the next session. Default: whatever "
+                         "<out>/.dokie/project.json already records, so a re-run never silently changes "
+                         "the mode of a folder; 'support' when there is no such file (the emit normally "
+                         "happens at delivery). Pass build while the build is still running.")
+    sp.add_argument("--realm", help="override the realm derived from the export")
+    sp.add_argument("--client", help="override the client derived from the export")
+    sp.set_defaults(func=handoff_cmds.cmd_handoff_emit)
+
+    sp = hnd.add_parser("mcp", help="write this folder's .mcp.json from a configuration pasted on STDIN "
+                                    "(one folder = one tenant; the credential stays out of the transcript)")
+    _add_project(sp)
+    sp.add_argument("--out", help="project folder the connection belongs to (default: the export dir's parent)")
+    sp.set_defaults(func=handoff_cmds.cmd_handoff_mcp)
 
     # -- rule ---------------------------------------------------------------
     rule = sub.add_parser("rule", help="rep-objects rules").add_subparsers(dest="sub", metavar="<sub>")

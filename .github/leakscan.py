@@ -62,8 +62,15 @@ RULES = [
      re.compile(r"\b\w*(?:password|passwd|secret|api[_-]?key|token)[\"']?\s*[:=]\s*"
                 r"[\"'](?!<)(?!placeholder)(?!\\u003c)[^\"']{6,}[\"']", re.I),
      "a secret"),
+    # The negative lookahead is what keeps this rule usable. `.local` is both an internal TLD and an
+    # ordinary filename segment, so without it every mention of `settings.local.json` — a file Claude Code
+    # itself writes, and one the emitted .gitignore has to name — is reported as infrastructure. A hostname
+    # does not end in a file extension, so excluding that one shape costs the rule nothing: `foo.local`,
+    # `svc.cluster.local` and `api.internal` all still fire.
     ("internal hostname",
-     re.compile(r"\b[a-z0-9][a-z0-9-]*\.(?:svc|internal|local)(?:\.[a-z]+)*\b|\bmyprojects\b", re.I),
+     re.compile(r"\b[a-z0-9][a-z0-9-]*\.(?:svc|internal|local)"
+                r"(?!\.(?:json|ya?ml|md|txt|py|js|ts|css|html?|xml|log|sh|properties|lock|toml|ini)\b)"
+                r"(?:\.[a-z]+)*\b|\bmyprojects\b", re.I),
      "names infrastructure the reader cannot and should not reach"),
 ]
 

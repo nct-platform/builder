@@ -22,9 +22,15 @@ codebase**, and **writes the export files**.
 | **[system_prompt.txt](system_prompt.txt)** | the OPERATING CONTRACT the builder must read in full and follow — how to work, and what "done" means |
 
 A finished build is **two files, not one**: the export `project.mrjun`, and beside it a `test-scenarios.md`
-that lets whoever imports it test the running application without the builder. Nothing in this library imports
-or drives a platform — the offline gates prove the files are right, `test-scenarios.md` is how the behaviour
-gets proven, by the person who owns the project.
+that lets whoever imports it test the running application without the builder. By default nothing in this library
+imports or drives a platform — the offline gates prove the files are right, `test-scenarios.md` is how the
+behaviour gets proven, by the person who owns the project. **Optionally** — an MCP token for the target project,
+pasted on the `MCP:` line of `prmpt.txt` — the builder performs the **import** itself (contract step 6b: snapshot,
+push, the three import flags, the per-object failure report). Nothing else changes: it still builds offline, still
+passes the same four gates first, and still drives nothing. An import is not a run.
+⚠️ **Not yet, anywhere.** As of CONTRACT-VERSION 2 no platform serves those import tools, so a session given a
+token checks, finds them missing, says so and hands over the file — exactly like an offline one. The option is
+documented because both halves are being built against it; pasting a token today changes nothing.
 
 ---
 
@@ -58,7 +64,9 @@ gets proven, by the person who owns the project.
    re-do of every screen. Then continue into [24](24-html-component-studio.md) /
    [24b](24b-html-composition-and-plugin-tags.md) / [24c](24c-html-data-tables-and-paging.md) /
    [24d](24d-html-component-structure.md) for the component work.
-5. The user re-imports the `.mrjun` and gets an implementation of their requirements.
+5. The user re-imports the `.mrjun` and gets an implementation of their requirements. (With an MCP token Claude
+   will import it and report the per-object result — once the platform serves those tools; today it does not,
+   see the note above.) The *driving* stays the user's either way.
 
 **This library is reusable; your project's knowledge is not part of it.** The docs here teach the platform for
 **any** domain, so nothing case-specific may be written into them. Everything you learn while building **one**
@@ -159,6 +167,7 @@ below contains a **"🔧 Tooling"** block with commands specific to its entity. 
 | 25 | [25-form-settings-validation-and-events.md](25-form-settings-validation-and-events.md) | **Form settings, validations & field events** — the control **Config accordion** (Prohibited/Default/Mandatory/Validations/Events) + the **Form Settings** panel (FormDto). Deep-dives **"Create Validation from Template"** (the 51 templates' generated `GroovyPredicate` bodies, params, the 10 regex presets, ERROR/WARNING), **field events** (event → Execute-Rules-Before-Refresh → refresh fragment; several targets = several mappings), **Hidden Content Configuration**, **Global vs Action-Based validation** (`validation.addFieldError(control-name,…)`), **Allow Drafts**, and **Get context data** (read what the live form would actually send) — with decision guidance so a PRD phrase routes to the right knob |
 | 26 | [26-orchestration-and-testing.md](26-orchestration-and-testing.md) | **Orchestration & testing — how NOT to finish a big PRD fast-and-shallow.** Decompose a PRD (epics→stories→small units) into a **`plan.json` coverage ledger**; build + TEST each unit; the **`mrjun.py coverage` gate** that FAILS (non-zero) on any missing/untested item (the machine-checkable "constitution" that catches "shipped zero workflows / half the forms"); the **live-import acceptance loop**; the working folder; parallelism (Workflow tool) where it helps and the sequential-build limit; and **graphify** for the comprehension layer (`tools/setup-graphify.sh`). Grounded in Replit-agent + spec-driven-development practice |
 | 27 | [27-event-driven-process-start.md](27-event-driven-process-start.md) | **When the SYSTEM opens the case — the process nobody clicks Start on.** Read it the moment the PRD says "nightly", "if no response within N days", "N days before expiry" or "when the record is approved": that process has **no start form**, and giving it one is the default failure. The recognition test + a PRD-phrase → trigger table; the **three system triggers** (scheduler tick / CRUD GROOVY method / service task) and what each rule does and does NOT get — the first two are HEADLESS (`contextDataMap` is null), while a service task receives the running case's real document; the build order (workflow → process group → worklist → context aliases → claim → EXECUTION rule → trigger); the worked rule that **gathers rows from business logic → shapes a context-data document → `service.workflow.start` → marks the row**; **idempotency as the author's own job** (nothing anywhere asks whether a case already exists, so an unguarded sweep opens a new case on every tick, forever); the five option keys that decide who ever sees the case; and the live acceptance run — nothing offline can execute this chain |
+| 28 | [28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) | **Support mode — changing a LIVE project over MCP.** The delta to `system_prompt.txt` for a project that already RUNS: how `.dokie/project.json` picks the mode and the CHANNEL (files-only vs dual-write); what an MCP token is and — decisively — what it is NOT (one project, no branch, no scope, so **every write lands on the PUBLISHED branch with no draft and no undo**); the working folder; the one order a dual write may go in (edit → `validate` → ONE live write → read it back) and the four ways it can half-happen; a per-object table of which change travels down which channel; and the **honest-limits list** — PDF templates, locales, assets, free enums and seed data have no live channel at all and still need a re-import, which REPLACES the project |
 
 ---
 

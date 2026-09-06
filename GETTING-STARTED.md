@@ -14,12 +14,21 @@ You then import that file into a running Dokie/NCT project and get a working sys
 ```
 PRD  →  Claude Code + this library  →  project.mrjun + test-scenarios.md   ← the AI stops here
                                     →  YOU import  →  drive it  →  fix  →  re-import
+
+              with an MCP token:    →  the AI imports too  →  YOU still drive it
 ```
 
-**The AI hands you two files and stops.** It has no access to your platform, does not ask for one, and never
-imports anything — so what you get is an export whose FILES are gated four ways, plus a `test-scenarios.md`
+**By default the AI hands you two files and stops.** It has no access to your platform, does not ask for one, and
+never imports anything — so what you get is an export whose FILES are gated four ways, plus a `test-scenarios.md`
 telling you what to click. Importing and driving it is your half, and it is where most of the remaining
 quality lives — see §7.
+
+**Optionally, you can let it do the import.** Paste an **MCP token** for the target project on the `MCP:` line of
+`prmpt.txt` (§1, §4) and the AI imports the finished export itself — snapshot first, push, all three import flags
+stated, then the per-object failure report — instead of handing you a file to upload (§6). Nothing else changes:
+it builds offline exactly as before, passes the same four gates *before* the archive leaves the folder, writes the
+same `test-scenarios.md`, and still never opens a browser. **An import is not a run**, so §7 stays yours either
+way.
 
 ---
 
@@ -30,7 +39,8 @@ quality lives — see §7.
 | **curl + tar** | to download this library (both are standard) |
 | **python3 ≥ 3.9** | `tools/mrjun.py` is stdlib-only — there is nothing to `pip install` |
 | **Claude Code** (or an equivalent agent that can read files and run commands) | it does the building |
-| **A Dokie/NCT project you can import into**, `type == REPORT` | ⛔ YOURS to provide, at the end — the AI never touches it. Create it from the **Empty project** template; any other type makes the import **silently skip** the whole rep-objects block and the database |
+| **A Dokie/NCT project you can import into**, `type == REPORT` | ⛔ YOURS to provide. Create it from the **Empty project** template; any other type is worse than a no-op — the import skips the whole rep-objects block and the database, **and still replaces every page and every branch**, leaving screens with no queries, rules or forms behind them |
+| *optional:* **an MCP token** for that project | lets the AI do the import for you (§6). ⛔ Not self-service: it is minted from an **admin/author** browser session **inside the target project** — Settings → Developer → MCP tokens — and it carries the realm and the client in its own signed claims, which is why you never hand over a URL or a login |
 | **A way to read that project's logs** (or at least import errors) | the one diagnostic for the silent-failure class in §8 — again, yours to read |
 | **A PRD** | you write it; see §3 |
 | *optional but wanted:* `psql` on PATH, docker | for `crud verify --db`, the only gate that actually executes your SQL |
@@ -103,19 +113,22 @@ actor is "the system" with no schedule and no condition.
 ## 4. Run it
 
 From inside `myproject/`, put the path to your PRD on the `PRD:` line of `prmpt.txt` and paste the whole file
-as your first message. That is the only line you fill in — the prompt is four coordinates and a sentence.
+as your first message. That is the only line you must fill in — the prompt is four coordinates and a sentence,
+plus an optional fifth line, `MCP:`, which you either paste a token onto or delete.
 
 The first thing the AI does is read the **operating contract** at the `CONTRACT:` URL. The contract tells it to
 download this library into `./builder` itself, so §2 above is optional for you: do it if you want the docs on
 disk to read, skip it if you don't.
 
-**It will then ask you three things. Answer precisely; a wrong answer re-touches every entity:**
+**It will then ask you three things about your business — and exactly one about your environment. Answer
+precisely; a wrong answer to the first three re-touches every entity:**
 
 | | |
 |---|---|
 | **Locales** | list them all **and name the default**. If it is one language, say so explicitly — that switches off per-locale fields everywhere |
 | **Branding** | customer name + the logo file |
 | **Scope** | which modules are in this pass, which are not |
+| **Import for you?** | yes plus an MCP token, or no and it stays fully offline. This is the ONLY environment question it may ask — see below |
 
 It will also ask before deleting anything, and it will ask who opens a case when your PRD does not say.
 
@@ -131,10 +144,14 @@ Two things this round is deliberately not. It never offers to *skip* something y
 in the PRD is mandatory and is not a checkbox. And it is about your business, never about environments: no
 URLs, no realms, no logins.
 
-**It will NOT ask where to test.** No project URL, no realm, no client, no login, no localhost port. It does
-not import and does not drive the UI, so those answers would change nothing it can do — and being asked
-"where should I test this?" is a sign of an out-of-date CONTRACT, not a question worth answering. Point it at
-the current `system_prompt.txt`.
+**One environment question, asked once, and no others.** It may ask whether to import the finished project for
+you and, if so, for an MCP token — that is the whole list. No project URL, no realm, no client, no login, no
+localhost port, and never "where are your logs": the token carries the realm and the client in its own signed
+claims, so it *replaces* those questions instead of adding to them, and *"no token, stay offline"* is a complete
+answer that changes nothing about how the project is built. Being asked anything **else** about an environment —
+or being asked where to test after you declined — is a sign of an out-of-date CONTRACT, not a question worth
+answering. Point it at the current `system_prompt.txt`, and check the `CONTRACT-VERSION:` line it prints as the
+first line of its first reply: connected mode is version **2**.
 
 ---
 
@@ -163,10 +180,30 @@ python3 ./builder/tools/mrjun.py crud verify --db "host=… dbname=… user=… 
 
 ---
 
+### What the build leaves in the folder
+
+Besides `project.mrjun` and `test-scenarios.md`, a finished build now writes three small things so that a NEW
+session opened in that folder knows where it is: `CLAUDE.md`, one skill under `.claude/skills/`, and
+`.dokie/project.json`. They are GENERATED — regenerate them any time with
+`python3 builder/tools/mrjun.py handoff emit --project ./work`, and never edit them by hand, because the next
+regeneration overwrites them. None of them ever contains a credential: an MCP token is registered with Claude Code
+itself (`claude mcp add`, scope `local`), which keeps it per project outside this folder — so handing the
+folder to someone else hands them no secret. Commit them or not as you prefer; they describe the
+folder, not the project.
+
 ## 6. Import
 
-In your project: turn on **"I am author"** at the top, then left menu → **Settings** → **Import/Export**, and
-upload `project.mrjun`.
+⚠️ **Today this is always yours to do, token or not.** The contract describes an AI-driven import (step 6b) and
+the platform will grow the tools for it, but they do not exist yet — so a session given a token will tell you it
+could not find them and hand you the file, exactly like an offline one. When they do land, the AI will take a
+**snapshot tag first** (the only way back — import replaces, it never merges), push the archive, and start the
+import with all three business-logic flags stated explicitly, which is the equivalent of choosing **Override**
+or **Rebuild** below; its hand-over must then name the three values it passed. ⛔ And `DONE`
+is not proof: mail and PDF templates fail with a log warning only and never reach the per-object report, so open
+one of each before you believe it.
+
+Doing it yourself, in your project: turn on **"I am author"** at the top, then left menu → **Settings** →
+**Import/Export**, and upload `project.mrjun`.
 
 A dialog appears **before** anything is written:
 
@@ -216,7 +253,7 @@ Fix in `./work` → `validate` → re-pack → re-import (**Rebuild**) → re-dr
 neighbours**. Repeat until clean.
 
 This loop is yours, and the AI knows it: `test-scenarios.md` opens by saying that none of its scenarios has
-been executed. Hand it back the specific failures (screen, what you pressed, what you saw, and the
+been executed — and with a token it says exactly what the import did instead, which is still not a run. Hand it back the specific failures (screen, what you pressed, what you saw, and the
 `log/ui.log` line if there is one) and it fixes them in the workdir and re-packs. "It doesn't work" is not
 enough to act on; one screen with one symptom is.
 

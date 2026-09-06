@@ -1119,8 +1119,13 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
 
 > This is the WHOLE-PROJECT close-out. It does not replace per-module testing: you should have `validate`d each
 > unit as you built it ([26](26-orchestration-and-testing.md) §4) — this phase is the final offline gate **plus
-> the hand-over that lets someone else prove it works.** You do not import and you do not drive the UI; the
-> person who ran you does, with the `test-scenarios.md` this phase produces.
+> the hand-over that lets someone else prove it works.** You do not drive the UI; the person who ran you does,
+> with the `test-scenarios.md` this phase produces.
+> **Import is the one part that now has two branches** (`system_prompt.txt` step 6 / 6b): with no MCP token it
+> is theirs, exactly as before and as the rest of this phase assumes. With a token it becomes yours — and as of
+> CONTRACT-VERSION 2 the tools for it do not exist on any platform yet, so in practice it is still theirs and
+> the AI says so. Nothing else in this phase changes either way, and step 7b's handoff files are written in
+> both. See [28](28-support-mode-over-mcp.md) for the connected channel and its honest limits.
 
 1. `mrjun.py validate --project <dir>` → **0 errors** (warnings about pre-existing platform orphans are ok). It
    also runs the schema-aware dynamic-CRUD checks (CHECK-literal coverage, field-expression coverage incl. list
