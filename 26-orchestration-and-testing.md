@@ -301,6 +301,11 @@ caused it ([23](23-distribution-and-known-gaps.md) §2). Validate after each uni
 
 ## 5. The acceptance sweep — what the person who imports it drives, in this order
 
+> **In support mode you can drive this sweep yourself.** A session connected to a live project adds a
+> browser MCP server and works through the scenarios in a real browser, fixing what it finds over MCP —
+> [28](28-support-mode-over-mcp.md) §8. The order below is still the order; the difference is only who is
+> holding the mouse. ⛔ The login is not part of what you drive: the human authenticates, always (§8.2).
+
 `validate` never imports; it does not deserialize into the platform DTOs, and no offline gate opens a page. So
 the deliverable is proven by a live run — **but not by yours.** You do not have a platform and you do not ask
 for one (the contract's Operating Principle 0); the person who ran you owns the project and drives it with the

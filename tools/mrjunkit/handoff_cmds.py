@@ -51,12 +51,11 @@ and is NOT a style preference:
   with no prompt. This folder is handed between people; an emitted hook would be arbitrary code
   execution on whoever opens it. We never write `.claude/settings.json`, and we warn if one with
   hooks is already there.
-* **No credential in this folder, and none passing through the AI.** The MCP connection is registered
-  with the CLIENT — `claude mcp add --transport http dokie <url> --header "Authorization: Bearer …"`,
-  scope `local`, which Claude Code keeps per project in `~/.claude.json`, OUTSIDE this folder. That is
-  already a durable per-folder store, so inventing a second one here would be one more copy of a secret
-  and one more thing to leak when the folder is handed on. `--mcp-url` therefore writes no `.mcp.json`
-  and no token file: it records the URL in the machine state and PRINTS the one command to run.
+* **The credential never passes through the AI, and `emit` never writes one.** `handoff emit` writes no
+  `.mcp.json` and no token file at all. The connection is configured by ONE command that reads the
+  pasted block from STDIN — `handoff mcp` — because an argument is visible in `ps` to every other user
+  on the machine and is recorded in shell history, while STDIN is neither. The file it writes is mode
+  600 and git-ignored, and nothing in this module ever prints a credential back.
 * **The MCP server key is the constant `dokie`, never the project name.** The server name becomes part
   of every tool name the model sees (`mcp__dokie__<tool>`) and therefore part of every permission
   rule; per-project names make every rule and every habit unshareable.
@@ -81,6 +80,7 @@ from . import case_cmds, core, inspect_cmds
 # Fixed names. These are contracts, not preferences — see the module docstring.
 # ---------------------------------------------------------------------------
 
+DOC_SUPPORT = "28-support-mode-over-mcp.md"
 SKILL_NAME = "dokie-project"          # also the directory name; Claude Code requires the two to match
 MCP_SERVER_KEY = "dokie"              # becomes mcp__dokie__<tool> in every permission rule
 STATE_REL = ".dokie/project.json"
@@ -539,21 +539,38 @@ def _router_body(facts):
     if f["mcp"]:
         L.append("## 9. The live tenant over MCP")
         L.append("")
-        L.append("The connection is registered with the CLIENT, not stored in this folder — Claude Code")
-        L.append("already keeps per-project MCP servers, so it is set up once and every later session in")
-        L.append("this folder has it. If `/mcp` shows no `%s` server, it has not been registered here yet:"
+        L.append("The connection lives in `./.mcp.json` — ONE folder is ONE project talking to ONE")
+        L.append("tenant, and Claude Code reads that file only for the directory it sits in. It is")
+        L.append("already written here; ⛔ never ask for it again, and never echo the token anywhere.")
+        L.append("If `/mcp` shows no `%s` server, restart Claude Code once in this folder and" % MCP_SERVER_KEY)
+        L.append("approve it — servers connect at session start.")
+        L.append("")
+        L.append("Every tool arrives as `mcp__%s__<tool>`, which is why the server name is fixed."
                  % MCP_SERVER_KEY)
         L.append("")
+        if f["live_url"]:
+            L.append("**Where to test:** %s" % f["live_url"])
+            L.append("")
+            L.append("⛔ Open THAT, never the bare root: the root bounces to the login form and leaves you")
+            L.append("on `…/auth;jsessionid=…`, which is not this project and renders none of it.")
+        else:
+            L.append("**Where to test: NOT RECORDED.** Ask the user once for the project's URL")
+            L.append("(`http://<host>:<port>/%s/%s`), then persist it so no later session asks again:"
+                     % (f["realm"] or "<realm>", f["client"] or "<client>"))
+            L.append("")
+            L.append("```")
+            L.append("python3 %s handoff emit --project %s --base-url http://<host>:<port>"
+                     % (mj, wd))
+            L.append("```")
+        L.append("")
+        L.append("To drive it in a real browser (support mode, %s §8):" % DOC_SUPPORT)
+        L.append("")
         L.append("```")
-        L.append("claude mcp add --transport http %s %s \\" % (MCP_SERVER_KEY, f["mcp"]["url"]))
-        L.append("    --header \"Authorization: Bearer <token>\"")
+        L.append("python3 %s handoff browser --project %s"
+                 % (mj, wd))
         L.append("```")
         L.append("")
-        L.append("Scope `local` (the default) keeps it for THIS folder, in `~/.claude.json` OUTSIDE it.")
-        L.append("⛔ Never write the token into a file in this folder, and never ask for it if `/mcp`")
-        L.append("already lists the server — it is configured, and asking again is asking twice.")
-        L.append("Every tool then arrives as `mcp__%s__<tool>`, which is why the server name is fixed."
-                 % MCP_SERVER_KEY)
+        L.append("⛔ The HUMAN logs in — never type a password and never ask for one.")
         L.append("")
 
     # Repoint every relative link ONCE, here, instead of at each of the ~40 places that build one:
@@ -653,6 +670,11 @@ def _state_json(facts):
             "client": f["client"],
             "locales": f["locales"],
             "defaultLocale": f["default_locale"],
+            # Where this project is SERVED. rootUrl is the only part a session cannot work out for
+            # itself; liveUrl is derived from it and the coordinates above at generation time, so the
+            # two cannot drift — this file is regenerated from disk on every emit.
+            "rootUrl": f["root_url"],
+            "liveUrl": f["live_url"],
         },
         "paths": {
             "export": f["workdir_rel"],
@@ -726,16 +748,97 @@ def _append_gitignore(out_root):
 # ---------------------------------------------------------------------------
 
 
-def _recorded_mode(out_root):
-    """The mode this folder already declares, or None. Read leniently: a hand-mangled file must not
+def _recorded_state(out_root):
+    """What `.dokie/project.json` already declares, or {}. Read leniently: a hand-mangled file must not
     stop the regeneration that would repair it."""
     path = os.path.join(out_root, STATE_REL)
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            recorded = json.load(fh).get("mode")
+            return json.load(fh) or {}
+    except Exception:
+        return {}
+
+
+def _recorded_mode(out_root):
+    """The mode this folder already declares, or None."""
+    recorded = _recorded_state(out_root).get("mode")
+    return recorded if recorded in ("build", "support") else None
+
+
+def _recorded_root_url(out_root):
+    """The live ROOT this folder already declares, or None — so it is asked for ONCE per folder."""
+    root = (_recorded_state(out_root).get("project") or {}).get("rootUrl")
+    return _clean_root_url(root) if root else None
+
+
+def _clean_root_url(url):
+    """Just the origin: scheme://host[:port]. Everything after it is a page, not the installation.
+
+    <p>People paste what is in the address bar, and what is in the address bar during a support session is
+    a PAGE — often `…/auth;jsessionid=…`, because opening the bare root bounces to the login form and the
+    session id is written into the path. Keeping any of that would build a project URL that is wrong in a
+    way that still loads, which is the worst kind: the session drives the login page, sees no authoring
+    affordances, and reports the project as broken.
+    """
+    if not url:
+        return None
+    url = url.strip().rstrip("/")
+    m = re.match(r"^(https?://[^/?#]+)", url)
+    return m.group(1) if m else None
+
+
+def _project_url(root_url, realm, client):
+    """Where this project is served: `<root>/<realm>/<client>`, or None if the root is unknown.
+
+    <p>Realm and client are the URL, not decoration — the platform serves every project under
+    `/<realm>/<client>/…`. So the only thing a session cannot work out for itself is the origin, which is
+    why that is the one thing it asks for.
+    """
+    if not (root_url and realm and client):
+        return None
+    return "%s/%s/%s" % (_clean_root_url(root_url), realm, client)
+
+
+def _token_coordinates(out_root):
+    """The realm and client the MCP TOKEN names, decoded from its own claims. Never the token itself.
+
+    <p>Claims are read, NOT verified — there is no secret here and none is needed, because this is used
+    for ADDRESSING (which project am I connected to) and never for authorization, which the platform does
+    on its side against the signature. Decoding is what lets a session that was handed only a token still
+    know where to test.
+
+    <p>⛔ The value of reading them is the MISMATCH. The folder's export says which project it mirrors and
+    the token says which project the writes will land in; when those disagree, every "fix" is applied to a
+    project nobody is looking at. Nothing else in the folder can notice that.
+    """
+    path = os.path.join(out_root, MCP_JSON_REL)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            servers = json.load(fh).get("mcpServers") or {}
     except Exception:
         return None
-    return recorded if recorded in ("build", "support") else None
+    import base64
+    for server in servers.values():
+        token = None
+        for name, value in (server.get("headers") or {}).items():
+            if name.lower() == "authorization" and isinstance(value, str):
+                token = value.split(None, 1)[-1].strip()
+        for i, a in enumerate(server.get("args") or []):
+            if a == "--header" and i + 1 < len(server["args"]):
+                nm, _, val = server["args"][i + 1].partition(":")
+                if nm.strip().lower() == "authorization":
+                    token = val.split(None, 1)[-1].strip()
+        if not token or token.count(".") < 2:
+            continue
+        payload = token.split(".")[1]
+        try:
+            raw = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+            claims = json.loads(raw)
+        except Exception:
+            continue
+        if claims.get("realm") or claims.get("client"):
+            return {"realm": claims.get("realm"), "client": claims.get("client")}
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +867,54 @@ def _read_mcp_json(out_root):
         if url:
             return {"server": key, "url": url}
     return None
+
+
+BROWSER_SERVERS = {
+    # stdio, no credential, no URL — a local driver, not a tenant. Kept as a NAMED set rather than
+    # accepted as free text so that one folder's live test is reproducible in another: the server key
+    # becomes part of every tool name the model sees (`mcp__chrome-devtools__*`) and therefore part of
+    # every permission rule, exactly like the `dokie` key above.
+    "chrome-devtools": {"command": "npx", "args": ["-y", "chrome-devtools-mcp@latest"]},
+    "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+}
+DEFAULT_BROWSER = "chrome-devtools"
+
+
+def _which(binary):
+    """Is this executable on PATH? Reported, never installed — see cmd_handoff_browser."""
+    from shutil import which
+    return which(binary)
+
+
+def _merge_mcp_json(out_root, new_servers):
+    """Merge server entries into this folder's `.mcp.json`, preserving every entry already there.
+
+    <p>MERGE and not replace, and the difference is not cosmetic. Two commands write this file — the
+    tenant connection and the browser driver — and they are run at different times by different
+    sessions. A writer that rewrote the whole document would silently drop the other one's server, so
+    re-pasting a token to fix an expiry would take the live test offline, and the failure would surface
+    later as a missing tool rather than as anything about the file that was just written.
+    """
+    path = os.path.join(out_root, MCP_JSON_REL)
+    existing = {}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                existing = json.load(fh).get("mcpServers") or {}
+        except Exception:
+            # Unreadable is not empty: overwriting it would destroy a connection we cannot see.
+            raise core.ToolError("%s exists but is not readable JSON. Fix or delete it before writing —"
+                                 " overwriting it would drop a connection this command cannot see."
+                                 % MCP_JSON_REL)
+    merged = dict(existing)
+    merged.update(new_servers)
+    _append_gitignore(out_root)
+    core.atomic_write(path, json.dumps({"mcpServers": merged}, indent=2, ensure_ascii=False) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path, existing, merged
 
 
 def _normalise_server(server):
@@ -847,17 +998,14 @@ def cmd_handoff_mcp(args):
         out[key] = normalised
         unwrapped = unwrapped or did
 
-    path = os.path.join(out_root, MCP_JSON_REL)
-    _append_gitignore(out_root)
-    core.atomic_write(path, json.dumps({"mcpServers": out}, indent=2, ensure_ascii=False) + "\n")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    path, existing, merged = _merge_mcp_json(out_root, out)
 
     core.out("wrote %s (mode 600, git-ignored)" % MCP_JSON_REL)
     for key, server in out.items():
         core.out("  server  %s -> %s" % (key, server["url"]))
+    kept = [k for k in existing if k not in out]
+    if kept:
+        core.out("  kept    %s (already configured here)" % ", ".join(sorted(kept)))
     if unwrapped:
         core.out("  NOTE: the pasted block ran `npx mcp-remote`; rewritten to the native HTTP transport."
                  "\n        Claude Code speaks HTTP to an MCP server itself, and mcp-remote refuses a"
@@ -866,6 +1014,101 @@ def cmd_handoff_mcp(args):
     core.out("⚠️  RESTART Claude Code ONCE, in this folder, and approve the server when asked.")
     core.out("    MCP servers connect at session start, so the session that wrote this file cannot use it.")
     core.out("    Every session after that is connected and must NOT ask for the configuration again.")
+    return 0
+
+
+def cmd_handoff_browser(args):
+    """Add a BROWSER MCP server to this folder's `.mcp.json`, so the session can drive the live project.
+
+    <p>Why this is a separate command from `handoff mcp`. They carry different things and fail
+    differently. `handoff mcp` moves a CREDENTIAL and must never touch anything but STDIN; this one adds
+    a local driver with no secret in it, so it takes a plain flag, is safe to re-run, and is safe to
+    print in full. Merging them behind one flag would mean the credential path grows an argument, which
+    is the one thing that path may not have.
+
+    <p>Named servers, not free text: the key becomes part of every tool name the model sees
+    (`mcp__chrome-devtools__*`) and therefore part of every permission rule the user writes. A key
+    chosen per folder makes every rule and every habit unshareable.
+
+    <p>⛔ It does NOT install anything. Detecting a missing `npx` and installing it are different acts:
+    the first is a fact about this machine, the second is a change to it, and a toolkit that silently
+    installed software would be doing so under whatever privileges the session happens to hold. So it
+    REPORTS what is missing and the exact line that fixes it, and leaves running that line to the
+    session — which is answerable to the person watching it.
+    """
+    workdir = os.path.realpath(args.project or ".")
+    if not os.path.isfile(os.path.join(workdir, core.F_TENANT)):
+        raise core.ToolError("--project must be the UNPACKED export dir (the one holding %s): %s"
+                             % (core.F_TENANT, workdir))
+    out_root = os.path.realpath(args.out) if getattr(args, "out", None) else os.path.dirname(workdir)
+    if not os.path.isdir(out_root):
+        raise core.ToolError("--out is not a directory: %s" % out_root)
+    if out_root == workdir or os.path.commonpath([out_root, workdir]) == workdir:
+        raise core.ToolError("--out must not be the export dir or inside it (%s): `pack` walks that "
+                             "directory, so the file would ship inside the .mrjun." % workdir)
+
+    name = getattr(args, "server", None) or DEFAULT_BROWSER
+    if name not in BROWSER_SERVERS:
+        raise core.ToolError("unknown browser server %r — choose one of: %s"
+                             % (name, ", ".join(sorted(BROWSER_SERVERS))))
+
+    already = _read_mcp_json(out_root)
+    path, existing, merged = _merge_mcp_json(out_root, {name: dict(BROWSER_SERVERS[name])})
+
+    if name in existing:
+        core.out("%s already declared %s — rewritten to the canonical entry" % (MCP_JSON_REL, name))
+    else:
+        core.out("added %s to %s (mode 600, git-ignored)" % (name, MCP_JSON_REL))
+    core.out("  %s -> %s %s" % (name, BROWSER_SERVERS[name]["command"],
+                                " ".join(BROWSER_SERVERS[name]["args"])))
+    if not already:
+        core.out("  NOTE: no tenant connection in this file yet. The browser drives the project through"
+                 "\n        its UI, but reading and writing OBJECTS needs `handoff mcp` as well.")
+
+    # WHERE to test. Assembled, not guessed: the coordinates come from the token when there is one
+    # (it is what the writes travel on) and the origin from --base-url or what this folder already
+    # recorded. Asked for once per folder and never again.
+    state = _recorded_state(out_root)
+    proj = state.get("project") or {}
+    coords = _token_coordinates(out_root) or {}
+    realm = coords.get("realm") or proj.get("realm")
+    client = coords.get("client") or proj.get("client")
+    root = _clean_root_url(getattr(args, "base_url", None)) or _recorded_root_url(out_root)
+    live = _project_url(root, realm, client)
+
+    if coords and proj.get("realm") and (coords.get("realm") != proj.get("realm")
+                                         or coords.get("client") != proj.get("client")):
+        core.out("")
+        core.out("⛔ MISMATCH — this folder mirrors %s/%s but the MCP token names %s/%s."
+                 % (proj.get("realm"), proj.get("client"), coords.get("realm"), coords.get("client")))
+        core.out("   Every live write goes where the TOKEN says. Stop and confirm which project this is")
+        core.out("   before driving anything: a fix verified here would be applied over there.")
+
+    core.out("")
+    if live:
+        core.out("WHERE TO TEST: %s" % live)
+        core.out("  ⛔ Open THAT, not the bare root — the root bounces to the login form and leaves you")
+        core.out("     on `…/auth;jsessionid=…`, which is not this project and renders none of it.")
+        if getattr(args, "base_url", None):
+            core.out("  (recorded — re-run `handoff emit` to write it into .dokie/project.json)")
+    else:
+        core.out("WHERE TO TEST: UNKNOWN — ask the user ONCE, then record it so nobody asks again:")
+        core.out("      \"what is the project's URL? something like http://<host>:<port>/%s/%s\""
+                 % (realm or "<realm>", client or "<client>"))
+        core.out("  then: mrjun.py handoff emit --project <workdir> --base-url http://<host>:<port>")
+        if not (realm and client):
+            core.out("  (realm/client are unknown too — they come from the MCP token or the export)")
+
+    missing = [b for b in ("node", "npx") if not _which(b)]
+    if missing:
+        core.out("")
+        core.out("⛔ MISSING ON THIS MACHINE: %s" % ", ".join(missing))
+        core.out("   The server is declared but will fail to start. Install Node (which brings npx):")
+        core.out("       brew install node          # macOS")
+        core.out("   then re-run this command to confirm.")
+    core.out("")
+    core.out("⚠️  RESTART Claude Code ONCE, in this folder, and approve the server when asked.")
+    core.out("    MCP servers connect at session start, so the session that wrote this file cannot use it.")
     return 0
 
 
@@ -927,11 +1170,27 @@ def cmd_handoff_emit(args):
         "case_rel": _rel(case_dir, out_root),
         "mrjun_file_rel": _rel(packed, out_root) if packed else None,
         "mcp": None,
+        "root_url": None,
+        "live_url": None,
+        "token_realm": None,
+        "token_client": None,
     }
     # The connection is whatever `.mcp.json` in this folder already says — one source of truth, written by
     # `handoff mcp`. Nothing is derived from a flag, so the machine state cannot disagree with the file the
     # client actually reads.
     facts["mcp"] = _read_mcp_json(out_root)
+    # The coordinates the TOKEN names win over the ones the export carries, because the token is what the
+    # writes actually travel on: a folder whose export says one project while its token says another would
+    # otherwise report the export's name and apply every change to the other one.
+    coords = _token_coordinates(out_root)
+    if coords:
+        facts["token_realm"] = coords.get("realm")
+        facts["token_client"] = coords.get("client")
+        facts["realm"] = coords.get("realm") or facts["realm"]
+        facts["client"] = coords.get("client") or facts["client"]
+    facts["root_url"] = (_clean_root_url(getattr(args, "base_url", None))
+                         or _recorded_root_url(out_root))
+    facts["live_url"] = _project_url(facts["root_url"], facts["realm"], facts["client"])
 
     core.out("handoff emit: %s (mode=%s, format=%s)" % (facts["name"], facts["mode"], args.format))
     core.out("  export     %s" % facts["workdir_rel"])

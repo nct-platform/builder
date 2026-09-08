@@ -265,7 +265,166 @@ report cannot see.
 
 ---
 
-## 8. Finishing a support session
+## 8. Live test — driving the running project in a real browser
+
+The MCP channel reads and writes OBJECTS. It cannot tell you whether the thing a person opens actually
+works: a page can hold a perfectly-shaped plugin and still render empty, a rule can be valid Groovy and
+still deny everyone, a workflow can be deployed and still strand a claimed row. Every one of those passes
+`validate` and every one of them is a bug the user finds first. So a support session gets a second channel —
+a real browser, driven by you — and the two together are the only way to say "fixed" and mean it.
+
+⛔ **This is an OFFER, not a default.** Driving the live project performs real actions on a running tenant.
+Propose it, say what it will do, and wait for a yes:
+
+> *"I can test this live: I'll drive the running project in a browser, work through the scenarios, and fix
+> what I find over MCP. It will create test records — and test roles if the scenarios need them — in the
+> real project. Want me to?"*
+
+### 8.1 The second server, and installing what is missing
+
+The tenant connection (§2.2) and the browser driver are two different servers in the same `./.mcp.json`.
+Add the driver with:
+
+```
+python3 ./builder/tools/mrjun.py handoff browser --project ./work
+```
+
+It merges — it never rewrites the file — so the tenant connection survives, and so does the driver when a
+token is later re-pasted. If `node`/`npx` are missing the command says so and prints the line that fixes
+it; **run that line yourself and re-run the command.** Installing the driver is part of the job, not a
+question for the user. Then ⚠️ **restart Claude Code once** — MCP servers connect at session start, so the
+session that wrote the file cannot use it.
+
+### 8.2 Where to test, and ⛔ who logs in
+
+**Open the PROJECT, not the installation.** The platform serves every project under
+`<root>/<realm>/<client>` — `http://host:8077/saas/ardshin2`. Opening the bare root instead bounces to the
+login form and leaves you on `…/auth;jsessionid=…`: a URL that loads, renders none of this project, and
+looks enough like a working page to be reported as one.
+
+You are not supposed to ask for that address if you can work it out, and usually you can:
+
+| what | where it comes from |
+|---|---|
+| `realm`, `client` | the **MCP token's own claims** — decoded, not verified, because this is addressing and not authorization. Failing that, `.dokie/project.json`, failing that the export |
+| the root `http://host:port` | ⛔ the only part nobody can derive. The MCP endpoint is a DIFFERENT service on a different port, so it does not tell you where the UI is |
+
+So: if `.dokie/project.json` already records `project.liveUrl`, use it and **ask nothing**. If not, ask once
+for the origin and record it, so no later session in this folder asks again:
+
+```
+python3 ./builder/tools/mrjun.py handoff emit --project ./work --base-url http://<host>:<port>
+```
+
+`handoff browser` prints the resolved address, or says exactly which half is missing. It also compares the
+coordinates in the token against the ones the folder records and ⛔ **stops you on a mismatch** — the writes
+travel on the token, so a folder mirroring one project while its token names another is a session verifying
+a fix here and applying it there.
+
+**Then the login: you must never type a password, and never ask for one in the chat.** Not the author's,
+not a test user's, not one the user offers unprompted. Instead:
+
+1. open the project's URL in the browser you drive;
+2. ask the user to **log in themselves, in that window, as a user holding the author role**;
+3. wait for them to confirm, then verify by reading the page — the authoring affordances are visible or
+   they are not;
+4. from that point on you are driving an already-authenticated session, which is all you ever needed.
+
+This is not a formality that costs a turn. A credential typed into a tool call is in the transcript, and a
+transcript is copied, summarised and stored. Asking the human to authenticate keeps every secret in the one
+place that already holds it — their browser.
+
+### 8.3 Why the author user comes first
+
+Ask for **author** specifically, before anything else, because the author role is the one that can create
+roles. With it you can build every other identity the scenarios need; without it you are stuck one step
+into the first scenario, having already spent the setup.
+
+Once you are in as an author, you create the rest yourself — role groups, test users, their assignments —
+through the platform's own MCP tools, and you do not ask again.
+
+⛔ **Everything you create is real and stays there.** So:
+
+* give every test identity a name that says what it is and who made it — `zz-test-<role>` — so a human
+  scanning the project's users a month later knows instantly what they are looking at;
+* keep a list as you go, and hand it over at the end (§9) — what you created, and whether it can be deleted;
+* never repurpose a REAL user for a test, and never change a real user's roles to make a scenario pass.
+  That is not a test result, it is a production change wearing one.
+
+### 8.4 The scenario file and the plan
+
+The scenarios live where the rest of the run log lives — the working folder of
+[26](26-orchestration-and-testing.md) §6, beside the workdir, never inside it:
+
+```
+build-plan/
+  test-scenarios.md   # INPUT  — what a person is supposed to be able to do, in their words
+  test-report.md      # OUTPUT — what you drove, what you saw, what you fixed
+  plan.json           # the coverage ledger; a scenario that fails becomes a row
+```
+
+If `test-scenarios.md` does not exist, **write it before you drive anything**, from the plan rows and the
+case notes, and show it to the user. A scenario is one sentence of intent plus the role it is performed as:
+
+```
+- [Initiator]        raise a procurement request, save it as a draft, and see it in my worklist
+- [ProcurementAdmin] open that request, approve it, and see the status change
+- [Initiator]        try to approve my own request — and be refused
+```
+
+That last shape matters as much as the first two. **A scenario set with no negative cases cannot detect a
+permission bug** — it only ever proves that the people who should get in, get in.
+
+⛔ **You decide the plan, and you write it down before driving.** Nobody hands you an ordered list of
+checks. Order the scenarios so that each one leaves the project in a state the next one can use, put the
+cheapest disproof first, and say in one line why that order. A plan invented mid-drive is a plan nobody can
+review and you cannot re-run identically after a fix.
+
+### 8.5 The loop
+
+For each scenario, in the order you chose:
+
+1. **Drive it** as the role it names, through the UI, exactly as a person would.
+2. **Observe** — and observe the right thing. What the page renders is the finding; what the log says is
+   the cause. Read both, because a button that does not appear and a button that appears and fails are two
+   different bugs with two different fixes.
+3. **Record it before fixing it.** A finding written down after the fix is a finding shaped by the fix. One
+   row per finding in `test-report.md`: the scenario, the role, what you expected, what happened, and the
+   evidence — the log line, not your reading of it.
+4. **Fix it over MCP**, under the rules that already govern every support change: one change at a time, the
+   local export edited too (§4), `validate` before the live write, and **read the object back** (§2.3).
+   ⛔ If the fix belongs to §6 — a PDF template, a project locale, seed data — there is NO live channel:
+   record it, say so, and move on rather than half-fixing it.
+5. **Re-drive the SAME scenario**, whole, from its start. Not the one step you touched. A fix that repairs
+   the step and breaks the one before it is the ordinary case, not the exotic one.
+6. **Re-drive the scenarios that already passed** whenever a fix touched anything shared — a rule, a role
+   group, a workflow. Cheap to do, and it is the only thing that catches a repair that broke a neighbour.
+
+Stop when every scenario passes or when what remains is recorded and named. ⛔ **Never report a scenario as
+passing because its fix was applied.** Applied is not verified. Only a re-drive that you watched counts,
+and if you could not re-drive it, that is what the report says.
+
+### 8.6 ⛔ What you must not drive on a live tenant
+
+* **Anything irreversible against records you did not create** — deleting, approving, rejecting, sending.
+  Real rows belong to real people. Create your own and act on those.
+* **Anything that sends** — mail, notifications, integrations that call outward. A test run that emails a
+  real customer is not a test. Check what a workflow node does before you trigger it, not after.
+* **Bulk actions**, even on your own rows. One at a time is slower and is the only version you can undo.
+* **A destructive scenario on a project the user is demonstrating from.** Ask which project you are on
+  before the first write if there is any doubt — see the mode and coordinates in `.dokie/project.json` (§1).
+
+### 8.7 When the browser is not enough
+
+Some failures are invisible from the UI and visible instantly in the platform's own logs — a denied role
+check, a silently dropped field, a rule that threw and was swallowed. If the session has access to the
+service logs, read them; if it does not, say what you would have looked for. ⛔ Do not infer a cause from
+the rendered page alone and then fix on that inference. A guess that happens to fix the symptom leaves the
+cause in place, and it comes back in the next scenario as something that looks unrelated.
+
+---
+
+## 9. Finishing a support session
 
 A support change is not a build, and the four-gate ladder of `system_prompt.txt` does not apply to it. The
 ladder for one change is shorter and stricter:
@@ -280,3 +439,13 @@ ladder for one change is shorter and stricter:
 Then hand over: what changed, in which project and on which branch, what you verified and what you could not,
 which items from §6 were involved and therefore still need a human, and — if any workflow was touched — that it
 needs Deploy.
+
+If the session drove a live test (§8), the hand-over carries three more things, and they are the ones a
+person cannot reconstruct from the diff:
+
+* **the scenario outcome** — which scenarios passed on a re-drive you watched, which failed, and which you
+  never got to. ⛔ "Fix applied" is not an outcome; only a re-drive is;
+* **what you created in the live project** — every `zz-test-*` role group, user and record, and whether it
+  is safe to delete. A test identity nobody knows about is a permission hole nobody is looking for;
+* **findings you did NOT fix**, each with its evidence and why — no live channel (§6), out of scope, or
+  needing a decision that is not yours.

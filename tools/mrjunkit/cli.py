@@ -339,6 +339,7 @@ def build_parser():
                          "happens at delivery). Pass build while the build is still running.")
     sp.add_argument("--realm", help="override the realm derived from the export")
     sp.add_argument("--client", help="override the client derived from the export")
+    sp.add_argument("--base-url", dest="base_url", help='the ORIGIN the project is served from — `http://host:port`, no path. Recorded in .dokie/project.json and reused by every later session, so it is asked for ONCE per folder. The project URL is built as <root>/<realm>/<client>; paste only the origin — a pasted `.../auth;jsessionid=...` is trimmed back to it.')
     sp.set_defaults(func=handoff_cmds.cmd_handoff_emit)
 
     sp = hnd.add_parser("mcp", help="write this folder's .mcp.json from a configuration pasted on STDIN "
@@ -346,6 +347,18 @@ def build_parser():
     _add_project(sp)
     sp.add_argument("--out", help="project folder the connection belongs to (default: the export dir's parent)")
     sp.set_defaults(func=handoff_cmds.cmd_handoff_mcp)
+
+    sp = hnd.add_parser("browser", help="add a browser MCP server to this folder's .mcp.json so the "
+                                        "session can drive the LIVE project in a real browser")
+    _add_project(sp)
+    sp.add_argument("--out", help="project folder the connection belongs to (default: the export dir's parent)")
+    sp.add_argument("--server", choices=tuple(sorted(handoff_cmds.BROWSER_SERVERS)),
+                    default=handoff_cmds.DEFAULT_BROWSER,
+                    help="which driver to declare (default: %s). The key becomes part of every tool "
+                         "name and permission rule, so it is a fixed set rather than free text."
+                         % handoff_cmds.DEFAULT_BROWSER)
+    sp.add_argument("--base-url", dest="base_url", help='the ORIGIN the project is served from — `http://host:port`, no path. Recorded in .dokie/project.json and reused by every later session, so it is asked for ONCE per folder. The project URL is built as <root>/<realm>/<client>; paste only the origin — a pasted `.../auth;jsessionid=...` is trimmed back to it.')
+    sp.set_defaults(func=handoff_cmds.cmd_handoff_browser)
 
     # -- rule ---------------------------------------------------------------
     rule = sub.add_parser("rule", help="rep-objects rules").add_subparsers(dest="sub", metavar="<sub>")

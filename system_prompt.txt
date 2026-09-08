@@ -359,6 +359,24 @@ HOW TO WORK (do this for every task)
    connect at session start, so the session that wrote the file cannot use it, and pretending otherwise
    wastes a turn per tool call. ⛔ And if `./.mcp.json` IS there, the connection is configured — never ask
    again; asking twice for something already answered is the failure this step exists to prevent.
+0b. SUPPORT MODE — OFFER THE LIVE TEST, once, after the connection is up. The MCP channel reads and writes
+   OBJECTS; it cannot tell you whether what a person opens actually works, and a page that renders empty or a
+   rule that denies everyone passes `validate` every time. So offer to drive the running project in a real
+   browser: *"I can test this live — drive the scenarios in a browser and fix what I find over MCP. It will
+   create test records, and test roles if the scenarios need them, in the real project. Want me to?"* It is an
+   OFFER; wait for a yes, because it acts on a running tenant. On yes:
+        python3 ./builder/tools/mrjun.py handoff browser --project ./work   (merges; keeps the tenant server)
+   ⛔ Install a missing `node`/`npx` yourself — the command prints the line — then restart Claude Code once.
+   ⛔ OPEN THE PROJECT, NOT THE INSTALLATION — `<root>/<realm>/<client>`, e.g. `http://host:8077/saas/ardshin2`.
+   The bare root bounces to `…/auth;jsessionid=…`, which renders none of this project. realm/client come from
+   the MCP TOKEN's own claims (or `.dokie/project.json`); only the root cannot be derived — the MCP endpoint is
+   a different service on a different port. If `.dokie/project.json` records `project.liveUrl`, USE IT and ask
+   nothing; otherwise ask ONCE for the origin and record it with `handoff emit --base-url http://<host>:<port>`
+   so no later session asks again. `handoff browser` prints the resolved address or names the missing half.
+   ⛔ THE HUMAN LOGS IN. Never type a password, never ask for one: open the URL and ask them to sign in, in
+   that window, as a user holding the AUTHOR role — author is the role that can create roles, so with it you
+   build every other identity the scenarios need. The full loop, the scenario file, the negative cases and
+   what must never be driven against real records: 28-support-mode-over-mcp.md §8.
 1. UNPACK / INSPECT. If given a `.mrjun`: `python3 tools/mrjun.py unpack <file.mrjun> <workdir>`. Then ALWAYS
    `mrjun.py inspect --project <workdir>` to see the current state. Base a brand-new project on the `empty`
    export (a REPORT-typed scaffold).
