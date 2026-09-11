@@ -106,6 +106,56 @@ resolves to 127.0.0.1, and the failure surfaces only as `Connection closed`.
 session start, so the session that wrote the file cannot use it. That is one restart per folder for its
 whole life; every session afterwards is connected and must never ask for the configuration again.
 
+**Kill the approval prompt while you are there.** A server declared in `./.mcp.json` is *offered*, not
+trusted: Claude Code parks it at `⏸ Pending approval` until a human approves it in an interactive start.
+Pre-approve it by name in `./.claude/settings.local.json` (personal, git-ignored) so the restart asks
+nothing:
+
+```json
+{ "enabledMcpjsonServers": ["<tenant-server-name>", "chrome-devtools"] }
+```
+
+`handoff mcp` / `handoff browser` write `./.mcp.json`; this file is the second half, and the two together
+make the restart a single keystroke. (`enableAllProjectMcpServers: true` approves every server the folder
+declares — blunter, and it auto-trusts anything added later.)
+
+> ⛔ **The existing connection IS the channel — use it, do not re-negotiate it.** If `./.mcp.json` already
+> names a server, the session's job is to CALL it. Never ask for a token that is already there, never
+> re-run `handoff mcp` over a working config, and never offer a re-import (§7) as the "easier" route: a
+> re-import REPLACES the project, and proposing it while a live channel exists is the single most expensive
+> wrong turn in this mode.
+>
+> **When the tools are missing, say WHICH of the two states you are in — do not call the channel broken:**
+> * **Configured but not attached** — no `mcp__<server>__*` tool exists in the session, and
+>   `claude mcp list` prints `⏸ Pending approval` (or nothing) for it. Cause is almost always that
+>   `.mcp.json` was written *during this very session*. Fix: the pre-approval above + one restart. The
+>   config is correct; do not rewrite it, and do not re-ask the user for a token to "check" it.
+> * **Attached but failing** — the tools exist and the CALL returns an error. Only then is it a channel
+>   problem: read the per-object error (§4) and report it.
+>
+> **`connected` is not `usable` — check the TOOL LIST, not the status.** A server can complete `initialize`
+> (so `claude mcp get` prints `✔ Connected` and the session's init event lists it as `connected`) and still
+> advertise **zero tools**, which looks exactly like "not attached" from inside the session. Get the ground
+> truth without guessing — the session's own init event:
+>
+> ```
+> claude -p "hi" --output-format stream-json --verbose | head -3
+> #   → system event: .mcp_servers[] (per-server status) and .tools[] (the REAL surface)
+> ```
+>
+> If the server is `connected` but no `mcp__<server>__*` name appears in `.tools[]`, the channel is open and
+> **empty**: nothing to call, and no amount of re-configuring the client changes it. That is a server-side
+> matter (is the MCP surface published for this realm/client, does the token's subject carry the role that
+> exposes it) — say so plainly instead of retrying the connection, and fall back to §7 or to the browser
+> channel (§8). Transport is worth one check while you are there: this platform speaks streamable **http**
+> at `/mcp/rpc`; registering the same URL as `sse` fails to connect outright.
+
+> ⛔ **Raw HTTP to the MCP URL is NOT a fallback.** These endpoints commonly sit behind a WAF that answers
+> anything without a browser-shaped user-agent with `403 Cloudflare 1010 browser_signature_banned` — a
+> `curl`/`urllib` probe proves nothing about the token, and forging a user-agent to get around the block is
+> out of bounds. The platform's own MCP client is the only sanctioned caller: if it is not attached, attach
+> it (above) rather than hand-rolling JSON-RPC.
+
 ⛔ **The credential is now IN the folder.** The file is mode 600 and git-ignored, but handing the folder to
 someone else hands them the token. Give them a folder without it and let them paste their own — or, if the
 folder must travel with a working connection, mint a token scoped to what they are allowed to do (§2.1) and
