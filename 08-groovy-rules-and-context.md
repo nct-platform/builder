@@ -1033,8 +1033,10 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     `service.quota` = `null`. `service.store` is **not** in that list — both members are wired by all
     three executors (`GroovyExecutorHelper.applyStore`), so they always EXIST and a store that cannot reach
     anything answers empty rather than throwing. (A `put` past a limit — key over 255 chars, value over ~64 K
-    characters, nesting over 32, the 201st session key, a value that is not JSON-shaped — IS refused, naming
-    the key.) But
+    characters, nesting over 32, the 201st session key, the 501st user key for one person, a number past 38
+    digits, a value that is not JSON-shaped — IS refused, naming the key. A decimal reads back a `BigDecimal`
+    with its scale, a whole number an `Integer`, a date its ISO TEXT — see
+    [16](16-groovy-service-api.md) §2.14 for the full table.) But
     `service.store.session` is EMPTY unless a browser session took part: in a VALIDATION rule, in a CRUD GROOVY
     method invoked directly from a page, in anything a process table evaluates or runs against a case, and in
     anything headless. `service.store.user` is empty only where there is no acting user.

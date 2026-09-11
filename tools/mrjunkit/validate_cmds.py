@@ -3667,8 +3667,11 @@ def _check_db_dump(p, r):
     savepoint and rolls back the WHOLE schema — "The database was NOT replaced"); a non-numeric `columnTypes`
     entry or `sequences[].lastValue` → ERROR (both are read as `Number`); a table whose `columns` and
     `columnTypes` parallel arrays differ in length → ERROR; a DDL `DEFAULT nextval('<seq>')` naming a sequence
-    not in that schema's `sequences[]` → ERROR; a dump `database` name disagreeing with project-db-meta.json /
-    a crud's sourceDb → WARN."""
+    not in that schema's `sequences[]` → ERROR; **any `views`/`functions` entry that is not an object with
+    `name` + `definition`, a VIEW whose `definition` is a whole `CREATE VIEW` statement, or a `triggers`
+    entry that is not a plain DDL string → ERROR** (same family of failure as the rows above: the restore iterates them as `List<Map<String,String>>`,
+    so a bare string throws ClassCastException and rolls back the whole schema); a dump `database` name
+    disagreeing with project-db-meta.json / a crud's sourceDb → WARN."""
     try:
         db = p.db
     except Exception:
@@ -3728,6 +3731,58 @@ def _check_db_dump(p, r):
                         continue
                     bad_cells.append(("%s.%s" % (sch.get("name"), t.get("name")), col,
                                       type(val).__name__, val))
+    # views / functions / triggers, against the restorer's signature - the same class of failure as the
+    # cells above, one level up. restoreDependentObjects takes List<Map<String,String>> and reads
+    # object.get("definition"), so a bare DDL STRING in the list throws
+    #   class java.lang.String cannot be cast to class java.util.Map
+    # which, like the cell case, is not an SQLException: it escapes the per-object savepoint, unwinds the
+    # WHOLE schema, and the import reports "The database was NOT replaced. Schema(s) [x] were rolled back".
+    # Observed in the wild, so this is not a theoretical guard.
+    #
+    # The trap is the ASYMMETRY between the two shapes, and it is why writing a view by hand goes wrong:
+    #   functions/triggers -> definition IS the whole `CREATE OR REPLACE FUNCTION ...`, executed as-is
+    #   views              -> definition is ONLY the SELECT body; the restore wraps it itself in
+    #                         `CREATE OR REPLACE VIEW "<schema>"."<name>" AS <definition>`
+    # Generalising from the first to the second produces either this ClassCastException (bare string) or
+    # `CREATE OR REPLACE VIEW x.y AS CREATE OR REPLACE VIEW ...` (object with a full statement), and the
+    # second is a syntax error thousands of lines into an import that has already rewritten the schema.
+    for sch in db.get("schemas", []) or []:
+        # triggers are NOT in this loop: they are a plain List<String> of pg_get_triggerdef DDL, run through
+        # the same savepoint-per-statement path as indexes and constraints. They get the mirror-image check
+        # below, because an OBJECT there fails the other way round.
+        for kind in ("views", "functions"):
+            for i, obj in enumerate(sch.get(kind, []) or []):
+                where = "%s.%s[%d]" % (sch.get("name"), kind, i)
+                if not isinstance(obj, dict):
+                    r.err("%s is a %s, not an object — every %s entry must be "
+                          "{\"name\": ..., \"definition\": ...}. The restore iterates them as "
+                          "List<Map<String,String>>, so a bare string throws \"class java.lang.String cannot "
+                          "be cast to class java.util.Map\", the whole schema rolls back and the import says "
+                          "\"The database was NOT replaced\". Offending value starts: %r. (10 §enumTypes / "
+                          "views / functions / triggers)"
+                          % (where, type(obj).__name__, kind, str(obj)[:80]))
+                    continue
+                for key in ("name", "definition"):
+                    if not obj.get(key):
+                        r.err("%s has no %r. An entry without a definition is skipped with a warning and the "
+                              "object silently never exists in the imported project. (10)" % (where, key))
+                if kind == "views" and isinstance(obj.get("definition"), str) \
+                        and _CREATE_STMT_RE.match(obj["definition"]):
+                    r.err("%s definition starts with a CREATE statement. A VIEW's definition is ONLY the "
+                          "SELECT body — the restore wraps it itself: CREATE OR REPLACE VIEW \"<schema>\".\""
+                          "<name>\" AS <definition>. As written the import would run "
+                          "`CREATE OR REPLACE VIEW x.y AS CREATE OR REPLACE VIEW ...` and fail on syntax. "
+                          "(Unlike functions/triggers, whose definition IS the whole CREATE.) Keep everything "
+                          "after the `AS`; schema references inside the body are remapped for you. (10)"
+                          % where)
+        for i, trg in enumerate(sch.get("triggers", []) or []):
+            if not isinstance(trg, str):
+                r.err("%s.triggers[%d] is a %s — triggers are a list of ready-to-run DDL STRINGS "
+                      "(pg_get_triggerdef), not {name, definition} objects like views and functions. The "
+                      "restore reads them as List<String> and runs each one, so an object throws a "
+                      "ClassCastException and rolls the whole schema back. (10)"
+                      % (sch.get("name"), i, type(trg).__name__))
+
     if bad_cells:
         where = {}
         for tbl, col, tname, val in bad_cells:
@@ -3744,6 +3799,10 @@ def _check_db_dump(p, r):
                            for k, v in shown[:8])
                  + (" ; +%d more" % (len(shown) - 8) if len(shown) > 8 else "")))
 
+
+# A definition that begins by declaring the object rather than describing it. Used to tell a VIEW body
+# (which must be a bare SELECT) from a whole statement pasted into the wrong field.
+_CREATE_STMT_RE = re.compile(r"\s*CREATE\s+(OR\s+REPLACE\s+)?(VIEW|MATERIALIZED\s+VIEW|FUNCTION|TRIGGER)\b", re.I)
 
 _OBJNODE = "com.fasterxml.jackson.databind.node.ObjectNode"
 # dataClass whitelists for the UNAMBIGUOUS single-variant controls only (verified against every reference export).

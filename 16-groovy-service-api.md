@@ -1083,6 +1083,30 @@ carry a `String`, a number, a `boolean`, a `List` or a `Map`, and both hand a st
 `LinkedHashMap` / `ArrayList` (`StoreValueCodec.java`). An arbitrary object is not what a key/value scratchpad
 is for — put its id in, not the object.
 
+**What each type reads back as.** Identical in both scopes — that is the point of the table:
+
+| You store | You get back | |
+|---|---|---|
+| `"text"`, `true`, a `List`, a `Map` | the same | a Map comes back a `LinkedHashMap`, a list an `ArrayList` |
+| `42` — or any whole number | `Integer` | a `Long` too big for `Integer` stays `Long`; past `Long` it is a `BigInteger` |
+| `1.50` — a **decimal literal, which in Groovy is a `BigDecimal`** | `BigDecimal`, scale intact | `1.50` stays `1.50`, not `1.5` |
+| a `Double` or `Float` — e.g. the result of `/` on two doubles | `BigDecimal` | the store has no `Double`: every fractional number comes back a `BigDecimal` |
+| a `Date`, `LocalDate`, `LocalDateTime` | `String` — its ISO text | see the gotcha below |
+| a `UUID`, a single character, a `GString` | `String` | |
+| an enum constant | `String` — its `name()` | |
+
+Decimals keep their exact type and scale on purpose, at every depth — a `Map` of prices comes back a `Map` of
+`BigDecimal`s. Money survives a store round trip: `0.1 + 0.2` is `0.3`, and a thousand additions of `0.01` make
+exactly `10.00`. Whole numbers are deliberately NOT promoted, because a Groovy integer literal is an `Integer`
+and `[1, 2, 3].contains(id)` is false for a `Long`. In both cases the store returns the type your own literal
+would have produced.
+
+**Numbers have a ceiling:** 10 000 digits, and the decimal point at most 10 000 places away from them. That is a
+safety limit, not a business one — it is far past any money, quantity or measurement, and it exists because a
+number like `1E+2147483647` is thirteen characters to write and impossible to read: adding to it or printing it
+throws, in some later rule, with an error nobody can trace back to the `put`. `NaN` and `Infinity` are refused
+for the same reason — JSON cannot carry them, so they would be stored as the *words* `"NaN"` and `"Infinity"`.
+
 #### When a store is empty on purpose
 
 Both scopes are **always objects, never null** — there is nothing to null-check before calling them. What
@@ -1138,8 +1162,12 @@ them under its own root node so they are completable in every rule type
   the same project share it. A key written by one tab is read by the other — usually what is wanted,
   occasionally a surprise. Two tabs in two different organisations do NOT share it.
 - **A key is at most 255 characters, in both scopes,** and a longer one is refused at the `put`.
+- **A decimal keeps its type and its scale; a whole number comes back an `Integer`.** See the table above —
+  this is what makes `[1.50].contains(store.get("fee"))` work, which it would not if money came back a
+  `Double`.
 - **Both scopes are capped: 200 keys in `session`, 500 keys per person in `user`.** A `put` that would add a
-  key past the limit is refused, naming the key; updating a key already held always works, so a rule cannot
+  key past the limit is refused — the message names the scope and the count rather than the key, because the
+  problem is the number of keys, not the one you happened to write last; updating a key already held always works, so a rule cannot
   start failing on a value it already owns. The two limits differ because the costs differ — the session scope
   travels with every rule execution, while the user scope is rows in a database shared by every project on the
   installation. Both exist to refuse the same mistake: **a key per row of your data.** `put("case:" + id, …)`
@@ -1147,9 +1175,17 @@ them under its own root node so they are completable in every rule type
   for ids, flags and preferences.
 - **`user` is keyed by the acting user's e-mail, case-insensitively.** Change a person's e-mail address and
   their stored values do not follow. (Roles and identity work the same way — see §2.3.)
+- **⛔ A date comes back as TEXT, and the two ways that bite are silent.** `store.get("lastRun") + 1` appends
+  the character `1` to the string instead of adding a day, and comparing two ISO strings compares them
+  letter by letter — which is right while the offset is the same and wrong the moment it is not
+  (`"…T10:00+04:00" > "…T09:00+00:00"` is true as text and false as time). Parse it before you use it, or
+  store the epoch millis (`date.time`) and keep a number.
 - **`put(key, null)` removes.** It does not store a null. `containsKey` and `get(key) != null` therefore always
   agree, in both scopes.
 - **`all()` is a copy.** `service.store.user.all().put("x", 1)` stores nothing; use `put`.
+- **Do not depend on the KEY ORDER of a stored map.** `session` gives it back in the order you wrote it;
+  `user` gives it back in the order the database chose. Same keys, same values — different iteration order.
+  Read a stored map by key, never by position.
 - **`clear()` clears the whole scope for that person / that session,** not just the keys this rule wrote.
 - **Concurrent writes are last-write-wins per key.** Each execution carries the session snapshot it started
   with and applies what it changed; a key the rule never touched is left alone, so a second tab's key is not

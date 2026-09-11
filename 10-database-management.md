@@ -382,8 +382,32 @@ covered by `PRIMARY KEY (...)` in `ddl` and by the `uniqueConstraints` strings.
 
 ## enumTypes / views / functions / triggers — shape
 
-These four lists are **empty in the overwhelming majority of schemas** (⚠️ **no live example observed** — the format
-below is taken strictly from the serializer/restore code, so treat it as unverified).
+These four lists are **empty in the overwhelming majority of schemas**. `views` is verified against a real
+import; `enumTypes` / `functions` / `triggers` are taken from the serializer/restore code (⚠️ no live example
+observed — treat those three as unverified).
+
+> ⛔ **The one trap in this section, and it costs you a whole import.** The four lists do NOT share a
+> `definition` convention:
+>
+> | list | element shape | what the text holds |
+> |---|---|---|
+> | `functions` | `{name, definition}` | the **whole** `CREATE OR REPLACE FUNCTION …`, executed as-is |
+> | `views` | `{name, definition}` | **only the SELECT body** — the restore writes `CREATE OR REPLACE VIEW … AS` itself |
+> | `triggers` | a plain **string** | the whole `CREATE TRIGGER …`; no object, no `name` key |
+>
+> Generalising from the first row to the second is the natural mistake and it fails in two ways, both of which
+> reach you only AFTER the import has rewritten the schema:
+>
+> * a bare DDL **string** in the list instead of an object →
+>   `class java.lang.String cannot be cast to class java.util.Map`, and because that is not an SQLException it
+>   escapes the per-object savepoint and unwinds the entire schema:
+>   *"The database was NOT replaced. Schema(s) […] were rolled back to their previous contents"*. Nothing is
+>   lost, but nothing is imported either;
+> * an object whose `definition` is a full `CREATE VIEW` → the restore builds
+>   `CREATE OR REPLACE VIEW x.y AS CREATE OR REPLACE VIEW …` and dies on syntax.
+>
+> `validate` catches both — and the mirror-image mistake of wrapping a **trigger** in `{name, definition}`,
+> which fails the same way for the opposite reason. Run it before you pack.
 
 ### `enumTypes`
 
@@ -417,8 +441,23 @@ document recommends (dimension tables instead of pg enums) never hits it.
 { "name": "v_open_invoices", "definition": "SELECT ... FROM app_schema.invoices WHERE ..." }
 ```
 
+* `name` — the view name **alone**, no schema and no quotes.
+* `definition` — **everything after `AS`, and nothing else.** No `CREATE`, no view name, no trailing semicolon.
+
 Restore: `CREATE OR REPLACE VIEW "<schema>"."<name>" AS <definition>`, with schema remapping if
 the target ≠ source.
+
+That remapping is why you write the body with **fully-qualified** references to your own schema
+(`"<your_app_schema>"."other_table"`) and leave them alone: the importer rewrites the source schema name to the
+target project's schema for you. A body that references a table unqualified resolves against the session
+`search_path` at restore time, which is not something you control.
+
+```json
+{ "name": "v_order",
+  "definition": "SELECT co.\"id\", co.\"status\",\n       (SELECT string_agg(DISTINCT c.site_id::text, ',')\n          FROM \"app_schema\".\"route_sheet_cell\" c\n         WHERE c.order_id = co.id) AS site_key\nFROM \"app_schema\".\"customer_order\" co" }
+```
+
+⛔ **Not** `"definition": "CREATE OR REPLACE VIEW ... AS SELECT ..."` — see the box at the top of this section.
 
 ### `functions`
 
@@ -436,7 +475,12 @@ An array of strings — the full `pg_get_triggerdef`:
 "CREATE TRIGGER set_updated BEFORE UPDATE ON app_schema.invoices FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at()"
 ```
 
-Executed as-is, savepoint-per-statement.
+Executed as-is, savepoint-per-statement, after the tables and functions it depends on.
+
+⛔ **The odd one out — a list of plain STRINGS, not of `{name, definition}` objects** like its two neighbours
+above. Wrapping a trigger in an object is the mirror image of the view mistake and fails for the opposite
+reason: the restore reads `List<String>`, so an object throws a ClassCastException and the whole schema rolls
+back. `validate` catches it.
 
 ---
 
