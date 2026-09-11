@@ -272,7 +272,7 @@ service.crud.<alias>.findAll(filter); service.crud.<alias>.count()
 //   ↳ findAll([:]) (ALL keys absent) is safe; a PARTIAL map e.g. [active:"true"] leaves other :params
 //     unbound as "$1 IS NULL" → Postgres "could not determine data type of parameter $1". For a filtered
 //     dropdown use the acFindBy<X>Like pipeline, not a partial findAll. (02 §4a)
-// global/transient attributes — the transient process variables any rule may write and read (a service task
+// global attributes — the process variables any rule may write and read (persisted with the case) (a service task
 // setAttrs a new id, a gateway predicate getAttrs it). A SUBMITTED FORM value is here only when the form was
 // opened WITHOUT a row (workflow user task, ProcessTable start/global action); opened from a
 // crud.table/crud.tree ACTION the form is in CRUD mode:
@@ -282,9 +282,17 @@ service.crud.<alias>.findAll(filter); service.crud.<alias>.count()
 context.data.setAttr("k", v); context.data.getAttr("k", default)
 // current item of a List control:
 context.currentData.get()
+// send the browser to another page after an action (EXECUTION rules only, path WITHOUT the organisation):
+service.redirectPage("orders/queue")
 // a rule calls a rule (by NAME, boolean):
 service.rule("Is Author")
 // roles:  service.security.hasAnyRoleGroup("Author")
+// remember something about this SESSION or this USER (16 §2.14). NOT a substitute for context.data.setAttr,
+// which is how a workflow step publishes to the next one — nothing joins a store key to a case:
+service.store.session.put("selectedBranchId", id);  service.store.session.get("selectedBranchId")   // this browser session
+service.store.user.put("rowsPerPage", 50);          service.store.user.get("rowsPerPage", 25)       // this person, forever
+//   ↳ put(k, null) REMOVES. No browser session (scheduler/Kafka/MCP/headless task) => session stores nothing and
+//     reads null; no acting user => user does the same. Never throws.
 // RIMM query:  service.rimm.run([name:"...", itemsPerPage:100, parameters:[...]])
 // CHOICES RULE (dropdown/autocomplete) MUST convert rows to options — NEVER return a raw findAll/find list:
 //   dropdown:         return service.global.conversion.toSelectOptions(list,"id","name")

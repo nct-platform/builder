@@ -68,7 +68,10 @@ Worked input (`rep-objects.json` — a project with the usual single context `fi
 > crud aliases, so any rule referencing it sees the entire CRUD set.
 
 From this pair `HintsService.buildRuleHints("<realm>","<client>",["871f974f-..."],EXECUTION_RULE)` builds the tree.
-The request shape is `RuleHintsRequestDto{contextIdentifiers[], ruleType}`; the response shape (JSON) is described below.
+The request shape is `RuleHintsRequestDto{contextIdentifiers[], ruleType, crudMethod}` — `crudMethod` is `true`
+only from the business-logic editor, which writes a GROOVY method of a dynamic CRUD; such a method IS an
+execution rule and asks for `EXECUTION_RULE` hints, so the flag is the only thing that distinguishes it, and the
+only member it changes is `service.redirectPage`. The response shape (JSON) is described below.
 
 ### JSON schema of the hint tree (response of `getRuleHints`)
 
@@ -103,12 +106,15 @@ The request shape is `RuleHintsRequestDto{contextIdentifiers[], ruleType}`; the 
                       "users":     {"allowed":{"type":"Integer"}, "current":{"type":"Long"}},
                       "schedulers":{"allowed":{"type":"Integer"}, "current":{"type":"Long"}} },
     "enums":        { "<EnumName>": { "list()": <methodDetails> } },
+    "store":        { "session": { "get(String key)": <methodDetails+argValues>, "get(String key, Object defaultValue)": ..., "put(String key, Object value)": ..., "remove(...)": ..., "containsKey(...)": ..., "keys()": ..., "all()": ..., "clear()": ... },
+                      "user":    { /* the SAME eight, identical signatures */ } },
     "actionName":   {"type":"String"},
     "actionId":     {"type":"String"},
     "rule(String ruleName)": <methodDetails>,
     "crud":         { "<crudAlias>": { "find(...)": <methodDetails>, ... } }        // service.crud.<alias>.<method>()
   },
-  "validation": { "addError(String message)": <methodDetails>, "addWarning(...)": ..., "addFieldError(...)": ..., "addFieldWarning(...)": ... }  // ONLY when ruleType==VALIDATION_RULE
+  "validation": { "addError(String message)": <methodDetails>, "addWarning(...)": ..., "addFieldError(...)": ..., "addFieldWarning(...)": ... },  // ONLY when ruleType==VALIDATION_RULE
+  "__storeKeys": { "session": { "<key>": {"type":"<ValueType>"} }, "user": { "<key>": {"type":"<ValueType>"} } }  // the keys each store has been written under; every rule type
 }
 ```
 
@@ -133,9 +139,13 @@ one of three source forms — an inline `[{value, label, comment}]` list, `{"ref
 root `__argValueSets` (so a list shared by several methods is carried once), or `{"keysOf":"context.data"}`,
 which costs nothing extra because those keys are already in the payload. `value` is what goes between the
 quotes, `label` is what the dropdown shows, `comment` is appended after the call as a block comment.
-Today the platform emits only the `ref` form — two sets: `workflows` for `service.workflow.start`, and
-`processTables` for `service.workflow.list` / `actions` / `startActions`. The other two source forms are what
-the next annotated argument would use.
+Two of the three forms are in use today. `ref` carries two sets: `workflows` for `service.workflow.start`, and
+`processTables` for `service.workflow.list` / `actions` / `startActions`. `keysOf` is what every key argument of
+`service.store.session.*` / `service.store.user.*` uses — `{"keysOf":"__storeKeys.session"}` — which is the
+cheaper shape for that list: one entry per key, no labels to duplicate across the ten key-taking methods of the
+two scopes.
+(The keys themselves are new payload, capped server-side; see the `__storeKeys` row below.) The inline list form
+is what the next annotated argument would use.
 
 An entry may also carry **`expandsCall`**, and that is what makes a hint depend on another argument. Some picks
 decide far more than themselves: choosing a workflow decides which contexts and CRUDs the context-data
@@ -145,8 +155,11 @@ root, never from a sibling argument's typed value, and it does not resolve at al
 So the entry names a KIND of expansion, the editor asks the server for it, and the server rewrites the whole
 call with the answers already in it. The kinds are `workflowStart` and `processTable`.
 
-Root keys beginning `__` (today only `__argValueSets`) are payload infrastructure, not language: the editor
-filters them out of the top-level suggestion list.
+Root keys beginning `__` — today `__argValueSets` and `__storeKeys` — are payload infrastructure, not language:
+the editor filters them out of the top-level suggestion list. They are two keys rather than one because they are
+built under different conditions: `__argValueSets` costs a call to another service and is assembled only when
+the payload carries `service.workflow`, i.e. for execution rules; the stores are offered in every rule type, so
+their keys have to be there in every rule type too.
 
 **The key distinction between the three node shapes** that the JS parses:
 - **method-details** — a map with a `"signature"` field (String). JS treats it as a method call
@@ -241,7 +254,10 @@ The same map is reused under `service.crud.<crudAlias>` (`HintsService.java`), s
 | `service.enums.<EnumName>.list()` | the project enum registry | `buildEnumsHints` |
 | `service.workflow.start(...)` | starting a process; **two overloads**, both annotating argument 0 with the `workflows` value set so the identifier autocompletes inside the quotes, and both expanding the whole call when one is picked | `buildWorkflowHints` + `attachArgValueSets` |
 | `service.workflow.list / actions / startActions / contextData / complete` | working an existing case; the settings-id argument is annotated with the `processTables` value set and expands the whole call, writing that table's real filter keys and naming its indexed values | `buildWorkflowHints` + `attachArgValueSets` |
+| `service.store.session.*` / `service.store.user.*` | the two key/value stores; **eight identical methods each**, every key argument annotated with `argValues: {"0": {keysOf: "__storeKeys.<scope>"}}` so it completes from that scope's catalogued keys. Offered in **every** rule type, because all three executors wire the runtime | `buildStoreHints` → `buildStoreScopeMethods` |
+| `__storeKeys` (payload root, not under `service`) | `{session: {<key>: {type}}, user: {…}}` — the keys this project has actually written, per scope. A separate root key rather than an entry in `__argValueSets`, which exists only for execution rules | `attachStoreKeys` |
 | `service.actionName` / `service.actionId` | typed leaf `{type:String}`; set when the rule is invoked from an action button | `HintsService.java` |
+| `service.redirectPage(String pagePath)` | navigating the browser after the rule returns; offered when `ruleType` is `EXECUTION_RULE` **and** `crudMethod` is false — a CRUD GROOVY method asks for execution-rule hints but cannot navigate, so the business-logic editor sends `crudMethod: true` | `HintsService.java` |
 | `service.rule(String ruleName)` | invoking another rule by name | `HintsService.java` |
 | `service.crud.<crudAlias>.<method>()` | flat synonym for `context.<ctx>.<crud>.service.<method>()` | `HintsService.java` |
 

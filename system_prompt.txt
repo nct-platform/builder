@@ -765,6 +765,32 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   new case on every tick, forever.
   Full surface: 16-groovy-service-api.md. Do NOT use the stale `context.service.<alias>` form, and there is no
   `service.workflow.startProcess/getProcess/raiseMessage`.
+- [BOTH] `service.store` is how a rule remembers something about the SESSION or the USER, and it has exactly
+  TWO members, present in every rule type and in CRUD GROOVY methods: `service.store.session.*` (the browser
+  session, per project) and `service.store.user.*` (a database row per user, outlives the session). Each has the
+  SAME eight methods: `get(key)`, `get(key, default)`, `put(key, value)`, `remove(key)`, `containsKey(key)`,
+  `keys()`, `all()`, `clear()`. `put(key, null)` REMOVES. Values must be JSON-shaped (String / number /
+  boolean / List / Map) and come back as such; keys are at most 255 chars.
+  ⛔ `session` is live only where a BROWSER session took part — a rule launched from a page, and anything it
+  calls with `service.rule(...)` / `service.crud.<alias>.<method>()`. It is EMPTY in a VALIDATION rule, in a
+  CRUD GROOVY method invoked directly from a page, in a rule run against a case by process identifier, and in
+  anything headless (scheduler, Kafka, MCP). `user` is empty only where there is no acting user (a scheduler
+  tick has one). Empty means put stores nothing and get answers null — never an exception.
+  ⛔ NOT a replacement for `context.data.setAttr`: attributes travel along a CASE (the process persists them
+  between nodes) or live while a form is open, and nothing joins a store key to a case or a row.
+  There is no `service.session`, `service.cache`, `service.prefs`, `service.storage`, `service.store.global` or
+  `service.store.project`. 16-groovy-service-api.md §2.14.
+- [BOTH] `service.redirectPage("<projectAlias>/<page>")` sends the BROWSER to another page of this project after
+  the rule returns. EXECUTION rules ONLY - a predicate, a validation rule and a CRUD GROOVY method all refuse
+  it, and the editor does not offer it there. The path is everything AFTER the organisation - the organisation
+  segment is prepended for you, because a rule is never told its realm - and it may hold only letters, digits
+  and `- . _ ~ / ? # & = : @ + , ; ! $ ( ) *`; a full URL, a `..`, a backslash, a percent escape or a control
+  character is REFUSED at the call. Two different things, do not confuse them: it is REFUSED with an
+  exception in a predicate, a validation rule and a CRUD GROOVY method; it is simply NOT DELIVERED (nothing
+  happens, no error) where no browser is waiting - a scheduler tick, Kafka, MCP, a headless task, and a rule run
+  against a CASE by process identifier (a workflow task action, a process-table action, a service task). The rest of the rule still
+  runs; the last path wins; a blank path cancels. There is no `service.redirect`, `service.navigate`,
+  `service.goToPage` or `service.setResponsePage`. 16-groovy-service-api.md §2.15.
 - [BOTH] `service.workflow` has SIX members (EXECUTION rules + CRUD GROOVY methods only): `start`, plus
   `list(settingsId, filterValues[, opts])`, `actions(processIdentifier[, settingsId])`,
   `startActions(settingsId)`, `contextData(processIdentifier)` and

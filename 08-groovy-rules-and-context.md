@@ -329,7 +329,7 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 | `...data.hasField('col')` | whether the field exists | `CrudDataDto.hasField` |
 | `context.<ctxAlias>.<crudAlias>.service.<method>(args)` | call a CRUD method (same path as `service.crud`) | `DynamicRuleContext.groovy` → inner `ServiceWrapper` → `executeCrudMethod` |
 | `context.<ctxAlias>.data.<attr>` (read) / `= v` (write) / `.getAttr(k)` / `.setAttr(k,v)` | attributes of **this context** (CONTEXT scope) | `ContextDataWrapper` (read, write) |
-| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** transient attributes (GLOBAL scope) | `GlobalDataWrapper` (read, write); method syntax → `ContextDataDto.getAttr`/`setAttr` |
+| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** attributes (GLOBAL scope) — persisted with the case inside a process, otherwise living as long as the document | `GlobalDataWrapper` (read, write); method syntax → `ContextDataDto.getAttr`/`setAttr` |
 | `context.contextData` | raw `ContextDataDto` | |
 | `context.currentData` | the current item in a nested (List) form, or `null` in the parent | `ExecutionRuleTemplate.groovy` |
 
@@ -339,6 +339,16 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 > (`contextDataMap[ctx].crudDataMap[alias].value`).
 > `context.data.foo` (property) and `context.data.getAttr("foo")` (method) are equivalent and work
 > side by side. An unknown attribute → `null`.
+
+> ⚠️ **An attribute lives as long as the DOCUMENT that carries it — and it is tied to that one document.**
+> Inside a case, the process persists its context data between nodes, so `context.data.setAttr` IS how one step
+> publishes to the next (that is the pattern [07](07-workflows-and-tasks.md) mandates). Inside an open form, the
+> form holds the document for as long as it is open. With neither — a scheduler tick, a headless service task,
+> a rule invoked on its own — the document is built for that one execution and is gone with it.
+> `service.store.session.*` / `service.store.user.*` ([16](16-groovy-service-api.md) §2.14) are the other axis:
+> tied to the browser session or to the person rather than to a form or a case, and reachable from any rule,
+> including one that has neither. Use an attribute to carry something along a case or a form; use the store to
+> remember something about the SESSION or the USER.
 
 > **Which of the three a submitted form value is in depends on how the form was OPENED.** From a workflow user
 > task or a ProcessTable start/global action it is in the attrs — `context.data.*` for a `GLOBAL` control,
@@ -385,11 +395,12 @@ parent's validation (`currentData == null`), then each item is validated separat
 ### `service` — the service facade (`ServiceWrapper`)
 
 > 📚 **Full `service.*` capability surface** — what can actually be called in a script (crud/global/security/
-> rimm/report(PDF)/notification/quota/enums/access/`rule(name)`), with signatures and cross-flows (PDF→mail, notifications) —
+> rimm/report(PDF)/notification/quota/enums/access/store/`rule(name)`), with signatures and cross-flows (PDF→mail, notifications) —
 > [16-groovy-service-api.md](16-groovy-service-api.md). Below is a brief facade summary.
 
 The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
-`access, rimm, security, notification, quota, global, crud, report, enums, workflow, actionName, actionId` + `rule(name)`.
+`access, rimm, security, notification, quota, global, crud, report, enums, workflow, store, actionName, actionId`
++ `rule(name)` + `redirectPage(path)`.
 
 | Syntax | What | Available in | Backing |
 |---|---|---|---|
@@ -411,6 +422,9 @@ The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
 | `service.access.*` | role/user-access mutations (`addRoleAccess`, `hasRoleAccess`, …) | all | `ServiceWrapper.access` (`AccessManager`) |
 | `service.workflow.start("<workflowIdentifier>", ctxMap[, opts])` | start a process; returns its identifier. First argument is the workflow **identifier** (autocompleted inside the quotes), and the workflow must be deployed | **EXECUTION only** (incl. CRUD GROOVY methods) | `WorkflowProxy` — `setWorkflow` refuses in predicate/validation |
 | `service.workflow.list / actions / startActions / contextData / complete` | work an EXISTING case: page through a worklist, ask what may be done to a process, read its context data, execute an action with new data. The first argument of most of them is a **process table's Settings ID**, which makes the rule inherit that table's workflow, filter and indexes — see [16](16-groovy-service-api.md) §2.13 | **EXECUTION only** (incl. CRUD GROOVY methods) | same gate as `start` |
+| `service.store.session.get/put/remove/containsKey/keys/all/clear` | key/value storage for the **browser session**, per project. Empty (put stores nothing, get answers `null`) wherever no browser session took part: a VALIDATION rule, a CRUD GROOVY method invoked directly from a page, anything a process table evaluates or runs against a case, scheduler / Kafka / MCP — see [16](16-groovy-service-api.md) §2.14 | all (but see the empty-list) | `RuleStoreProxy` → `SessionKeyValueStore` |
+| `service.store.user.get/put/remove/containsKey/keys/all/clear` | the same eight methods, stored in the database **per user** and outliving the session. Empty wherever there is no acting user | all | `RuleStoreProxy` → `UserKeyValueStore` |
+| `service.redirectPage("alias/page")` | send the BROWSER to another page of this project after the rule returns. Path WITHOUT the organisation, which is prepended for you; a full URL is refused. Nothing happens when no browser is waiting — see [16](16-groovy-service-api.md) §2.15 | **EXECUTION rules only** — a predicate, a validation rule and a CRUD GROOVY method all refuse it | `ServiceWrapper.redirectPage` |
 | `service.rule("Rule Name")` | run another rule **by name** (`findByName`), return its `returnValue`; same `contextData` | all | `ServiceWrapper.rule` |
 | `service.actionName` / `service.actionId` | name/id of the pressed action button (**`null`**, not `""`, if the rule was not invoked from a button — test `service.actionId != null`, never `!= ''`); **prefer `actionId`** (stable, locale-independent) | all | `ServiceWrapper.actionName/actionId` |
 
@@ -1016,7 +1030,15 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
 15. **`param` is EXECUTION only**, `validation` is VALIDATION only. Predicates have neither.
     The `notification`/`report`/`quota` facades are built **only** for EXECUTION
     (`GroovyExecutionRule.java`); in a predicate/validation `service.notification`/`service.report`
-    `service.quota` = `null`.
+    `service.quota` = `null`. `service.store` is **not** in that list — both members are wired by all
+    three executors (`GroovyExecutorHelper.applyStore`), so they always EXIST and a store that cannot reach
+    anything answers empty rather than throwing. (A `put` past a limit — key over 255 chars, value over ~64 K
+    characters, nesting over 32, the 201st session key, a value that is not JSON-shaped — IS refused, naming
+    the key.) But
+    `service.store.session` is EMPTY unless a browser session took part: in a VALIDATION rule, in a CRUD GROOVY
+    method invoked directly from a page, in anything a process table evaluates or runs against a case, and in
+    anything headless. `service.store.user` is empty only where there is no acting user.
+    [16](16-groovy-service-api.md) §2.14.
 16. **`attrs` is a `Map<String,JsonNode>`.** Don't compare a JsonNode directly — extract:
     `attrs.filterBy?.asText()`, `attrs._crudEntityId?.asText()`. Known keys (illustrative, not
     exhaustive): `filterBy`, `rowsInPage`, `pageNumber`, `processIdentifier`, `_crudAlias`,

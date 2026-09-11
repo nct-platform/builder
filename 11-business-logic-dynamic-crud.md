@@ -1144,6 +1144,15 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
 
 ## Gotchas
 
+- **A GROOVY method has the SAME `service.*` surface as an execution rule** — it IS one
+  ([16](16-groovy-service-api.md)), including `service.store.session.*` / `service.store.user.*` §2.14.
+  ⛔ Two exceptions, both because a method's response is read for its RETURN VALUE alone.
+  `service.store.session` is EMPTY in a method reached DIRECTLY from a page (a table listing, a form save, a
+  run-method dialog): the CRUD API carries no context data, so no browser session travels with it — the SAME
+  method sees the store when a rule called it with `service.crud.<alias>.<method>()`. And
+  `service.redirectPage` is REFUSED outright in a GROOVY method ([16](16-groovy-service-api.md) §2.15): nothing
+  carries a navigation instruction out of one, so redirect from the RULE that called the method. The
+  business-logic editor does not offer it, so the hint and the runtime agree.
 - **Wiring an EXISTING schema (data already in the dump)?** That reverse scenario — converting a populated
   static schema to dynamic CRUDs — has its own playbook with the full column-handling table, enum-option snapshots, document
   lines + delete cascade, and the "verify against real rows" rule: **[18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md)**.

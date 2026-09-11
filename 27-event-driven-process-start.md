@@ -671,6 +671,12 @@ open a case per row. Sweeps page themselves, through a dedicated candidate metho
 > the cost of a query per trigger row. That is a real option when the worklist already indexes it. It is not
 > the default answer: idempotency lives in the business data, where it is exact, free, and independent of any
 > screen's configuration.
+>
+> ⛔ **`service.store.*` is not the answer either.** `service.store.user` ([16](16-groovy-service-api.md) §2.14)
+> is keyed by PERSON, not by row — nothing joins it to the trigger row, so it cannot say "this row already has a
+> case" however reliably the tick carries a user (a scheduler's does: it runs as the schedule's service user).
+> It is the right place for a per-user watermark — "how far did THIS person's digest get" — and the wrong place
+> for a marker column.
 
 ### 5.1 The symptom, so you recognise it
 

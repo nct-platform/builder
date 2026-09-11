@@ -106,7 +106,9 @@ service
  ├─ enums         → service.enums['Name'].list()               (EnumsWrapper)
  ├─ workflow      → .start(id, ctx[, opts]) · .list / .actions / .startActions
  │                  .contextData / .complete                    (WorkflowProxy)
+ ├─ store         → .session.get/put(...) · .user.get/put(...)  (RuleStoreProxy → KeyValueStore ×2)
  ├─ rule(name)    → service.rule("Other Rule")                 (ServiceWrapper.rule)
+ ├─ redirectPage  → service.redirectPage("alias/page")          (ServiceWrapper.redirectPage) EXECUTION only
  ├─ actionName    → String | null                             (which action button was pressed — localized name)
  └─ actionId      → String | null                             (stable id of the action button)
 ```
@@ -115,8 +117,9 @@ service
 → grep `service.<ns>`) and the distribution is always the same shape: `service.crud.*` dominates, then
 `service.global.conversion` (every dropdown ends in one), then `service.security.user`/`hasAnyRoleGroup`,
 then a thin tail — `service.actionId`, `service.rimm.run`, `service.notification.push`, `service.rule(`.
-The namespaces `access`/`quota`/`enums`/`report` are frequently used **zero** times in a given project yet are
-fully present in the hints tree and at runtime — absence from a codebase is not absence from the language.
+The namespaces `access`/`quota`/`enums`/`report`/`store` are frequently used **zero** times in a given project
+yet are fully present in the hints tree and at runtime — absence from a codebase is not absence from the
+language.
 
 ---
 
@@ -974,6 +977,278 @@ task, and a global action (which has no task), both succeed without moving the p
 the node to change has to read the right one.
 ---
 
+### 2.14 `service.store.*` — key/value storage that outlives the rule
+
+Backing — `RuleStoreProxy` (`RuleStoreProxy.java`), holding two implementations of one interface
+(`KeyValueStore.java`): `SessionKeyValueStore` for `session`, `UserKeyValueStore` for `user`. Wired in **all
+three executors** (`GroovyExecutionRule.java`, `GroovyValidationRule.java`, `GroovyPredicate.java` via
+`GroovyExecutorHelper.applyStore`), so both members are always PRESENT — never null, never absent by rule type —
+in an EXECUTION rule, a PREDICATE, a VALIDATION rule and a CRUD GROOVY method alike. A store that cannot reach
+anything answers empty rather than throwing; a `put` past one of the limits below is a different matter and IS
+refused, naming the key.
+
+> ⚠️ **`user` works everywhere there is an acting user; `session` only where a browser session took part.**
+> That distinction is not about the rule TYPE, it is about how the rule was reached — the exact list is under
+> "When a store is empty on purpose" below, and it is worth reading before you choose a scope.
+
+**Not the same axis as the attribute scopes.** The three attribute scopes of doc
+[08](08-groovy-rules-and-context.md) — `context.data.*` (GLOBAL), `context.<ctx>.data.*` (CONTEXT),
+`context.<ctx>.<crud>.data.*` (CRUD) — belong to a DOCUMENT: they travel along a case (the process persists its
+context data between nodes, which is how one step publishes to the next — [07](07-workflows-and-tasks.md)) or
+live for as long as a form is open, and with neither they last exactly one execution. `service.store.*` belongs
+to the SESSION or to the PERSON instead, is reachable from any rule — including one with no form and no case —
+and nothing joins it to a row. Carry something along a case in an attribute; remember something about this
+browser session or this user in the store.
+
+```
+service.store
+ ├─ session   → values that live as long as the user's BROWSER session   (SessionKeyValueStore)
+ └─ user      → values stored in the database for the ACTING USER        (UserKeyValueStore)
+```
+
+| Scope | Lives | Shared with | Dies when |
+|---|---|---|---|
+| `service.store.session` | the browser session, **per project** | every tab of that browser session that is in the SAME project | the session ends (logout, timeout, server restart) |
+| `service.store.user` | a database row per (project, user, key) | every session that person opens, now and later | the rule removes it, the person is removed from the project, or the project is deleted |
+
+Both scopes are scoped to the project: one browser session can have tabs open in two different organisations,
+and neither can see the other's store.
+
+#### The eight methods (identical in both scopes)
+
+| Method | Signature | Behaviour |
+|---|---|---|
+| `get` | `Object get(String key)` | the stored value, or `null` when the key was never written |
+| `get` | `Object get(String key, Object defaultValue)` | …or `defaultValue` when there is none |
+| `put` | `Object put(String key, Object value)` | stores; returns the **previous** value or `null`. `put(k, null)` **removes** |
+| `remove` | `Object remove(String key)` | removes; returns the previous value or `null` |
+| `containsKey` | `boolean containsKey(String key)` | always agrees with `get(key) != null` |
+| `keys` | `List<String> keys()` | every key currently stored, sorted |
+| `all` | `Map<String,Object> all()` | everything, as a plain map. It is a **copy** — writing to it stores nothing |
+| `clear` | `void clear()` | removes everything in that scope |
+
+The Groovy subscript form works too and is the same store: `service.store.user['branch']` reads,
+`service.store.user['branch'] = id` writes (`KeyValueStore.getAt/putAt`).
+
+> ✅ **One interface, two scopes.** Moving a key from `session` to `user` is a one-word edit — the method list,
+> the null semantics and the value shapes are identical by construction. Choose `session` for "for as long as
+> this person is here" (a wizard step, a picked filter, a cached lookup) and `user` for "the next time they log
+> in too" (a preference, a last-used value, a per-user watermark).
+
+#### Worked examples
+
+```groovy
+// Remember what the user picked, in this browser session only.
+service.store.session.put("selectedBranchId", context.crm.branch.data.get().id)
+
+// …and read it back from a completely different rule of the same session.
+def branchId = service.store.session.get("selectedBranchId")
+if (branchId) {
+    return service.crud.order.findByBranch(branchId)
+}
+return service.crud.order.findAll([:])
+```
+
+```groovy
+// A per-user preference that survives logout, read by the rule that actually uses it.
+service.store.user.put("defaultBranchId", 7)
+
+// Read with a default so the first-ever run works.
+def branchId = service.store.user.get("defaultBranchId", 0)
+```
+> ⚠️ Pick a preference some RULE can act on. A CRUD table's page size, for instance, is a static plugin setting
+> with no rule hook, so storing a per-user `rowsPerPage` would change nothing — a store-driven page size means a
+> hand-built HTML table that pages itself ([24c](24c-html-data-tables-and-paging.md)).
+
+```groovy
+// A per-user watermark, so a scheduled digest never re-sends what it already sent.
+// NOTE the scope: a scheduler tick has no browser session, so `session` would be empty there — `user` is the
+// scope that works headlessly, and only when the tick carries an acting user.
+def since = service.store.user.get("lastDigestAt")          // an ISO string, or null on the very first run
+def rows  = service.crud.ticket.findChangedSince(since)
+service.store.user.put("lastDigestAt", service.global.formatting.date.format(
+        service.global.formatting.date.now(), "yyyy-MM-dd HH:mm:ss"))
+```
+
+```groovy
+// Structures round-trip as structures.
+service.store.session.put("filter", [status: "OPEN", branch: 7])
+def filter = service.store.session.get("filter")   // a Map again, not a String
+```
+
+#### Values must be JSON-shaped
+
+A session value crosses the wire between the web tier and the executor; a user value is a `jsonb` column. Both
+carry a `String`, a number, a `boolean`, a `List` or a `Map`, and both hand a structure back as a
+`LinkedHashMap` / `ArrayList` (`StoreValueCodec.java`). An arbitrary object is not what a key/value scratchpad
+is for — put its id in, not the object.
+
+#### When a store is empty on purpose
+
+Both scopes are **always objects, never null** — there is nothing to null-check before calling them. What
+changes is whether they can reach anything:
+
+**`service.store.user` is empty** whenever the execution names no acting user — a service task that runs before
+anybody is assigned. A scheduler tick is NOT such a case: it runs as the schedule's service user, which is why
+`user` is the scope to reach for in anything headless.
+
+**`service.store.session` is empty** wherever no browser session took part. It is live in:
+
+- ✅ an EXECUTION rule or a PREDICATE launched from a page — an action button, a fetch rule, a choices rule, a
+  CRUD-table/tree row-visibility predicate, a form's mapping or hidden-content predicate, a form's
+  before/after rule, `ctx.callRule` from an HTML component;
+- ✅ a rule those rules call with `service.rule("…")`, and a CRUD GROOVY method they call with
+  `service.crud.<alias>.<method>()` — the store travels down the whole chain.
+
+and empty in:
+
+- ⛔ a **VALIDATION rule** — form submission goes through the workflow service, which carries the form's context
+  data and no session;
+- ⛔ a **CRUD GROOVY method invoked directly from a page** (a table listing, a form save, a run-method dialog).
+  The CRUD API carries no context data at all. The SAME method sees the store when a rule called it;
+- ⛔ anything a PROCESS TABLE evaluates (a row, global or start-action predicate) and any rule run against a
+  CASE by process identifier (a task action, a service task) — those requests carry a process or a workflow,
+  not a session;
+- ⛔ a scheduler tick, a Kafka message, an MCP call, anything headless.
+
+In both cases `put` stores nothing and `get` answers `null`, **including within the same script**
+(`DetachedKeyValueStore.java`). That is deliberate: a store that remembered a write for the rest of the rule and
+then dropped it would make one script behave differently from a page and from a cron, with the difference
+surfacing later and somewhere else.
+
+#### Where the keys in autocomplete come from
+
+A store key is invented by whoever writes the rule; nothing declares it up front. So the editor completes a key
+from a **catalogue of keys that have actually been written** — the executor records each key (and the type last
+stored under it) the first time a rule writes it, per scope (`StoreKeyEntity.java`), and the hint payload carries
+them under its own root node so they are completable in every rule type
+(`HintsService.attachStoreKeys`; see [09](09-groovy-hints-and-live-context.md)).
+
+> ⚠️ **A brand-new key completes only after the rule that writes it has run once.** Autocomplete cannot offer a
+> key nothing has ever stored; that would be offering a guess. Type it in full the first time.
+
+> ⛔ **A COMPUTED key pollutes the catalogue permanently.** `put("case:" + id, …)` records one catalogued key per
+> case, forever — the catalogue has no idea the key was generated. The editor is protected (only the most
+> recently written keys are offered, and only a bounded number of them) but the rows stay. Prefer one key
+> holding a map to a key per row.
+
+#### Gotchas
+
+- **`session` is per BROWSER session and per PROJECT, not per tab and not per page.** Two tabs of one login on
+  the same project share it. A key written by one tab is read by the other — usually what is wanted,
+  occasionally a surprise. Two tabs in two different organisations do NOT share it.
+- **A key is at most 255 characters, in both scopes,** and a longer one is refused at the `put`.
+- **Both scopes are capped: 200 keys in `session`, 500 keys per person in `user`.** A `put` that would add a
+  key past the limit is refused, naming the key; updating a key already held always works, so a rule cannot
+  start failing on a value it already owns. The two limits differ because the costs differ — the session scope
+  travels with every rule execution, while the user scope is rows in a database shared by every project on the
+  installation. Both exist to refuse the same mistake: **a key per row of your data.** `put("case:" + id, …)`
+  inside a rule that runs per row will always reach the cap. That data belongs in a CRUD table; the store is
+  for ids, flags and preferences.
+- **`user` is keyed by the acting user's e-mail, case-insensitively.** Change a person's e-mail address and
+  their stored values do not follow. (Roles and identity work the same way — see §2.3.)
+- **`put(key, null)` removes.** It does not store a null. `containsKey` and `get(key) != null` therefore always
+  agree, in both scopes.
+- **`all()` is a copy.** `service.store.user.all().put("x", 1)` stores nothing; use `put`.
+- **`clear()` clears the whole scope for that person / that session,** not just the keys this rule wrote.
+- **Concurrent writes are last-write-wins per key.** Each execution carries the session snapshot it started
+  with and applies what it changed; a key the rule never touched is left alone, so a second tab's key is not
+  destroyed, but two rules writing the SAME key race.
+- **Everything in the SESSION store travels with every rule execution, both ways.** It costs an empty map on
+  every rule while nothing has been written — an empty map is always sent when there is a browser session, and
+  that is what lets the first write land — and the whole map once something has. Keep ids and flags in it, not
+  payloads: put the id in the store and fetch the row with `service.crud.*`. A single value is capped at about
+  64 K CHARACTERS of serialized JSON (so less for non-Latin text) and the session scope at 200 keys; a `put`
+  past either is refused, naming the key.
+- **A session write is kept only if the rule COMPLETES; a user write is kept as soon as it is made.** A failing
+  rule answers with no context data at all, so the session map never travels home and everything it wrote is
+  lost — while a `service.store.user.put` made two lines earlier is already a committed row. If a flag must
+  survive a failure, it belongs in `user`.
+- **Store values are runtime data and never travel in a `.mrjun`.** An export carries rules, not what they
+  stored, so a project created fresh starts with both stores empty. An import over an EXISTING project
+  deliberately KEEPS what is stored — those values could not be carried or restored by an export, so wiping
+  them on every import would destroy them — and only deleting the project drops them.
+- **Removing a person from a project deletes their `user` values in it.** The rows are keyed by e-mail address,
+  and an address outlives a membership — it can be re-invited or reassigned — so they are cleared with the
+  membership rather than left for whoever holds that address next. Their values in OTHER projects are
+  untouched: the store is per project.
+
+---
+
+### 2.15 `service.redirectPage("alias/page")` — send the browser to another page
+
+Backing — `ServiceWrapper.redirectPage` (`ServiceWrapper.java`), applied by `RulePageRedirect` (`RulePageRedirect.java`).
+
+**EXECUTION rules only.** A PREDICATE and a VALIDATION rule refuse it with an explanation, for the same reason
+they refuse `service.workflow.start` (§2.12): they are evaluated for an answer, possibly once per row of a
+table. A **CRUD GROOVY method refuses it too** — its result is read for the return value alone, so nothing
+carries an instruction from it back to a browser; redirect from the RULE that called the method. The editor does
+not offer the member in any of those three places, so the hint and the runtime agree.
+
+```groovy
+service.redirectPage("orders/queue")     // -> https://<host>/<organisation>/orders/queue
+service.redirectPage("/orders/queue")    // the leading slash makes no difference
+```
+
+**The path is everything AFTER the organisation** — the project alias plus the page's content path. The
+organisation (the realm segment of the URL) is prepended for you, because a rule is deliberately never told
+which realm it runs in: `realm` and `client` throw `SecurityException` in a script (see the Security invariant
+in Part 1), and the realm is a fact about the browser's URL rather than about the rule. It is prepended only
+where the deployment's URLs actually carry it — a project served on its own domain has no organisation segment,
+and the same rule works there unchanged.
+
+| Aspect | Behaviour |
+|---|---|
+| When it happens | AFTER the rule returns. The rest of the script still runs — this is a request to navigate, not a `return`. |
+| Called twice | The last path wins. |
+| `null` or `""` | Cancels a redirect asked for earlier in the same execution. |
+| No browser waiting | Nothing happens. Not an error. |
+| Where it is DELIVERED | An EXECUTION rule launched from a page — an action button, a form's before/after rule, `ctx.callRule` — and anything that rule calls with `service.rule(…)`. |
+| Where it is NOT delivered | A rule run against a CASE by process identifier (a workflow task action, a **process-table** action, a service task) and anything headless (scheduler, Kafka, MCP). Those requests carry a process, not a browser — the same list as `service.store.session` in §2.14. |
+| A full URL | **Refused at the call**, with an exception. So is a `..` segment, a backslash, a percent escape and a control character — a page path holds letters, digits and `- . _ ~ / ? # & = : @ + , ; ! $ ( ) *` and nothing else. A rule that could send a browser anywhere would be an open redirect served from the customer's own domain. |
+| A query string | Allowed: `service.redirectPage("orders/queue?status=OPEN")`. |
+
+**Worked example** — an action that creates a case and takes the user to the worklist:
+
+```groovy
+def caseId = service.workflow.start("wf-order-review", [ /* … */ ])
+service.crud.order.markOpened(caseId)
+service.redirectPage("orders/queue")
+return caseId
+```
+
+**Worked example** — branch on which button was pressed (§2.11):
+
+```groovy
+if (service.actionId == '9f1c…-uuid') {
+    service.redirectPage("orders/detail")
+}
+return true
+```
+
+#### Gotchas
+
+- **It is a redirect, not a `setResponsePage`.** The browser loads the target page fresh; anything the current
+  page held in memory is gone. Values that must survive the jump go in `service.store.session` (§2.14). The
+  order INSIDE the script does not matter — the navigation happens after the rule returns, and the store is
+  written back first either way.
+- **A case never carries a redirect, and a redirect never survives into one.** Handing
+  `service.contextData` to `service.workflow.start/complete` is safe: what the workflow service receives is a
+  sanitised COPY, and your own document keeps its pending redirect. A rule run FROM a case never delivers one
+  either — see the table above.
+- **An action that already navigates wins, silently.** A CRUD-table or tree action that opens a form group
+  replaces the page itself, and Wicket keeps only the LAST navigation scheduled for a request — so a
+  `redirectPage` in that action's rule is discarded with nothing logged. Use it from actions that stay on the
+  page (a direct action, a form's before/after rule, an HTML component's `ctx.callRule`).
+- **Wrong path, blank page.** Nothing validates that the page exists — the value is an in-app path, and the
+  browser simply goes there. Copy the alias and the content path from the page's URL.
+- **A rule reached without a browser is silent about it.** Same shape as `service.store.session`: a scheduler
+  cannot navigate anybody, and the call neither throws nor warns.
+- **Not for downloads.** `service.report.pdf.download` (§2.6) has its own delivery; redirecting to a file URL is
+  not how the platform hands over bytes.
+
+---
+
 ## Part 3 — `validation.*` (VALIDATION_RULE only)
 
 In a validation rule, the `ValidationRuleTemplate.groovy` template places the `validation` collector and provides 4
@@ -1046,6 +1321,11 @@ resolution are done by the runtime. Step by step:
    - **notify a role on an event:** `service.notification.push.sendAlertToRoleGroup("Ops", "T", "M")`.
    - **PDF → e-mail:** `def r = service.report.pdf.get.tpl("f.pdf", [...]); service.report.pdf.email.mailTpl([...],[...],[r])`.
    - **invoke another rule:** `return service.rule("Is Author") && ...`.
+   - **send the user to another page after an action:** `service.redirectPage("orders/queue")` — §2.15,
+     EXECUTION rules only, path WITHOUT the organisation.
+   - **remember something between rules:** `service.store.session.put("selectedBranchId", id)` (this browser
+     session) or `service.store.user.put("rowsPerPage", 50)` (this person, forever) — §2.14. Reading always
+     takes a default: `service.store.user.get("rowsPerPage", 25)`.
 5. **Return correctly.** PREDICATE **must** `return <boolean>` (a bare `true` in the template is discarded — see
    [08](08-groovy-rules-and-context.md), §"Templates and return semantics"). EXECUTION may return
    anything (map, list, scalar) or nothing. VALIDATION returns nothing.
@@ -1090,6 +1370,17 @@ resolution are done by the runtime. Step by step:
   Do not count on pulling `reactorService`/`crudReactor` through it — use `service.crud.*`.
 - **`service.global.*` is a server-editable catalog (YAML).** The function list = the current
   `globalFunctions.yaml`. When the platform version changes, cross-check against the file, not this table.
+- **`service.redirectPage` takes the path WITHOUT the organisation** and refuses a full URL. It navigates after
+  the rule returns, so write anything the destination needs into `service.store.session` first. §2.15.
+- **`service.store.*` and the attribute scopes are different axes, not better and worse.** An attribute belongs
+  to a document — it travels along a CASE (persisted in the process's variables between nodes) or lives while a
+  form is open, and with neither it lasts one execution. The store belongs to the session or to the person and
+  is reachable from any rule. Do not rewrite a workflow's `context.data.setAttr` publish into the store: nothing
+  joins a store key to a case. §2.14.
+- **`service.store.session` is empty in a scheduler, a Kafka handler, an MCP call and a headless service
+  task**, and `service.store.user` is empty wherever there is no acting user. In both cases `put` stores
+  nothing and `get` answers `null` — never an exception, and never a half-working store. Pick `user` for
+  anything a scheduler must remember. §2.14.
 
 ---
 
@@ -1124,6 +1415,14 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   process the rule is ALREADY in, never one it just started).
 - **`service.mail` (bare)** — must be `service.notification.mail.<alias>(...)` (§2.5); neither `service.mail` nor
   `service.notification` alone (without `.push`/`.mail`) resolves anything.
+- **`service.redirect` / `service.navigate` / `service.goToPage` / `service.setResponsePage`** — none of these
+  exist. There is exactly ONE way to move a browser and it is `service.redirectPage("alias/page")` (§2.15),
+  EXECUTION rules only, taking an in-app path and never a URL. There is no `service.redirectUrl` and no way to
+  open an external site from a rule.
+- **`service.session` / `service.cache` / `service.prefs` / `service.state` / `service.storage`** — none of these
+  exist. There is exactly ONE key/value namespace and it is `service.store`, with exactly two members:
+  `service.store.session` and `service.store.user` (§2.14). `service.store.global` and `service.store.project`
+  do not exist either — a value shared by everybody is a CRUD row, not a store key.
 
 If you need one of these capabilities — it is implemented with the existing means (`service.global.rest`,
 `service.crud`, `service.rimm`, `service.global.locale`/`conversion.*`), not an imaginary namespace. Everything that is actually

@@ -459,8 +459,15 @@ appear. Scenario C: **add the new alias to the existing context**, do not create
 - Use the **verified** API surface (`context.<ctx>.<alias>.data.get()/put()`, `.service.<m>(…)`,
   `service.crud.<alias>.<m>(…)`, `context.data.getAttr/setAttr`, `context.currentData.get()`, `service.rule("Name")`,
   `service.security.hasAnyRoleGroup(…)`, `service.rimm.run([…])`, `service.report.pdf.*`, `service.notification.*`,
-  `service.global.conversion.toSelectOptions(…)`) — full list [16](16-groovy-service-api.md). Never the stale
+  `service.global.conversion.toSelectOptions(…)`, `service.store.session.*` / `service.store.user.*`,
+  `service.redirectPage("alias/page")`) — full list [16](16-groovy-service-api.md). Never the stale
   `context.service.<alias>`.
+- **Something to be remembered about the SESSION or the USER goes in `service.store`; something to be carried
+  along a CASE stays in an attribute.** `service.store.session` holds a value for as long as the user's browser
+  session (a picked filter, a wizard step); `service.store.user` holds it in the database against that person (a
+  preference, a per-user watermark) and works headlessly. `context.data.setAttr` remains how a workflow step
+  publishes to the next one — the process persists its context data between nodes, and nothing joins a store key
+  to a case. [16](16-groovy-service-api.md) §2.14.
 - **Which of the two context reads a rule uses is decided by the ENTRY POINT, not by the rule.** Behind a
   crud-table/tree action the submitted form values are on the ROW (`context.<ctx>.<alias>.data.get()`); behind a
   workflow user task or a `process.table` start action they are in the attrs (`context.data.getAttr`); a form
