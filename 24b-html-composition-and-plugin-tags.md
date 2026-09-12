@@ -1,5 +1,7 @@
 # 24b · Composition — embedding plugins in HTML, and reusing a component
 
+> 📐 **Field evidence — the composition vocabulary production actually uses:** [10-visual-design.md](references/10-visual-design.md) · [09-studio-components.md](references/09-studio-components.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** The two tags that live inside an html body — `<plugin>` and `<include>`: the complete grammar of
 > both, the tag↔child-node binding contract, how to nest, how one body is composed out of several documents, and
 > the four mechanisms for **reusing** a component across pages. Read it whenever an `html.plugin` /

@@ -1,5 +1,7 @@
 # 16 — Full Groovy `service.*` capability surface (what you can actually do in a script)
 
+> 📐 **Field evidence — which service calls are load-bearing:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) · [06-security-and-roles.md](references/06-security-and-roles.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What this is / when to use
 
 [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) describes the **rule types** (`PREDICATE`/`EXECUTION_RULE`/`VALIDATION_RULE`),

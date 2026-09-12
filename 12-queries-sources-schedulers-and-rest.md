@@ -1,5 +1,7 @@
 # 12 — Queries, Sources, Schedulers & other rep-objects
 
+> 📐 **Field evidence — schedulers and idempotent sweeps as delivered:** [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / When to use
 
 This document describes the "leftover" rep-objects — everything in `rep-objects.json` except

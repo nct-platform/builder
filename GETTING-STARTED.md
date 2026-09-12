@@ -298,5 +298,7 @@ only a live open reveals it.
 | Testing, gates, the live-run order | [26-orchestration-and-testing.md](26-orchestration-and-testing.md) |
 | Known gaps — what no gate catches | [23-distribution-and-known-gaps.md](23-distribution-and-known-gaps.md) |
 | ⛔ Theming — **read before the first line of CSS** | [24a-theming-and-dark-mode.md](24a-theming-and-dark-mode.md) |
+| What four DELIVERED projects actually did (domain removed) | [`references/`](references/README.md) — the shapes that survived production; read [`references/01`](references/01-solution-shapes.md) while the shape is being decided and [`references/10`](references/10-visual-design.md) beside 24a |
+| I have another finished project to teach it from | [`references/INGEST-NEW-REFERENCE.md`](references/INGEST-NEW-REFERENCE.md) — the prompt to paste with a PRD + a `project.mrjun` |
 | Every command | [`tools/README.md`](tools/README.md), `python3 ./builder/tools/mrjun.py --help` |
 | The full map | [README.md](README.md) |

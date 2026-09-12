@@ -20,6 +20,7 @@ codebase**, and **writes the export files**.
 | **[GETTING-STARTED.md](GETTING-STARTED.md)** | the human on-ramp — read this first if you have never run a build |
 | **[prmpt.txt](prmpt.txt)** | the RUN PROMPT: fill in the PRD path and paste it as the task |
 | **[system_prompt.txt](system_prompt.txt)** | the OPERATING CONTRACT the builder must read in full and follow — how to work, and what "done" means |
+| **[references/](references/README.md)** | **what four delivered projects actually did** — the shapes that survived production, the ones the deliveries contradicted each other about, and the documented mechanisms nobody ever used. Domain-neutral by construction |
 
 A finished build is **two files, not one**: the export `project.mrjun`, and beside it a `test-scenarios.md`
 that lets whoever imports it test the running application without the builder. By default nothing in this library
@@ -91,6 +92,56 @@ is only true here, it is a case note. Full flags — [`tools/README.md`](tools/R
 > order, dependency graph, checklist, pitfalls). The rest of the files are references the two link into —
 > except **[24a](24a-theming-and-dark-mode.md)**, which is not a reference to look things up in but a
 > **prerequisite to read before you author any CSS at all**.
+
+---
+
+## 📐 `references/` — what four delivered projects actually did
+
+The numbered docs tell you what the platform **can** do and which slot each thing lives in.
+[`references/`](references/README.md) tells you what **survived contact with production**: four delivered
+systems were unpacked and read end to end — 757 pages, 244 dynamic CRUDs, 2 115 CRUD methods, 1 405 rules,
+3 047 `nct.html.plugin` nodes, 185 charts, 21 workflows, 43 schedulers — and every finding was re-checked by a
+second pass whose only job was to refute it. The exports were then deleted; only the technique remains.
+
+**⛔ Nothing in that folder names an industry, a customer or a business domain.** Not for confidentiality
+alone: a named domain turns a technique into a template, and an assistant that has read "how the X system did
+it" will reach for X's entity names on a brief that has nothing to do with X. Sources are letters (**A**–**D**)
+and sizes; every entity in every example is `document` / `documentLine`, `case`, `task`, `item`, `unit`,
+`partner`. **Hold that line if you add to it.**
+
+| file | what it settles |
+|---|---|
+| [references/01-solution-shapes.md](references/01-solution-shapes.md) | which shape a brief becomes, the artefact budget that comes with it, and what to refuse to build |
+| [references/02-navigation-and-front-door.md](references/02-navigation-and-front-door.md) | the nav three deliveries converge on, the front door, and the two silent ways a nav grant dies |
+| [references/03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) | the five entity kinds and the method skeleton each one needs to survive real data |
+| [references/04-forms-actions-validation.md](references/04-forms-actions-validation.md) | what real forms are built from — and the long list of documented mechanisms nobody used |
+| [references/05-process-and-scheduling.md](references/05-process-and-scheduling.md) | when a process earns a BPMN, how a case is really opened, and idempotent sweeps |
+| [references/06-security-and-roles.md](references/06-security-and-roles.md) | the disjunction that defeats persona gating, row scope that fails closed, and the review checklist |
+| [references/07-localization.md](references/07-localization.md) | the slots that carry locales, the dead zones, and the escape hatch for each |
+| [references/08-charts-and-dashboards.md](references/08-charts-and-dashboards.md) | the label+code+measure contract, per-theme palettes, and how a board is composed |
+| [references/09-studio-components.md](references/09-studio-components.md) | when a hand-built console is justified, and the anatomy of one that works |
+| [references/10-visual-design.md](references/10-visual-design.md) | how three deliveries looked finished with **zero authored CSS**, and what to do when they cannot |
+| [references/knowledge-graph.json](references/knowledge-graph.json) | the same knowledge as data — 429 nodes, 936 edges: every pattern with its rule, its artefact, how many of the four showed it, the library doc it belongs beside, and the anti-pattern it replaces |
+| [references/INGEST-NEW-REFERENCE.md](references/INGEST-NEW-REFERENCE.md) | **the prompt to paste when you have a new reference project (a PRD + a `project.mrjun`)** — it folds the new evidence into the existing documents instead of adding a per-project file |
+
+**How to weigh a finding.** A pattern seen in one delivery is an idea; in three, a convention; contradicted
+between two, a decision you must make consciously — and the document says which way to jump.
+
+**When to read it.** Doc 19 Phase 1 (which shape) → `references/01`. Before any CSS → `references/10` with 24a.
+Before hand-building a console → `references/09` §1, which will usually tell you not to. Every numbered doc
+carries a 📐 banner pointing at its own field evidence.
+
+```bash
+# every pattern that governs charts, strongest evidence first
+jq '[.nodes[] | select(.type=="pattern" and (.artefact|test("chart";"i")))]
+    | sort_by(-.evidenceCount)' references/knowledge-graph.json
+
+# where the library is contradicted by delivery evidence
+jq '[.edges[] | select(.rel=="corrects")]' references/knowledge-graph.json
+```
+
+⚠️ The graph is an index, not the knowledge: it points at a rule, the document explains why it exists and
+what breaks without it.
 
 ---
 

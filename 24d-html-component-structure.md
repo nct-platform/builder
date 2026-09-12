@@ -1,5 +1,7 @@
 # 24d · Structuring an HTML component — files, includes and when to split
 
+> 📐 **Field evidence — one prefix per PROJECT, not per component — and why:** [09-studio-components.md](references/09-studio-components.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** How to lay out the files of ONE `nct.html.plugin` studio component so that what you ship is a small,
 > readable project instead of one enormous html string with one enormous script: the file kinds, the **default
 > shape** and its line budget, `<include src="…">` wiring and the **run order** that falls out of it, naming

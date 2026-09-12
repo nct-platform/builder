@@ -1,5 +1,7 @@
 # 10 — Database Management plugin & `project-db.dump`
 
+> 📐 **Field evidence — the five entity kinds and the tables behind them:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 This document is about the **project's business DB schema** — where the tables physically live that are later

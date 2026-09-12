@@ -1,5 +1,7 @@
 # 27 · Process start — who opens the case, and what makes that run
 
+> 📐 **Field evidence — how a case is really opened, and the idempotent sweep:** [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** The whole chain behind a PRD sentence like *"chase unanswered requests and escalate after three
 > days"*: how to RECOGNISE that nobody presses anything, which of the three headless triggers to use, the order
 > the objects must be built in, the EXECUTION rule that gathers rows from business logic, shapes them into a

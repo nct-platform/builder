@@ -1,5 +1,7 @@
 # Generate fields from CRUD dialog
 
+> 📐 **Field evidence — the generated field slot as it ships:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 "**Generate fields from CRUD**" is a dialog in Site Authoring that **bulk-creates form-controls**

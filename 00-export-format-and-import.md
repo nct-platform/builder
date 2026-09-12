@@ -1,5 +1,7 @@
 # Export/Import & the `.mrjun` anatomy
 
+> 📐 **Field evidence — what four deliveries actually shipped:** [README.md](references/README.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / When to use
 
 `.mrjun` is a **ZIP archive of an entire project** on the platform (Dokie / NCT / mrjun). It can be
@@ -932,6 +934,18 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 4. **`dynamic-cruds.json` may be absent.** It's absent if `bl` isn't deployed OR the project has no
    dynamic CRUD. For a static project it should not be there. And import will silently skip it
    if `bl` isn't deployed on the target side — then the CRUD won't be created.
+
+   ⛔ **A type error in the envelope is skipped just as silently, and it is the worse one.**
+   `exportVersion` is the **integer** `1` — a platform-produced export carries `1`, and the toolkit
+   writes `1`. A STRING there — `"1"`, and certainly `"1.0"`, which does not
+   coerce — throws inside `DynamicCrudsExport` parsing. Because `importDynamicCruds` is the LAST step of
+   `initAllObjects`, everything else has already landed: pages, rules, queries, contexts, forms,
+   workflows, mail/PDF templates and the restored database all arrive, and only the business logic is
+   missing. What the customer reports is not "the import failed" but **"every register shows headers and
+   no rows"**, with `No RSocket connection found for CRUD alias: <alias>` in the UI and an empty
+   Business Logic console — a symptom that reads like a dead runtime rather than two characters in the
+   archive. `validate` now ERRORs on it (`_check_dynamic_cruds_envelope`); nothing else does — `pack`
+   never reads the file's types and the import report does not name the step it skipped.
 5. **Hidden Groovy rules of methods are not in rep-objects.** The export filters out `hidden=true`. They
    are recreated on import from `dynamic-cruds.json` (`ensureHiddenGroovyRule`). If you manually delete
    `dynamic-cruds.json`, Groovy CRUD methods will fail with "Rule not found".

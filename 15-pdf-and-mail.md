@@ -1,5 +1,7 @@
 # 15 — PDF templates, Mail templates, and the Groovy flow "generate PDF → send by email"
 
+> 📐 **Field evidence — PDF and mail in production, including the font trap:** [07-localization.md](references/07-localization.md) · [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 The platform can **generate PDFs from templates** and **send emails from HTML templates**, both directly from Groovy rules (`rep-objects.rules[]`, see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)). This is a separate, heavy subsystem to reach for when a project needs:

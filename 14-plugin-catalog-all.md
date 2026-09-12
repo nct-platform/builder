@@ -1,5 +1,7 @@
 # 14 · Full plugin catalog — every `pluginName`, one by one
 
+> 📐 **Field evidence — which plugins are actually used, and how often:** [09-studio-components.md](references/09-studio-components.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > 📕 **Field-level config reference:** [14a-plugin-config-reference.md](14a-plugin-config-reference.md) documents
 > **63 of nct-ui's 64 plugin names** at chart-doc depth (`calendar.plugin` is covered in THIS doc only) — each one's
 > **settings panel + editor + JSON config slot + field-by-field
@@ -23,8 +25,10 @@ Use this file to answer: **"which `pluginName` do I need, and what is its node s
 For plugins documented in detail in other docs, this file gives one line + a link.
 
 > **Where the "Real node" examples come from.** Nodes tagged (`erp`) below are decoded from the sample bundle
-> shipped with this library at [`erp/initial_erp.mrjun`](erp/initial_erp.mrjun) — a fictional ERP demo, not a
-> customer system. Unpack it (`mrjun.py unpack erp/initial_erp.mrjun /tmp/erp` — two positional arguments, no
+> decoded from a fictional ERP demo bundle that **no longer ships** ([23](23-distribution-and-known-gaps.md)):
+> it failed `validate`, so it was withdrawn rather than left in place as a model. The shapes are unchanged.
+> To see the same slots populated in something you can actually unpack, use
+> `initialtemplates/empty.mrjun` (`mrjun.py unpack initialtemplates/empty.mrjun /tmp/base` — two positional arguments, no
 > flag) and you can verify every one of them: `mrjun.py find --plugin <pluginName> --project /tmp/erp` prints each
 > match's `identifier=` (this doc never prints them), then `mrjun.py show node <identifier> --project /tmp/erp`
 > dumps the node. They are examples of a *shape*, never a statement about how your project must be organised.
@@ -184,7 +188,7 @@ child content node**. The parsing mechanism is `AbstractHtmlPlugin`:
 - by `(id, name)` a **child content node** is created or found under this html plugin; if `vp` is set,
   the virtualPlugin is used instead.
 
-**Real example** (`erp/branches.json`, an `nct.html.plugin` node, `properties.html.stringValue` — a
+**Real example** (from the withdrawn ERP demo's `branches.json`, an `nct.html.plugin` node, `properties.html.stringValue` — a
 two-column layout with two parsis slots):
 
 ```json

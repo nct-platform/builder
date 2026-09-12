@@ -1,5 +1,7 @@
 # 26 — Orchestration & testing (how NOT to finish a big PRD fast-and-shallow)
 
+> 📐 **Field evidence — what four deliveries got wrong that the gates did not catch:** [README.md](references/README.md) · [01-solution-shapes.md](references/01-solution-shapes.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **Read this when the PRD is large** (many entities, forms, a workflow, dashboards, templates). It is the missing
 half of [19-build-decision-procedure.md](19-build-decision-procedure.md): 19 says *what to decide, in what order*;
 this doc says *how to work a big PRD without shipping bullshit* — decompose it, build **and test each small unit**,
@@ -540,6 +542,18 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       looks exactly like "the flow went that way"). `validate` must report 0 process-context findings before
       that scenario is worth anyone's time.
 - [ ] An **independent re-check** found nothing missing vs the PRD.
+- [ ] **If the export WAS imported: the two inventories were put side by side and the numbers matched.**
+      ⛔ The import reports DONE whether or not it applied everything. `importDynamicCruds` runs **last** and
+      **skips in silence**: one mistyped scalar in `dynamic-cruds.json` — `"exportVersion": "1.0"` where the
+      DTO holds the integer `1` — costs the ENTIRE business-logic layer while pages, rules, queries, forms,
+      workflows, templates and the restored database all arrive. The delivered project then looks complete,
+      every register renders its headers over zero rows, and the UI blames the runtime
+      (`No RSocket connection found for CRUD alias: <alias>`) rather than the archive. Observed on a real
+      delivery: 39 CRUDs packed, 0 live, three green offline gates, and nobody compared the two numbers.
+      `validate` now ERRORs on that envelope, but the habit is the real gate: run `inspect` for the packed
+      inventory, read the live counts (MCP `nct_bl_findAll` / `nct_query_list_queries` / … , or the console's
+      `/bl`, Rules, Queries, Workflows, Schedulers pages), and treat any collection that is 0 live and
+      non-zero packed as a silent skip. Then open one register and see rows.
 - [ ] The user report states what was built, the result of each of the four offline gates, and — in one plain
       sentence — that the export has not been imported or run anywhere, pointing at `test-scenarios.md` for
       what to click first.

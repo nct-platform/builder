@@ -1,5 +1,7 @@
 # 28 · Support mode — changing a LIVE project over MCP
 
+> 📐 **Field evidence — what a delivered project looks like when you inherit it:** [README.md](references/README.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** What changes when you are handed a project that already RUNS, plus a token, instead of a PRD and a
 > blank folder: how the working folder tells you which mode you are in, how the MCP channel differs from the file
 > channel, the order a change must be applied in when it goes to BOTH, which kind of object travels down which

@@ -1,5 +1,7 @@
 # 24 · HTML Component Studio — `nct.html.plugin` as a real component (libraries, isolated JS, rule/BL calls, per-theme CSS, breadcrumb actions)
 
+> 📐 **Field evidence — when a hand-built console is justified, and the anatomy of one that works:** [09-studio-components.md](references/09-studio-components.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** Everything you need to ship a hand-authored interactive component inside a `.mrjun`: the
 > `properties.studioModel` schema, the complete `ctx` runtime surface (including the **breadcrumb-button API**
 > and **`ctx.include`**), which scripts a component actually runs,

@@ -1,5 +1,7 @@
 # 20 — Localization (the hub)
 
+> 📐 **Field evidence — the slots that really carry locales, and the dead zones:** [07-localization.md](references/07-localization.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **What this is.** The single entry point for *"how localization works"* across the platform (Dokie / NCT /
 mrjun) and, more usefully for a builder, **what you must author per locale in the export and what you cannot**.
 Localization is genuinely cross-cutting: ~15 of the other docs each carry their own slice. This doc gives the

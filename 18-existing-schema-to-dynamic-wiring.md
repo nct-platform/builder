@@ -1,5 +1,7 @@
 # 18 — Wiring an EXISTING schema (with data) to dynamic CRUDs
 
+> 📐 **Field evidence — wiring an existing schema, as four projects did it:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **What this is.** The rest of the library builds a project *forwards*: design a schema, then add cruds/forms/
 pages on top. This doc covers the **reverse, and very common, scenario**: you are handed a **populated business
 schema** (tables + data + constraints) and must wire it to dynamic CRUDs, so the app runs with **no compiled

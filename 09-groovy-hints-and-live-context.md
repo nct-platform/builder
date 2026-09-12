@@ -1,5 +1,7 @@
 # Groovy hints vs live context-data hints
 
+> 📐 **Field evidence — the context shapes that survived delivery:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 In the Groovy-rules editor (rule dialog: create/edit rule; see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md))

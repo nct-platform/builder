@@ -1,5 +1,7 @@
 # 13 — Master Playbook: empty project → full dynamic-CRUD project
 
+> 📐 **Field evidence — the artefact budget that comes with each project shape:** [01-solution-shapes.md](references/01-solution-shapes.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **What this is.** A step-by-step guide to assembling an entire project on the platform (Dokie / NCT) **directly in
 the `.mrjun` export files**, without a browser. The starting point is the empty baseline bundled with this
 library — `initialtemplates/empty.mrjun`, either packed or unzipped into a working directory

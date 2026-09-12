@@ -3,3 +3,8 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# references/ holds domain-neutral knowledge ONLY. A customer export or brief must
+# never be committed here — study it in a scratch dir, write the technique down, delete
+# the archive (references/INGEST-NEW-REFERENCE.md).
+references/**/prd/

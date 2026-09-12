@@ -1,5 +1,7 @@
 # 08 — Groovy rules & the context model
 
+> 📐 **Field evidence — what rules are actually written for:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) · [06-security-and-roles.md](references/06-security-and-roles.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 Almost all the project's dynamic logic is **Groovy rules** (`rules[]` in

@@ -1,5 +1,7 @@
 # 22 — Charts, Params & Filtering-through-Params
 
+> 📐 **Field evidence — 185 charts, measured — the contract, the palettes, the board layout:** [08-charts-and-dashboards.md](references/08-charts-and-dashboards.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / When to use
 
 The deep recipe for **`chart.js.plugin`** — the platform's universal "HTML + JS + data" widget (every chart,

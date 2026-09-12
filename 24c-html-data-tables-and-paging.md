@@ -1,5 +1,7 @@
 # 24c · Data tables in an HTML component — server-side paging, sorting, filtering
 
+> 📐 **Field evidence — how paging was really done — the corpus contradicts this doc:** [09-studio-components.md](references/09-studio-components.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > Read this **before** you hand-write a `<table>` inside an `nct.html.plugin` studio component.
 > Scope: the data contract between a custom widget and the platform (what you may call, what comes back),
 > the reference page rule, the reference script, the reference markup, and the performance budget.

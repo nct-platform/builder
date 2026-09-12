@@ -1,5 +1,7 @@
 # Business Logic plugin & dynamic CRUDs
 
+> 📐 **Field evidence — the method skeleton each entity kind needs:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 This is the **heart of dynamic integration**. The *Business Logic* plugin (`pluginName = "dynamic.cruds.plugin"`,

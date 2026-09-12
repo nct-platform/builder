@@ -1,5 +1,7 @@
 # Form settings, validations & field events
 
+> 📐 **Field evidence — which validation mechanisms were used and which nobody touched:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 Two authoring surfaces sit **on top of** the form controls that [02-form-controls-reference.md](02-form-controls-reference.md)

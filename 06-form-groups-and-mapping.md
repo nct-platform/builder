@@ -1,5 +1,7 @@
 # Form Groups & form mapping
 
+> 📐 **Field evidence — form groups and predicate mapping in production:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 **Form group** (`formGroup`) — a named container of forms that has a **landing page**

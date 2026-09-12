@@ -1,5 +1,7 @@
 # 17 — Left-nav quick links (`site.kicker.plugin` / `modelGroups`)
 
+> 📐 **Field evidence — the nav three deliveries converge on, and the two silent ways a grant dies:** [02-navigation-and-front-door.md](references/02-navigation-and-front-door.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > ⛔ **A nav link is localized on the ITEM, not (only) on its `linkModel`.** A nav entry is a
 > `PageModel extends LocalizedBean`; the sidebar renders `getLocalized("name", locale)`, i.e.
 > `localizedMap["name"][<locale>]` **on the item**, and falls back to the raw `name` property when the map

@@ -1,5 +1,7 @@
 # 23 — Distribution, the live-debug loop & known gaps
 
+> 📐 **Field evidence — what the offline gates missed in four real deliveries:** [README.md](references/README.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **Read this if you (or a partner) will use `doc/builder` to build projects against a Dokie platform you did not
 develop.** It answers: what ships in this folder, what you still need, how to debug a project once it's on the
 platform, and where the docs are *necessary but not sufficient*.
@@ -19,22 +21,20 @@ platform, and where the docs are *necessary but not sufficient*.
   baseline: a real export is the best pattern library there is, and `jq` answers shape questions instantly.)
 - `pdftemplates/` — the **15 seed pdfme templates** the platform itself serves ([15](15-pdf-and-mail.md) §"the 15
   seed templates"). Copy the closest one instead of authoring a printout from a blank canvas.
-- `erp/initial_erp.mrjun` + `erp/dynamic.mrjun` — a **fictional ERP demo**, first as a static-CRUD project and
-  then wired to dynamic CRUDs. The nodes quoted as "Real node (`erp`, …)" in [14](14-plugin-catalog-all.md) /
-  [14a](14a-plugin-config-reference.md) / [02](02-form-controls-reference.md) come from it, so every one of them
-  is checkable: unpack a copy and `mrjun.py show node <id>`.
-  ⚠️ **The two ERP exports are SHAPE references, not lint-clean baselines.** They predate several `validate`
-  checks and both carry hundreds of warnings; `erp/dynamic.mrjun` currently **FAILS** the gate outright — its
-  Document-CRUD GROOVY `create`/`update`/`delete` read `param` while declaring `parameters: []`, exactly the
-  every-value-written-NULL bug [11](11-business-logic-dynamic-crud.md) warns about. Copy node/JSON *shapes* from
-  them; do not copy a pattern `validate` rejects, and do not read that FAIL as a tooling bug. **Both** ERP
-  exports fail: `dynamic.mrjun` with 27 errors, `initial_erp.mrjun` with 5.
-  ⛔ **The platform's old demo pages have been REMOVED from both** (`insights`, `advisory`, `ontology`,
-  `reports`, and the quick links into them). They were never a reference for anything — least of all a
-  dashboard, whose standard is [22](22-charts-params-and-filters.md) §2B — and leaving a 42-cell uniform grid
-  painted from an index palette inside a "copy the shapes from here" archive taught exactly the wrong lesson.
-  Nothing in this library holds them up as a model; if you meet them in a project you inherited, treat them
-  as content to delete, not to imitate.
+- ⛔ **The `erp/` demo bundle NO LONGER SHIPS, and was withdrawn on purpose.** It was a fictional ERP demo in
+  two exports, and the nodes quoted as "Real node (`erp`, …)" in [14](14-plugin-catalog-all.md) /
+  [14a](14a-plugin-config-reference.md) / [02](02-form-controls-reference.md) were decoded from it. Those
+  JSON shapes are still correct and are still the fastest way to see a populated property slot — but you can
+  no longer unpack the bundle to re-check them, and **you must not treat that demo as a standard**. It predated
+  several `validate` checks and failed the gate outright (27 errors in one export, 5 in the other), including
+  the every-value-written-NULL bug [11](11-business-logic-dynamic-crud.md) warns about: GROOVY
+  `create`/`update`/`delete` reading `param` while declaring `parameters: []`. A demo that fails the gate,
+  shipped inside a "copy the shapes from here" archive, teaches the wrong lesson faster than any doc can
+  correct it.
+  **Where to look instead:** `initialtemplates/empty.mrjun` for a baseline you can actually unpack, and
+  [`references/`](references/README.md) for what four *delivered* systems did — measured, gated and
+  domain-neutral. If you inherit a project containing the platform's old demo pages (`insights`, `advisory`,
+  `ontology`, `reports`, and the quick links into them), treat them as content to delete, not to imitate.
   ⚠️ **No bundled export is error-free, including `initialtemplates/empty.mrjun`** — it ships a handful of warnings
   and 1 error (a left-nav link with only one locale, which disappears on a single-locale tenant). Its exact output is
   recorded in [`initialtemplates/empty-validate.txt`](initialtemplates/empty-validate.txt): **diff against that

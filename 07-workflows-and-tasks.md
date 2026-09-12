@@ -1,5 +1,7 @@
 # Workflows, BPMN & tasks
 
+> 📐 **Field evidence — when a process earns a BPMN and when it does not:** [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > ⛔ **Before you draw anything: who opens a case, when, and what makes that run?** A correct BPMN starts
 > nothing by itself. The four starters, the two-starters-for-one-process trap, and the three different
 > button buckets on a process table are in [27](27-event-driven-process-start.md) §2 — read it before this
@@ -123,8 +125,8 @@ Its 17 `elements` break down as:
 outnumber tasks**, and the `bpmn:Process` node itself counts as an element.
 
 > **The walkthrough is an illustrative composite**, modernised to `localizedNames`/`localizedButtonNames`. A
-> workflow of the same name ships in [`erp/initial_erp.mrjun`](erp/initial_erp.mrjun) /
-> [`erp/dynamic.mrjun`](erp/dynamic.mrjun), but it is an **earlier, smaller variant** — 15 elements
+> workflow of the same name was in the withdrawn ERP demo bundle
+> ([23](23-distribution-and-known-gaps.md)), but it was an **earlier, smaller variant** — 15 elements
 > (`1×bpmn:Process, 1×bpmn:StartEvent, 2×bpmn:ServiceTask, 2×bpmn:UserTask, 1×bpmn:ExclusiveGateway,
 > 7×bpmn:SequenceFlow, 1×bpmn:Task`), `deployed:false`, a gateway and an end event with **no `name`**, and
 > actions still in the **legacy single-`name`** form. So `jq` the sample to learn the *shapes*, but do not expect

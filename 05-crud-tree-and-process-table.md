@@ -1,5 +1,7 @@
 # CRUD Tree & Process Table plugins
 
+> 📐 **Field evidence — trees, process tables, and what replaced them:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) · [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 `crud.tree.plugin` and `process.table.pluin` are two "list" plugins, siblings of
 `crud.table.plugin` (see [04-crud-table-plugin.md](04-crud-table-plugin.md)). Both reuse
 most of the CRUD-table model (columns, filters, actions, fetch-rule), so **this document

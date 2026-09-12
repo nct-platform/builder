@@ -48,11 +48,12 @@ def cmd_validate(args):
     # A wrong-typed rep-object field aborts the platform's import before anything is applied, and it
     # also breaks every check below (they all read these shapes). Report it alone and stop.
     _check_rep_object_field_types(p, r)
+    _check_dynamic_cruds_envelope(p, r)
     if r.errors:
         core.out("\nERRORS (%d):" % len(r.errors))
         for e in r.errors:
             core.out("  x %s" % e)
-        core.out("\nFAIL — malformed rep-object; the remaining checks were not run.")
+        core.out("\nFAIL — malformed export file; the remaining checks were not run.")
         return 1
 
     ids = _collect_identifiers(rep)
@@ -2046,6 +2047,64 @@ def _check_rep_object_field_types(p, r):
                       "it. (00-export-format-and-import.md)" % (lead, coll.rstrip("s")))
 
 
+def _check_dynamic_cruds_envelope(p, r):
+    """The `dynamic-cruds.json` envelope — the one file whose type errors cost you the whole BL layer.
+
+    `importDynamicCruds` starts by parsing the file into `DynamicCrudsExport` (`exportVersion` + `cruds`).
+    Jackson reads `exportVersion` into an integer field, so a STRING there — `"1"` and especially `"1.0"`,
+    which does not even coerce — throws while the file is still being read. The import continues: this is
+    the LAST step of `initAllObjects`, so pages, rules, queries, contexts, forms, workflows, templates and
+    the database all arrive and only the business logic is missing. What the user sees is a complete
+    project whose every register renders its headers over zero rows, whose Business Logic console is empty,
+    and whose scoped-fetch rules die with `No RSocket connection found for CRUD alias: <alias>` — a symptom
+    that points at the runtime, not at a two-character type error in the archive.
+
+    Nothing else reports it: `pack` does not read the file's types, the import's own report does not name
+    the step it skipped, and the platform logs a parse failure the operator never sees.
+
+    The toolkit writes the correct shape (`core.py`: `{"exportVersion": 1, "cruds": []}`); this catches a
+    file that was hand-edited or produced by something else. (00-export-format-and-import.md §7,
+    11-business-logic-dynamic-crud.md)"""
+    crud_file = p.cruds_file
+    if crud_file is None:
+        return                                    # legitimately absent: static project, or bl not deployed
+    data = crud_file.data
+    if not isinstance(data, dict):
+        r.err("dynamic-cruds.json: top level is %s, not an object — the importer parses it into "
+              "DynamicCrudsExport {exportVersion, cruds}. (00-export-format-and-import.md §7)"
+              % type(data).__name__)
+        return
+
+    version = data.get("exportVersion")
+    if version is None:
+        r.err("dynamic-cruds.json: no 'exportVersion'. It must be the integer 1.")
+    elif isinstance(version, bool) or not isinstance(version, int):
+        r.err("dynamic-cruds.json: exportVersion is %r (%s) but must be the INTEGER 1. Jackson reads it "
+              "into an int field, so this throws while DynamicCrudsExport is being parsed and the "
+              "importer skips EVERY dynamic CRUD — silently, and last, so the rest of the project "
+              "imports and only the business logic is missing. Registers then render headers over zero "
+              "rows and scoped-fetch rules fail with \"No RSocket connection found for CRUD alias\"."
+              % (version, type(version).__name__))
+
+    cruds = data.get("cruds")
+    if cruds is None:
+        r.err("dynamic-cruds.json: no 'cruds' array — DynamicCrudsExport expects {exportVersion, cruds}.")
+    elif not isinstance(cruds, list):
+        r.err("dynamic-cruds.json: 'cruds' is %s, not an array." % type(cruds).__name__)
+    else:
+        for c in cruds:
+            if not isinstance(c, dict):
+                r.err("dynamic-cruds.json: a cruds[] entry is %s, not an object." % type(c).__name__)
+                continue
+            alias = c.get("alias") or "?"
+            for field in ("alias", "name", "sourceIdentifier"):
+                if not isinstance(c.get(field), str) or not (c.get(field) or "").strip():
+                    r.err("dynamic-cruds.json: crud %r has no usable %r — the importer needs it to "
+                          "create the CRUD and bind it to a live source." % (alias, field))
+            if not isinstance(c.get("methods"), list):
+                r.err("dynamic-cruds.json: crud %r has no 'methods' array." % alias)
+
+
 def _check_platform_required_fields(p, r):
     """Fields the platform's own DTOs declare `@NotBlank` / `@NotNull`. A blank one is not a shape
     problem this format can see — it is a 400 the moment the archive is imported, and the objects
@@ -3667,11 +3726,8 @@ def _check_db_dump(p, r):
     savepoint and rolls back the WHOLE schema — "The database was NOT replaced"); a non-numeric `columnTypes`
     entry or `sequences[].lastValue` → ERROR (both are read as `Number`); a table whose `columns` and
     `columnTypes` parallel arrays differ in length → ERROR; a DDL `DEFAULT nextval('<seq>')` naming a sequence
-    not in that schema's `sequences[]` → ERROR; **any `views`/`functions` entry that is not an object with
-    `name` + `definition`, a VIEW whose `definition` is a whole `CREATE VIEW` statement, or a `triggers`
-    entry that is not a plain DDL string → ERROR** (same family of failure as the rows above: the restore iterates them as `List<Map<String,String>>`,
-    so a bare string throws ClassCastException and rolls back the whole schema); a dump `database` name
-    disagreeing with project-db-meta.json / a crud's sourceDb → WARN."""
+    not in that schema's `sequences[]` → ERROR; a dump `database` name disagreeing with project-db-meta.json /
+    a crud's sourceDb → WARN."""
     try:
         db = p.db
     except Exception:
@@ -3731,58 +3787,6 @@ def _check_db_dump(p, r):
                         continue
                     bad_cells.append(("%s.%s" % (sch.get("name"), t.get("name")), col,
                                       type(val).__name__, val))
-    # views / functions / triggers, against the restorer's signature - the same class of failure as the
-    # cells above, one level up. restoreDependentObjects takes List<Map<String,String>> and reads
-    # object.get("definition"), so a bare DDL STRING in the list throws
-    #   class java.lang.String cannot be cast to class java.util.Map
-    # which, like the cell case, is not an SQLException: it escapes the per-object savepoint, unwinds the
-    # WHOLE schema, and the import reports "The database was NOT replaced. Schema(s) [x] were rolled back".
-    # Observed in the wild, so this is not a theoretical guard.
-    #
-    # The trap is the ASYMMETRY between the two shapes, and it is why writing a view by hand goes wrong:
-    #   functions/triggers -> definition IS the whole `CREATE OR REPLACE FUNCTION ...`, executed as-is
-    #   views              -> definition is ONLY the SELECT body; the restore wraps it itself in
-    #                         `CREATE OR REPLACE VIEW "<schema>"."<name>" AS <definition>`
-    # Generalising from the first to the second produces either this ClassCastException (bare string) or
-    # `CREATE OR REPLACE VIEW x.y AS CREATE OR REPLACE VIEW ...` (object with a full statement), and the
-    # second is a syntax error thousands of lines into an import that has already rewritten the schema.
-    for sch in db.get("schemas", []) or []:
-        # triggers are NOT in this loop: they are a plain List<String> of pg_get_triggerdef DDL, run through
-        # the same savepoint-per-statement path as indexes and constraints. They get the mirror-image check
-        # below, because an OBJECT there fails the other way round.
-        for kind in ("views", "functions"):
-            for i, obj in enumerate(sch.get(kind, []) or []):
-                where = "%s.%s[%d]" % (sch.get("name"), kind, i)
-                if not isinstance(obj, dict):
-                    r.err("%s is a %s, not an object — every %s entry must be "
-                          "{\"name\": ..., \"definition\": ...}. The restore iterates them as "
-                          "List<Map<String,String>>, so a bare string throws \"class java.lang.String cannot "
-                          "be cast to class java.util.Map\", the whole schema rolls back and the import says "
-                          "\"The database was NOT replaced\". Offending value starts: %r. (10 §enumTypes / "
-                          "views / functions / triggers)"
-                          % (where, type(obj).__name__, kind, str(obj)[:80]))
-                    continue
-                for key in ("name", "definition"):
-                    if not obj.get(key):
-                        r.err("%s has no %r. An entry without a definition is skipped with a warning and the "
-                              "object silently never exists in the imported project. (10)" % (where, key))
-                if kind == "views" and isinstance(obj.get("definition"), str) \
-                        and _CREATE_STMT_RE.match(obj["definition"]):
-                    r.err("%s definition starts with a CREATE statement. A VIEW's definition is ONLY the "
-                          "SELECT body — the restore wraps it itself: CREATE OR REPLACE VIEW \"<schema>\".\""
-                          "<name>\" AS <definition>. As written the import would run "
-                          "`CREATE OR REPLACE VIEW x.y AS CREATE OR REPLACE VIEW ...` and fail on syntax. "
-                          "(Unlike functions/triggers, whose definition IS the whole CREATE.) Keep everything "
-                          "after the `AS`; schema references inside the body are remapped for you. (10)"
-                          % where)
-        for i, trg in enumerate(sch.get("triggers", []) or []):
-            if not isinstance(trg, str):
-                r.err("%s.triggers[%d] is a %s — triggers are a list of ready-to-run DDL STRINGS "
-                      "(pg_get_triggerdef), not {name, definition} objects like views and functions. The "
-                      "restore reads them as List<String> and runs each one, so an object throws a "
-                      "ClassCastException and rolls the whole schema back. (10)"
-                      % (sch.get("name"), i, type(trg).__name__))
-
     if bad_cells:
         where = {}
         for tbl, col, tname, val in bad_cells:
@@ -3799,10 +3803,6 @@ def _check_db_dump(p, r):
                            for k, v in shown[:8])
                  + (" ; +%d more" % (len(shown) - 8) if len(shown) > 8 else "")))
 
-
-# A definition that begins by declaring the object rather than describing it. Used to tell a VIEW body
-# (which must be a bare SELECT) from a whole statement pasted into the wrong field.
-_CREATE_STMT_RE = re.compile(r"\s*CREATE\s+(OR\s+REPLACE\s+)?(VIEW|MATERIALIZED\s+VIEW|FUNCTION|TRIGGER)\b", re.I)
 
 _OBJNODE = "com.fasterxml.jackson.databind.node.ObjectNode"
 # dataClass whitelists for the UNAMBIGUOUS single-variant controls only (verified against every reference export).

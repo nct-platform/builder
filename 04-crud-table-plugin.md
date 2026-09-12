@@ -1,5 +1,7 @@
 # CRUD Table plugin (`crud.table.plugin`)
 
+> 📐 **Field evidence — how tables are really configured:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) · [04-forms-actions-validation.md](references/04-forms-actions-validation.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > ⛔ **ONE table per PAGE — the ONLY exception is separate tabs.** The rule is about *tables*, not about
 > *this plugin*: it covers `crud.table.plugin`, `crud.tree.plugin` and `process.table.pluin` **in any
 > combination**. Two `crud.table.plugin` collide technically (shared type-scoped Settings panel +

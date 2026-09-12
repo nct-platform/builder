@@ -1,5 +1,7 @@
 # Form controls — settings, HTML, mapping, validation
 
+> 📐 **Field evidence — which controls real forms are built from:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / When to use
 
 **Form control** plugins are the leaf nodes inside a form node (`dynaform.form.plugin`, see
@@ -149,7 +151,9 @@ Serialization — via the Gson library (`getContent().getJsonProperty("settings"
 `BaseFormControl.java`): **absent fields are skipped**, the Java class defaults are substituted on read.
 So a minimal node contains only the populated fields (see the autocomplete example below — only 4 keys).
 Sample nodes tagged (`erp`) in this file are decoded from the fictional ERP demo shipped at
-[`erp/initial_erp.mrjun`](erp/initial_erp.mrjun); unpack it if you want to check one.
+a fictional ERP demo bundle that **no longer ships** ([23](23-distribution-and-known-gaps.md) — it failed
+`validate`, so it was withdrawn rather than held up as a standard). The JSON shapes below are unchanged and
+still correct; you just cannot unpack that bundle to re-check them.
 
 ### Authoritative settings-key union
 

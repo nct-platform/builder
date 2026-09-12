@@ -331,6 +331,48 @@ def _routing_table(lib_rel, lib_abs=None):
     return out
 
 
+_REFERENCE_ROWS = [
+    ("README.md", "what the folder is, how to weigh a finding, and the rule that keeps it domain-neutral"),
+    ("01-solution-shapes.md", "which shape a brief becomes, the artefact budget it carries, what to refuse to build"),
+    ("02-navigation-and-front-door.md", "the nav three deliveries converge on, and the two silent ways a nav grant dies"),
+    ("03-dynamic-crud-conventions.md", "the five entity kinds and the method skeleton each one needs"),
+    ("04-forms-actions-validation.md", "what real forms are built from — and the mechanisms nobody used"),
+    ("05-process-and-scheduling.md", "when a process earns a BPMN, how a case is opened, idempotent sweeps"),
+    ("06-security-and-roles.md", "the disjunction that defeats persona gating, and row scope that fails closed"),
+    ("07-localization.md", "the slots that carry locales, the dead zones, and the escape hatch for each"),
+    ("08-charts-and-dashboards.md", "the label+code+measure contract, per-theme palettes, board composition"),
+    ("09-studio-components.md", "when a hand-built console is justified, and the anatomy of one that works"),
+    ("10-visual-design.md", "how three deliveries looked finished with ZERO authored CSS, and what to do when they cannot"),
+    ("knowledge-graph.json", "the same knowledge as queryable data — pattern, rule, artefact, evidence count, anti-pattern"),
+    ("INGEST-NEW-REFERENCE.md", "the prompt for folding a NEW reference project (PRD + project.mrjun) into these documents"),
+]
+
+
+def _reference_block(lib_rel, lib_abs=None):
+    """Rows for `<library>/references/` — the measured field evidence, when it is present."""
+    if lib_abs:
+        import os as _os
+        if not _os.path.isdir(_os.path.join(lib_abs, "references")):
+            return []
+    out = [
+        "## 6a. Field evidence — what four DELIVERED projects actually did",
+        "",
+        "§6 says what the platform CAN do. These say what survived production: the shapes four delivered",
+        "systems converged on, where they contradicted each other, and which documented mechanisms nobody",
+        "ever used. Sources are letters and sizes — the folder names no industry and no customer on purpose,",
+        "because a named domain turns a technique into a template. Weighting: seen in ONE delivery = an idea;",
+        "in THREE = a convention; contradicted between two = a decision to make consciously, and the document",
+        "says which way to jump.",
+        "",
+        "| Doc | What it settles |",
+        "|---|---|",
+    ]
+    for fn, what in _REFERENCE_ROWS:
+        out.append("| [`%s`](%s/references/%s) | %s |" % (fn, lib_rel, fn, what))
+    out.append("")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # The emitted documents
 # ---------------------------------------------------------------------------
@@ -483,6 +525,11 @@ def _router_body(facts):
         L.append("_No builder library found next to this folder — ask for `builder/` to be restored._")
     L.append("")
 
+    if f["lib_rel"]:
+        _ref = _reference_block(f["lib_rel"], f.get("lib_abs"))
+        if _ref:
+            L.extend(_ref)
+
     L.append("## 7. Working rules")
     L.append("")
     L.append("Which set applies is `mode` in `./.dokie/project.json`.")
@@ -534,6 +581,37 @@ def _router_body(facts):
     L.append("python3 %s livediff --project %s --db \"<platform-db conninfo>\" --tenant %s"
              % (mj, wd, f["alias"] or "<alias>"))
     L.append("```")
+    L.append("")
+    L.append("### ⛔ Step 6 — RECONCILE WHAT ARRIVED. The import reports DONE either way.")
+    L.append("")
+    L.append("`validate` proves the file is well-formed; it cannot prove the platform accepted it.")
+    L.append("`importDynamicCruds` is the **last** step of `initAllObjects` and it **skips in silence** —")
+    L.append("a parse error in `dynamic-cruds.json` (a scalar typed `\"1.0\"` where the DTO wants the")
+    L.append("integer `1` is enough) costs you the ENTIRE business-logic layer while pages, rules,")
+    L.append("queries, forms, workflows, templates and the database all land normally. The project then")
+    L.append("looks complete and every register renders its headers over zero rows, with")
+    L.append("`No RSocket connection found for CRUD alias: <alias>` in the UI — a message that points at")
+    L.append("the runtime, not at the archive. `livediff` does not cover this: it compares pages, and")
+    L.append("prints rep-object counts for the PACKED side only.")
+    L.append("")
+    L.append("So after every import, put the two inventories side by side and compare the NUMBERS:")
+    L.append("")
+    L.append("```")
+    L.append("python3 %s inspect --project %s      # the packed inventory" % (mj, wd))
+    L.append("```")
+    L.append("")
+    if f["mcp"]:
+        L.append("and the live side over MCP — `nct_bl_findAll` (dynamic CRUDs), `nct_query_list_queries`,")
+        L.append("`nct_rule_findAll`, `nct_form_findAll`, `nct_workflow_findAll`, `nct_schedule_listJobs`,")
+        L.append("`nct_messaging_listTemplates`, `nct_ui_all_pages`. Any collection whose live count is 0")
+        L.append("while the packed count is not is a silent skip, not a coincidence.")
+    else:
+        L.append("and the live side in the console: `/bl` (dynamic CRUDs), Rules, Queries, Form Groups,")
+        L.append("Workflows, Schedulers, Mail/Pdf Templates. Any collection that is empty live while the")
+        L.append("packed count is not is a silent skip, not a coincidence.")
+    L.append("")
+    L.append("Then open ONE register and confirm it lists rows. A green gate and a rendered page are")
+    L.append("different claims, and only the second one is the product.")
     L.append("")
 
     if f["mcp"]:

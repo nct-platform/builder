@@ -1,8 +1,10 @@
 # 14a — Full Plugin Config Reference (every plugin: settings + editor + JSON + field-by-field)
 
+> 📐 **Field evidence — the configurations that shipped:** [09-studio-components.md](references/09-studio-components.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > Auto-derived from the nct-ui source (each plugin's class + editor + settings panel + config DTO). Companion to [14](14-plugin-catalog-all.md) (catalog) — this is the **field-level config reference** at the depth [22](22-charts-params-and-filters.md) gives charts. nct-ui declares **64 distinct plugin names**; there is a field-level entry here for **63** of them (`calendar.plugin` is catalogued in [14](14-plugin-catalog-all.md) only), plus a ⚠️ stub for the dead name `processes.plugin`. `authoredInMrjun` marks whether a project builder hand-writes this node's config (vs a fixed base-skeleton/admin plugin).
 >
-> Config-JSON examples tagged (`erp`) are decoded from the fictional ERP demo shipped with this library at [`erp/initial_erp.mrjun`](erp/initial_erp.mrjun); unpack it and check any of them yourself. They illustrate a node *shape* — the entity names in them are sample values, not a vocabulary your project has to adopt.
+> Config-JSON examples tagged (`erp`) were decoded from a fictional ERP demo bundle that **no longer ships** ([23](23-distribution-and-known-gaps.md) explains why it was withdrawn); the shapes are unchanged. unpack it and check any of them yourself. They illustrate a node *shape* — the entity names in them are sample values, not a vocabulary your project has to adopt.
 
 ## Contents
 

@@ -1,5 +1,7 @@
 # 21 — Homepage & the project "front door" (`Redirect`)
 
+> 📐 **Field evidence — what four front doors actually are:** [02-navigation-and-front-door.md](references/02-navigation-and-front-door.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 ## What it is / when to use
 
 When a user opens the bare project URL (`/<realm>/<alias>` with no page path), the platform resolves the

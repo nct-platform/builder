@@ -1,5 +1,7 @@
 # 01 — Content tree, pages, tabs, layout, access
 
+> 📐 **Field evidence — the page and nav shapes production converged on:** [01-solution-shapes.md](references/01-solution-shapes.md) · [02-navigation-and-front-door.md](references/02-navigation-and-front-door.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > Siblings: [00-export-format-and-import.md](00-export-format-and-import.md) ·
 > [02-form-controls-reference.md](02-form-controls-reference.md) ·
 > [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md) ·

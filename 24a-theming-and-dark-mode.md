@@ -1,5 +1,7 @@
 # 24a · Theming & dark mode — how to write CSS that survives all five skins
 
+> 📐 **Field evidence — three of four deliveries shipped ZERO authored CSS — read this before writing any:** [10-visual-design.md](references/10-visual-design.md) · [09-studio-components.md](references/09-studio-components.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 > **Scope.** Every line of CSS **you** author into a project: an `nct.html.plugin`'s
 > `studioModel.css.byTheme`, a `chart.js.plugin`'s `cssByTheme` (its **Css** tab), an inline `<style>`
 > inside any `html` property, and every `style="…"` attribute on a hand-written `<div>`. Read it **before** you type the
@@ -1030,7 +1032,7 @@ keys `['*']` (plus a named skin only where §6 justifies it).
 A `chart.js.plugin` row with **no** `byTheme` keys and a non-zero hex count means the colour is sitting in
 the chart's `html` instead of its per-theme CSS — usually a global `<style>` block (§5.6). Both reference
 exports shipped with this library are in exactly that state: every hex the script reports on
-`initialtemplates/empty` and `erp/initial_erp` comes from chart html, topped by a `#0069B3` brand fill
+`initialtemplates/empty` and the withdrawn ERP demo comes from chart html, topped by a `#0069B3` brand fill
 inside a `<style>` that leaks page-wide. Treat those rows as work items on a chart you own, and remember
 that this is the one audit `validate` cannot do for you (§9 table, row 1).
 

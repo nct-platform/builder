@@ -1,5 +1,7 @@
 # 19 — Build Decision Procedure (PRD → `.mrjun`)
 
+> 📐 **Field evidence — which shape a brief becomes, and what to refuse to build:** [01-solution-shapes.md](references/01-solution-shapes.md) · [README.md](references/README.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
+
 **What this is.** The **deterministic decision spine** that turns a request into a built project. It is the
 missing half of the two-step model in [README.md](README.md): the docs `00`–`18` say *how* to author each
 entity; [13-master-playbook-empty-to-dynamic-project.md](13-master-playbook-empty-to-dynamic-project.md) gives
@@ -135,6 +137,14 @@ an explicit assumption. Then **decompose** into epics → stories → tasks befo
 ---
 
 ## Phase 1 — Decompose the PRD into an entity inventory
+
+> 📐 **Read [references/01-solution-shapes.md](references/01-solution-shapes.md) before you fill this in.**
+> Four delivered projects reduce to a small number of solution shapes, and each shape comes with an
+> artefact budget — how many CRUDs, rules, pages and workflows it actually took — plus the list of
+> things those deliveries built and should not have. It is the cheapest way to find out that the
+> inventory you are about to write is two or three times too large, or that a whole slice of the PRD
+> is one register and not a subsystem. [references/03](references/03-dynamic-crud-conventions.md) then
+> tells you which of the five entity kinds each row is, and what method set that kind needs.
 
 The single most important planning artifact. **Decide** the full inventory *before* authoring anything, so the
 downstream phases are mechanical. Read the PRD and extract, into a table you keep:
