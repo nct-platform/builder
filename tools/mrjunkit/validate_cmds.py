@@ -296,6 +296,7 @@ def cmd_validate(args):
     _check_dashboard_composition(p, r)
     _check_chart_colour_by_index(p, r)
     _check_localized_fields(p, r)
+    _check_column_format_keys(p, r)
     _check_field_rule_refs(p, r)
     _check_table_fetch_rules(p, r)
     _check_event_mappings(p, r)
@@ -350,6 +351,12 @@ def cmd_validate(args):
     _check_chart_query_embeds(p, r)
     _check_quicklinks(p, r)
     _check_localized_maps_distinct(p, r)
+    # -- an entity localize jsonb keyed by the COLUMN name instead of the DTO field name --
+    _check_localize_keys(p, r)
+    # -- a VALIDATION_RULE no form wires: a check the team believes is running --
+    _check_orphan_validation_rules(p, r)
+    # -- a GROOVY method delegating to a rule the export never carried --
+    _check_method_rule_delegates(p, r)
     _check_workflow_xml(p, r)
     _check_admin_base_pages(p, r)
     _check_action_forks(p, r)
@@ -3361,6 +3368,81 @@ def _check_chartjs_option_mutation(p, r):
                    "known-good alternative — it has NOT been shown to cause a specific failure. 22 §5)"
                    % (node.get("name") or node.get("identifier"), m.group(1)))
             break
+
+
+_NUMERIC_COLUMN_CLASSES = {
+    "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte",
+    "java.lang.Double", "java.lang.Float", "java.math.BigDecimal", "java.math.BigInteger",
+    "int", "long", "short", "byte", "double", "float",
+}
+
+_TEMPORAL_COLUMN_CLASSES = {
+    "java.time.LocalDate", "java.time.LocalDateTime", "java.time.Instant",
+}
+
+_MONEY_FORMATS = {"US", "EUROPEAN", "SPACE_COMMA", "SPACE_DOT", "SWISS", "INDIAN", "PLAIN"}
+
+_COLUMN_TABLE_PLUGINS = ("crud.table.plugin", "crud.tree.plugin", "process.table.pluin")
+
+
+def _check_column_format_keys(p, r):
+    """Table-column money/date display keys are gated on `dataClass` at RENDER — a mismatch is
+    silently ignored, not reported, so the column just draws its raw value and nobody knows why.
+
+    `money:true` only renders for a numeric dataClass (Integer/Long/Short/Byte/Double/Float/
+    BigDecimal/BigInteger + primitives); `dateFormat` only renders for LocalDate/LocalDateTime/
+    Instant. `moneyFormat` must be one of US/EUROPEAN/SPACE_COMMA/SPACE_DOT/SWISS/INDIAN/PLAIN
+    (anything else falls back to US) and `moneyDecimals` must be 0..6 (outside that it is clamped).
+
+    The `dynaform.form.list.field.plugin` sub-grid is a special case: its column panel never writes
+    a `dataClass` at all, so EVERY dataClass-gated capability there (boolean icons, right-alignment,
+    money, dateFormat) is dormant unless the column is hand-written with one.
+    See 04-crud-table-plugin.md and 05-crud-tree-and-process-table.md."""
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName")
+        is_list = pn == "dynaform.form.list.field.plugin"
+        if pn not in _COLUMN_TABLE_PLUGINS and not is_list:
+            continue
+        try:
+            model = core.get_inner_json(node, "settings" if is_list else "model")
+        except core.ToolError:
+            continue
+        where = node.get("name") or node.get("identifier") or pn
+        for c in (model.get("columnSettings") or []):
+            if not isinstance(c, dict):
+                continue
+            label = ((c.get("localizedNames") or {}).get("en_US")
+                     or c.get("name") or c.get("fieldExpression") or "?")
+            data_class = (c.get("dataClass") or "").strip()
+            money = c.get("money") is True
+            date_format = (c.get("dateFormat") or "").strip()
+
+            if is_list and (money or date_format):
+                r.warn("%s %r column %r sets money/dateFormat, but the List field's column panel "
+                       "never writes a dataClass and both are gated on it — the cell renders raw. "
+                       "Hand-write the column's dataClass too. (14a-plugin-config-reference.md)"
+                       % (pn, where, label))
+            elif money and data_class not in _NUMERIC_COLUMN_CLASSES:
+                r.warn("%s %r column %r sets money:true but dataClass is %r — money renders only for "
+                       "a numeric dataClass, so the cell draws the raw number. "
+                       "(04-crud-table-plugin.md)"
+                       % (pn, where, label, data_class or None))
+            elif date_format and data_class not in _TEMPORAL_COLUMN_CLASSES:
+                r.warn("%s %r column %r sets dateFormat %r but dataClass is %r — the pattern renders "
+                       "only for java.time.LocalDate/LocalDateTime/Instant, so the cell draws the raw "
+                       "stored value. (04-crud-table-plugin.md)"
+                       % (pn, where, label, date_format, data_class or None))
+
+            mf = c.get("moneyFormat")
+            if mf and mf not in _MONEY_FORMATS:
+                r.warn("%s %r column %r has moneyFormat %r — not one of %s; the runtime falls back "
+                       "to US. (04-crud-table-plugin.md)"
+                       % (pn, where, label, mf, "/".join(sorted(_MONEY_FORMATS))))
+
+            md = c.get("moneyDecimals")
+            if isinstance(md, int) and not (0 <= md <= 6):
+                r.warn("%s %r column %r has moneyDecimals %d — outside 0..6; the runtime clamps it. "
+                       "(04-crud-table-plugin.md)" % (pn, where, label, md))
 
 
 def _check_localized_fields(p, r):
@@ -6542,6 +6624,142 @@ def _check_list_action_rules(p, r):
                         _check_ref(label, name, "validationRuleIdentifiers", ident, "VALIDATION_RULE")
 
 
+
+def _check_localize_keys(p, r):
+    """An entity `localize` jsonb is keyed by the DTO FIELD name, not the column name.
+
+    The resolver swaps a row's value for `localize[<dtoField>][<locale>]`, and it looks
+    that key up under the field name the CRUD exposes — `mainNode`, not `main_node`. Seed
+    the jsonb straight from the database column names and the single-word fields still
+    work (`name`, `node`, `detail` spell the same in both conventions) while every
+    multi-word one silently keeps rendering the authoring language. Nothing logs; the
+    column simply never translates, which reads as "the translation is missing" and sends
+    you looking in the wrong place.
+    """
+    dump = p.db                       # Project.db is already the parsed dump
+    cf = p.cruds_file                 # ...but dynamic-cruds.json is optional
+    if not isinstance(dump, dict) or cf is None:
+        return
+    cruds = (cf.data or {}).get("cruds") or []
+    # table -> crud, via the table each findAll reads
+    tbl2crud = {}
+    for c in cruds:
+        for m in c.get("methods") or []:
+            if m.get("methodName") != "findAll" or not m.get("script"):
+                continue
+            mm = re.search(r"\bFROM\s+([a-z_][a-z0-9_]*)", m["script"], re.I)
+            if mm:
+                tbl2crud.setdefault(mm.group(1), c)
+            break
+    for sch in dump.get("schemas") or []:
+        for t in sch.get("tables") or []:
+            cols = t.get("columns") or []
+            crud = tbl2crud.get(t.get("name"))
+            locf = (crud or {}).get("localizationField") or "localize"
+            if locf not in cols or not crud:
+                continue
+            fields = {f.get("fieldName") for f in (crud.get("dtoFields") or [])}
+            col2field = {f.get("displayName"): f.get("fieldName")
+                         for f in (crud.get("dtoFields") or [])}
+            keys = set()
+            for row in t.get("rows") or []:
+                v = row.get(locf)
+                if not v:
+                    continue
+                try:
+                    obj = json.loads(v) if isinstance(v, str) else v
+                except Exception:
+                    continue
+                if isinstance(obj, dict):
+                    keys |= set(obj)
+            for k in sorted(keys - fields):
+                want = col2field.get(k)
+                if want and want != k:
+                    r.err("table %r: %s key %r is the COLUMN name — the resolver looks it "
+                          "up by the DTO field name, so this translation is never applied. "
+                          "Rename the key to %r." % (t.get("name"), locf, k, want))
+                else:
+                    r.warn("table %r: %s carries key %r, which is not a field of crud %r — "
+                           "that translation is dead weight."
+                           % (t.get("name"), locf, k, crud.get("alias")))
+
+
+
+def _check_orphan_validation_rules(p, r):
+    """A VALIDATION_RULE no form lists in `validators` can never fire.
+
+    Unlike an unused EXECUTION rule — which a button, a workflow or another rule might still
+    reach — a validation rule has exactly one entry point: `forms[].validators`. Written, tested,
+    committed, and wired nowhere, it is a check the team believes is running. Nothing else in the
+    project references it, so nothing else can warn.
+    """
+    try:
+        ro = p.rep
+    except Exception:
+        return
+    rules = ro.get("rules") or []
+    forms = ro.get("forms") or []
+    wired = set()
+    for f in forms:
+        for v in (f.get("validators") or []):
+            wired.add(v if isinstance(v, str) else (v or {}).get("identifier"))
+    for rule in rules:
+        if rule.get("ruleType") != "VALIDATION_RULE":
+            continue
+        ident = rule.get("identifier")
+        if ident and ident not in wired:
+            r.warn("validation rule %r is listed in no form's `validators` — a VALIDATION_RULE "
+                   "has no other entry point, so it can never fire. Add it to the form it was "
+                   "written for, or delete it." % rule.get("name"))
+
+
+
+def _check_method_rule_delegates(p, r):
+    """A GROOVY crud method may delegate to a RULE — and that rule is the executable body.
+
+    `method.ruleIdentifier` points at the rule the method actually runs; `method.script` is only a
+    copy the editor shows. Two things go wrong and neither is visible anywhere else:
+
+    1. **The rule is not in the export.** The method imports fine, its `ruleIdentifier` resolves to
+       nothing, and the method fails at runtime. Found exactly this on a delivered project: six
+       methods — including `customerOrder.create` / `update` / `delete`, the whole Orders write
+       path — referenced rules that `rep-objects.rules[]` never carried. `validate` was green,
+       `crud verify --db` was green, and a re-import would have silently removed the register's
+       ability to save anything.
+    2. **The two copies drift.** Pushing a new `script` over MCP does NOT update the delegate, so
+       the archive can hold the new body while the runtime keeps executing the old one.
+
+    Same family as the method-script / saved-query pair, and it needs the same discipline.
+    """
+    try:
+        ro = p.rep
+        cf = p.cruds_file
+    except Exception:
+        return
+    if not isinstance(ro, dict) or cf is None:
+        return
+    rules = {rule.get("identifier"): rule for rule in (ro.get("rules") or [])}
+    for crud in ((cf.data or {}).get("cruds") or []):
+        for m in (crud.get("methods") or []):
+            ident = m.get("ruleIdentifier")
+            if not ident:
+                continue
+            rule = rules.get(ident)
+            if rule is None:
+                r.err("crud %r method %r delegates to rule %s, which is NOT in rep-objects.rules[] "
+                      "— the method imports with a dangling reference and fails at runtime. Export "
+                      "the rule (it is usually hidden, so list it with includeHidden)."
+                      % (crud.get("alias"), m.get("methodName"), ident))
+                continue
+            body = ((rule.get("rule") or {}).get("ruleScriptStr") or "").strip()
+            script = (m.get("script") or "").strip()
+            if script and body and script != body:
+                r.warn("crud %r method %r: its `script` and its delegate rule %r are DIFFERENT "
+                       "bodies. The RULE is what executes; `script` is the copy the editor shows. "
+                       "Keep them in step, or the archive documents code that never runs."
+                       % (crud.get("alias"), m.get("methodName"), rule.get("name")))
+
+
 def _check_dynamic_cruds(p, cruds, r):
     """Schema-aware checks that catch runtime-only failures a purely empty-table
     smoke test misses. See dyncheck.py for the rationale."""
@@ -6613,6 +6831,38 @@ def _check_dynamic_cruds(p, cruds, r):
                     r.warn("crud %r: delete does not remove child lines first; it will "
                            "FK-fail on any document that has lines (mirror update: call "
                            "deleteLines then delete the header)" % alias)
+        # (2c) a bare SQL alias carrying an upper-case letter is folded to lower
+        #      case by Postgres, so the row arrives spelled differently from every
+        #      camelCase consumer (table column, form control, Groovy rule) and the
+        #      value silently renders blank. Quote the alias to keep the case.
+        for m in methods:
+            if m.get("methodType") != "SQL":
+                continue
+            lost = dyncheck.case_losing_aliases(m.get("script", "") or "")
+            if lost:
+                r.warn("crud %r method %r: SQL alias(es) %s are NOT quoted, so Postgres "
+                       "folds them to lower case and the row arrives as %s — every "
+                       "camelCase consumer then reads null. Quote them: AS \"%s\"."
+                       % (alias, m.get("methodName"), ", ".join(sorted(set(lost))[:4]),
+                          ", ".join(sorted({x.lower() for x in lost})[:4]),
+                          sorted(set(lost))[0]))
+        # (2d) a literal `?` is a JDBC BIND MARKER, so Postgres' jsonb existence
+        #      operators (`?`, `?|`, `?&`) silently add parameter slots the
+        #      platform never fills. The method then dies at runtime with
+        #      "No value specified for parameter N" pointing at a slot that
+        #      does not exist in the author's mental model of the statement.
+        for m in methods:
+            if m.get("methodType") != "SQL":
+                continue
+            qs = dyncheck.jdbc_question_marks(m.get("script", "") or "")
+            if qs:
+                r.err("crud %r method %r: %d literal '?' in the SQL — JDBC counts each "
+                      "one as a bind marker, so the method fails with \"No value specified "
+                      "for parameter N\". If these are jsonb existence operators, rewrite "
+                      "them: `a ? 'k'` -> `a->'k' IS NOT NULL`, `a ?| ARRAY[..]` -> "
+                      "`jsonb_exists_any(a, ARRAY[..])`, `a ?& ARRAY[..]` -> "
+                      "`jsonb_exists_all(a, ARRAY[..])`."
+                      % (alias, m.get("methodName"), len(qs)))
         # (3) every UI field expression must be surfaced by findAll -> WARN.
         find_all = next((m for m in methods if m.get("methodName") == "findAll"), None)
         cons = consumers.get(alias) or []

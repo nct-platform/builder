@@ -151,10 +151,15 @@ The parsed `model.stringValue` = **`CrudTablePluginModel`**:
       "fieldExpression": "plant.code", "dataClass": "java.lang.String" },
     { "id": "07d5064e-58e4-4c91-bc16-fd1c34de1f58",
       "localizedNames": { "en_US": "Count Date" },
-      "fieldExpression": "countDate", "dataClass": "java.time.LocalDate" },
+      "fieldExpression": "countDate", "dataClass": "java.time.LocalDate",
+      "dateFormat": "DD/MM/YYYY" },
     { "id": "4beb0d63-dd35-432a-be60-a5ed9d068cf6",
       "localizedNames": { "en_US": "Total Lines" },
-      "fieldExpression": "totalLines", "dataClass": "java.lang.Integer" }
+      "fieldExpression": "totalLines", "dataClass": "java.lang.Integer" },
+    { "id": "9f2c7a10-5d31-4f0e-9a44-2b6f7c1e88d0",
+      "localizedNames": { "en_US": "Stock Value" },
+      "fieldExpression": "stockValue", "dataClass": "java.math.BigDecimal",
+      "money": true, "currency": "$", "moneyFormat": "US", "moneyDecimals": 2 }
   ],
   "filterSettings": [],
   "createActions": {
@@ -328,6 +333,11 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 | `enumName` | String | Registry name of the project Enumeration (for dynamic enums). Mirrors `FieldDto.enumName`. `null` for non-enum columns. | no | `null` | |
 | `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** the raw `true` text (e.g. `pe-7s-check`). Blank → raw text. | no | `null` |; render `BooleanIconColumnUtils.buildCell` (`utils/BooleanIconColumnUtils.java`) |
 | `falseIcon` | String | Boolean columns only: Pe-7s CSS class rendered instead of the raw `false` text (e.g. `pe-7s-close`). Blank on this side → that value falls back to raw text. | no | `null` | |
+| `money` | boolean | **Numeric columns only** (`Integer/Long/Short/Byte/Double/Float/BigDecimal/BigInteger` + primitives): render the cell as money — grouped digits, fixed decimals, optional `currency` marker. `false` → the number is drawn as-is. | no | `false` |; render `ColumnCellFormatUtils.format` → `MoneyColumnUtils.formatCellValue` (`utils/MoneyColumnUtils.java`) |
+| `currency` | String | Money columns: the marker drawn with the amount — a symbol (`$`, `€`, `֏`, `₹`) or an ISO code (`USD`, `AMD`). **Free text** — the settings control is an autocomplete over suggestions, not a closed list. Blank → amount only. | no | `null` | |
+| `moneyFormat` | String (enum name) | Money columns: the grouping/decimal standard. One of `US` (1,234.56) · `EUROPEAN` (1.234,56) · `SPACE_COMMA` (1 234,56) · `SPACE_DOT` (1 234.56) · `SWISS` (1'234.56) · `INDIAN` (12,34,567.89) · `PLAIN` (1234.56). Blank → `US`. | no | `null` (= `US`) | |
+| `moneyDecimals` | Integer | Money columns: decimal places, `0`–`6`. Null → `2`. Needed as its own key because the DB scale is already lost before the UI sees the value (a `BigDecimal(1234.50)` arrives as the double `1234.5`), so this is the only authority on how many decimals show. | no | `null` (= `2`) | |
+| `dateFormat` | String (moment.js) | **Temporal columns only** (`dataClass` = `java.time.LocalDate` / `LocalDateTime` / `Instant`): display pattern, e.g. `DD/MM/YYYY HH:mm:ss`. **Same catalogue and same vocabulary as the Date Picker form control** (doc [14a](14a-plugin-config-reference.md) §Date Picker). Blank → the raw stored ISO value. | no | `null` | ; render `DateFormatColumnUtils.formatCellValue` (`utils/DateFormatColumnUtils.java`) |
 
 > **Enum render** (`extractColumnValue` → `EnumColumnUtils.formatEnumCellValue`): for an enum column
 > the "live" projection from the integration service (`enumProjections`) is taken; if absent — the snapshot
@@ -353,6 +363,37 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > and boolean cells are **right-aligned** at render (CSS `text-end`, `BooleanIconColumnUtils.isRightAligned`
 > / `RIGHT_ALIGN_CLASS`), spreadsheet-style; string/enum cells stay left. Pure render CSS — no
 > settings key.
+
+> **Money render** (`MoneyColumnUtils.formatCellValue`, reached from `extractColumnValue` via
+> `ColumnCellFormatUtils`): with `money: true` on a numeric column the amount is grouped per
+> `moneyFormat`, rounded HALF_UP to `moneyDecimals` places, and the `currency` marker is attached —
+> **a letters-only marker (an ISO code) always trails** the amount after a non-breaking space
+> (`1,234.50 USD`), **a symbol follows the standard**: leading for `US`/`SWISS`/`INDIAN`/`PLAIN`
+> (`$1,234.50`), trailing for `EUROPEAN`/`SPACE_COMMA`/`SPACE_DOT` (`1.234,56 €`). A negative amount
+> keeps its minus in front of everything (`-$1,234.50`). A value that is not a number is drawn
+> unchanged — a mis-typed column degrades, it never breaks the row. Money columns are numeric, so
+> they are right-aligned by the rule above with no extra key.
+
+> **Date render** (`DateFormatColumnUtils.formatCellValue`, same seam): with a non-blank `dateFormat`
+> on a temporal column the stored ISO value is re-drawn through that moment.js pattern. An `Instant`
+> renders at **UTC**, matching what the Date Picker form control writes, so a table never disagrees
+> with the form that filled it. Textual tokens (`MMMM`, `MMM`) render in the **viewer's locale**
+> (`31 декабря 2024` for a ru session). A date-only value under a pattern that wants a time gets
+> start-of-day; an unparseable value is drawn unchanged. Blank `dateFormat` = the raw ISO string,
+> which is what every column saved before this feature keeps doing.
+
+> **Where the author sets these.** The column accordion in the right-hand settings panel shows the
+> money block only when the picked field is numeric and the date-format picker only when it is
+> temporal — the same conditional-reveal as the enum Display Field and the boolean icons. Picking a
+> temporal field **prefills** `dateFormat` (`DD/MM/YYYY` for `LocalDate`, `DD/MM/YYYY HH:mm:ss`
+> otherwise); ticking **Is money** prefills `currency: "$"`, `moneyFormat: "US"`, `moneyDecimals: 2`.
+> Both prefills fire on the CHANGE only, never on a plain Save — a blank `dateFormat` is a
+> legitimate "show the raw value" choice and must survive re-saving the panel. (With
+> `nct.ui.dynaform.settings.autosave=false` there is no change event at all, so nothing is
+> prefilled and the author picks every value explicitly.)
+> Repointing a column at a different type scrubs the keys that no longer apply. CRUD Tree and Process
+> Table offer the identical controls; the List form control carries the keys but has no UI for them
+> (it does not persist a `dataClass` at all, so its boolean icons are equally dormant).
 
 ### `CrudTableFilterSettings` (element of `filterSettings[]`)
 

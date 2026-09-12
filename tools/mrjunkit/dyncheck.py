@@ -100,7 +100,26 @@ def build_schema_index(db):
 # findAll surfaced-field analysis
 # --------------------------------------------------------------------------
 
-_AS_RE = re.compile(r"\bAS\s+([a-z_][a-z0-9_]*)", re.I)
+# Postgres hands an alias back verbatim ONLY when it is double-quoted; a bare
+# identifier is folded to lower case. So `... AS employee__fullName` arrives as
+# `employee__fullname`, and a UI expression or Groovy rule spelled
+# `employee.fullName` silently resolves to nothing while every gate stays green.
+# Capture both spellings and fold the bare one, so this parser sees what the ROW
+# actually carries rather than what the SQL text says.
+_AS_RE = re.compile(r'\bAS\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))', re.I)
+# the same alias positions, kept as WRITTEN — used to report the case-losing ones
+_AS_RAW_RE = re.compile(r'\bAS\s+(?!")([A-Za-z_][A-Za-z0-9_]*)')
+
+
+def as_aliases(sql):
+    """Every SELECT alias as the returned row will carry it (quoted verbatim, bare folded)."""
+    return [q if q else b.lower() for q, b in _AS_RE.findall(sql or "")]
+
+
+def case_losing_aliases(sql):
+    """Bare aliases carrying an upper-case letter — the ones Postgres will silently
+    fold, breaking any camelCase consumer. Returns them as written."""
+    return [a for a in _AS_RAW_RE.findall(sql or "") if a != a.lower()]
 _TCOL_RE = re.compile(r"\bt\.([a-z_][a-z0-9_]*)")
 _KEY_RE = re.compile(r"'([A-Za-z_][A-Za-z0-9_]*)'\s*,")
 
@@ -124,7 +143,7 @@ def surfaced_fields(findall_sql, table_columns=None):
     list_key_set = {camel(k) for k in _KEY_RE.findall(sql)}
     # Strip the line subqueries so their inner tokens don't pollute header roots.
     header = re.sub(r"json_agg\(.*?'\[\]'::json\)", " ", sql, flags=re.S | re.I)
-    for a in _AS_RE.findall(header):
+    for a in as_aliases(header):
         parts = a.split("__")
         roots.add(camel(parts[0]))
         if len(parts) > 1:
@@ -189,3 +208,30 @@ def literal_column_writes(sql):
         if "COALESCE" in pre or "NULLIF" in pre:
             continue
         yield col, lit
+
+
+# ---------------------------------------------------------------------------
+# A literal `?` in a SQL method script is a JDBC PARAMETER MARKER.
+#
+# The platform binds a method's `parameters[]` positionally onto the JDBC
+# statement, so every `?` the driver finds counts as a slot. Postgres' jsonb
+# existence operators are spelled `?`, `?|` and `?&` — write
+# `WHERE localize ? 'en_US'` and the statement suddenly has two markers instead
+# of one, and execution dies with "No value specified for parameter 2" from
+# somewhere that has nothing to do with the clause you wrote.
+#
+# The rewrites are exact, not approximate:
+#     a ? 'k'    ->  a->'k' IS NOT NULL      (or jsonb_exists(a,'k'))
+#     a ?| ARRAY[...]  ->  jsonb_exists_any(a, ARRAY[...])
+#     a ?& ARRAY[...]  ->  jsonb_exists_all(a, ARRAY[...])
+_SQ = re.compile(r"'(?:[^']|'')*'")
+
+
+def _strip_sql_strings(sql):
+    """Blank out single-quoted literals so operator scans don't see their content."""
+    return _SQ.sub(lambda m: "'" + " " * (len(m.group(0)) - 2) + "'", sql)
+
+
+def jdbc_question_marks(sql):
+    """Offsets of every `?` that the JDBC driver will treat as a bind marker."""
+    return [i for i, ch in enumerate(_strip_sql_strings(sql or "")) if ch == "?"]

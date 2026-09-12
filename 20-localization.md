@@ -279,6 +279,30 @@ DB column `zone_type`):
 
 The column is `null` until localization is run for that row.
 
+#### ⚠️ Load-bearing: a seeded key that is the COLUMN name is a translation that never applies
+
+The camelCase note above is not cosmetic. The resolver looks the key up under the **DTO field name** the CRUD
+exposes (`dtoFields[].fieldName`), so seeding the jsonb straight from the database column names produces a
+column that never translates — and it fails **selectively**, which is what makes it expensive: single-word
+fields (`name`, `node`, `detail`) spell the same in both conventions and work, so the register shows some
+columns in the user's language and others in the authoring language, with a complete translation sitting in
+the same jsonb on the same row. Nothing logs. It reads as "the translation is missing" and sends you to
+look at coverage instead of at the key.
+
+    seeded from the column      resolver looks for       result
+    "main_node":     {…}        localize["mainNode"]     never applied, column stays in the authoring language
+    "semi_finished": {…}        localize["semiFinished"] never applied
+    "name":          {…}        localize["name"]         works — the two spellings coincide
+
+`validate` now ERRORs on this (`_check_localize_keys`): it reads the jsonb keys out of `project-db.dump`, maps
+each table to its CRUD via that CRUD's `findAll`, and reports any key that is a `displayName` (column) whose
+`fieldName` is spelled differently, naming the key it should be. A key matching no field at all is a WARN —
+dead weight, but harmless.
+
+⚠️ When probing seeded coverage, remember the shape is `{field: {locale: value}}` — `localize ? 'en_US'` tests
+the TOP level and reports 0 % on fully-translated data. Test `localize->'<field>' ? 'en_US'`, and see
+[11](11-business-logic-dynamic-crud.md) for why that `?` cannot go in a CRUD method.
+
 - **Per-field bulk Localize** (populate every row's `localize[field][locale]` across all locales by
   auto-translation, as a background task) = `CrudDataLocalizeService`
   (`nct-ui/.../service/CrudDataLocalizeService.java`): it pages the rows, translates via

@@ -815,20 +815,63 @@ def pid = service.workflow.start("a3f2c1de-…", ctx, [
 
 ---
 
-### 2.13 `service.workflow.list / actions / contextData / complete` — a rule works an existing case
+### 2.13 `service.workflow.list / actions / contextData / complete / cancel` — a rule works an existing case
 
 **Same gate as `start` (§2.12): EXECUTION_RULE and CRUD GROOVY methods only.** The whole namespace is absent
 from a predicate and a validation rule, and refuses at runtime if written there by hand.
 
-Where `start` opens a case, these four find one, ask what may be done to it, read its data and act:
+Where `start` opens a case, these seven find one, ask what may be done to it, read its data, act on it, end it, and name the case the rule is already in:
 
 ```groovy
-Map  list(String processTableSettingsId, Map filterValues[, Map options])
-List actions(String processIdentifier[, String processTableSettingsId])
-List startActions(String processTableSettingsId)
-Map  contextData(String processIdentifier)
-Map  complete(String processIdentifier, String actionId, Map contextData[, Map options])
+Map    list(String processTableSettingsId, Map filterValues[, Map options])
+List   actions(String processIdentifier[, String processTableSettingsId])
+List   startActions(String processTableSettingsId)
+Map    contextData(String processIdentifier)
+Map    complete(String processIdentifier, String actionId, Map contextData[, Map options])
+Map    cancel(String processIdentifier[, String reason])
+String currentProcessIdentifier()
 ```
+
+#### `cancel(...)` — ending a case
+
+The closing half of `start`. Until it existed a rule could open a case but never close one, and an abandoned
+case had to be left running forever.
+
+```groovy
+service.workflow.cancel(pid, "rejected at review — version returned to DRAFT")
+```
+
+Answers `[success: true, alreadyEnded: false, status: "CANCELED", message: "…"]`. Three behaviours to know
+before writing the rule:
+
+- **Cancelling a case that has ALREADY finished succeeds**, with `alreadyEnded: true`. A retry, or two branches
+  that both decide to abandon, is not an error.
+- **A rule may NOT cancel the case it is itself running inside.** The engine is mid-transaction on that case, so
+  the delete would come back later as an unrelated locking failure. The call refuses with a 409 naming the
+  remedy: to end a case from within itself, route the branch to a **terminate end event** in the BPMN — that is
+  what "this case ends here" means to the engine.
+- **The reason is stored** as Flowable's deletion reason on the historic process instance. Nothing in the
+  platform UI surfaces it yet, so today it is recoverable only from the engine's history tables — still worth
+  filling in, but do not rely on a user ever seeing it.
+
+#### `currentProcessIdentifier()` — which case am I in
+
+```groovy
+def pid = service.workflow.currentProcessIdentifier()
+```
+
+Before it existed there was no way to ask, so every service task re-published its own subject id as a GLOBAL
+attribute on every step purely so the next rule could tell what it was working on. That bookkeeping can go.
+
+**Where it answers.** In rules the ENGINE runs — service tasks and gateway predicates — and on the
+process-table action path. It answers `null` in a CRUD Groovy method, in the scheduler, and on paths that do
+not stamp the case. So use it to NAME the case you are already working on; do not branch on null-vs-value, and
+do not pass it to `cancel` expecting a guaranteed id.
+
+> The value is stamped per execution and deliberately never stored in the case document. That matters: a
+> document is routinely copied into a new case (`contextData(A)` then `start(w, thatDocument)`), and an
+> identity that persisted would tell case B it was case A — after which `cancel(currentProcessIdentifier())`
+> would destroy a live, unrelated case.
 
 #### The settings ID, and why it is the first argument
 
@@ -1445,10 +1488,12 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   `service.data`. There is no `service.data`.
 - **`service.http` / `service.sql`** — no such namespaces. HTTP is `service.global.rest.*` (§2.2); SQL / data access
   is `service.crud.<alias>.<method>()` (§2.1) or `service.rimm.*` (§2.4).
-- **`service.process`** — no such binding. `service.workflow` is where processes live, and it has exactly six
-  members: `start` (§2.12), and `list` / `actions` / `startActions` / `contextData` / `complete` (§2.13). There
-  is no `service.workflow.startProcess(...)`, no `getProcess(...)`, no `raiseMessage(...)` — those appear in
-  older notes and were never implemented; use `list(...)` to find a case and `contextData(...)` to read one.
+- **`service.process`** — no such binding. `service.workflow` is where processes live, and it has exactly eight
+  members: `start` (§2.12), and `list` / `actions` / `startActions` / `contextData` / `complete` / `cancel` /
+  `currentProcessIdentifier` (§2.13). There is no `service.workflow.startProcess(...)`, no
+  `getProcess(...)`, no `raiseMessage(...)` — those appear in older notes and were never implemented; use
+  `list(...)` to find a case and `contextData(...)` to read one. `cancel` and `currentProcessIdentifier` are recent: on an older platform build they are absent, and the whole namespace is offered
+  only to EXECUTION rules and CRUD Groovy methods.
   Process-access mutation is `service.access.*` (§2.7, operating on `attrs.processIdentifier` — i.e. the
   process the rule is ALREADY in, never one it just started).
 - **`service.mail` (bare)** — must be `service.notification.mail.<alias>(...)` (§2.5); neither `service.mail` nor

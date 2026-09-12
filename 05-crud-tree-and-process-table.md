@@ -201,6 +201,14 @@ Backing: `CrudTreePluginModel.java`.
 | `rowsPerPage` | int | **DEAD FIELD on a tree — never read.** `CrudTreePlugin.java` hardcodes `Long.MAX_VALUE` as the page size instead of the model value, so a tree **has no pagination at all** and setting this to 15 changes nothing. (Contrast `CrudTablePlugin.java`, which passes `getModelObject().getRowsPerPage()`.) Keep the `2147483647` default so the JSON does not imply a setting that works. | no | `2147483647` | |
 | `findRuleIdentifier` | String | Identifier of the EXECUTION rule the tree runs to fetch a node's children (`service.crud.<alias>.findByParent(...)`). Auto-created on render if empty (see below). | yes² | — | |
 
+
+> **The tree's FIRST column is rendered by a different code path.** `CrudTreePlugin.newContentComponent`
+> draws it as a bare `Label` next to the expand/collapse junction, so it never reaches the shared cell
+> factory: **boolean icons and right-alignment do NOT apply to column 0** (they do to every other
+> column). `money` and `dateFormat` DO apply to it, because those are resolved inside
+> `extractColumnValue`, which the first column does call. If you need a boolean icon on the first
+> column, move that column down and put a text column first.
+
 ¹ **Either one** of `parentFieldExpression` / `parentFilterFieldExpression` is enough for the tree
 to start rendering (`CrudTreePlugin.java`). The data provider prefers
 `parentFilterFieldExpression`, and in its absence falls back to `parentFieldExpression`
@@ -590,6 +598,11 @@ from the process context data via one of three sources.
 | `enumName` | String | Registry name of the project Enumeration. | |
 | `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** raw `true` text; blank → raw text. Same helper as the CRUD table. | |
 | `falseIcon` | String | Boolean columns only: Pe-7s CSS class for a `false` value; blank on this side → raw text. | |
+| `money` | boolean | **Numeric columns only**: render the cell as money. Same semantics and same helper as the CRUD table. | |
+| `currency` | String | Money columns: symbol (`$`, `€`, `֏`) or ISO code (`USD`); free text. | |
+| `moneyFormat` | String | Money columns: `US` / `EUROPEAN` / `SPACE_COMMA` / `SPACE_DOT` / `SWISS` / `INDIAN` / `PLAIN`. Blank → `US`. | |
+| `moneyDecimals` | Integer | Money columns: decimal places `0`–`6`; null → `2`. | |
+| `dateFormat` | String | **Temporal columns only** (`java.time.LocalDate` / `LocalDateTime` / `Instant`): moment.js display pattern, e.g. `DD/MM/YYYY HH:mm`. Blank → the raw ISO value. | |
 
 > **Boolean icons + alignment** apply here identically to the CRUD table via the shared `BooleanIconColumnUtils`,
 > called at `ProcessTablePlugin.java`: a boolean column with `trueIcon`/`falseIcon` renders the Pe-7s icon
@@ -597,6 +610,15 @@ from the process context data via one of three sources.
 > right-aligned (CSS `text-end`, `isRightAligned`). Full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
 > §`CrudTableColumnSettings`. Note the sibling `ProcessIndexSettings` (below) has **no** `trueIcon`/`falseIcon` —
 > only columns do.
+
+> **Money + date format** apply here identically too, through the same
+> `ColumnCellFormatUtils` seam — full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
+> §`CrudTableColumnSettings`. One thing is specific to the process table: the controls work in
+> **every scope** — `GLOBAL`/`CONTEXT` columns pick their type in the "Field Expression" type
+> dropdown, `CRUD` columns get it from the picked field. (In `CRUD` scope the value reaching the
+> formatter is typed only for **dotted** expressions; a flat one goes through the localization
+> lookup, which returns text. Both formatters read either, so it makes no difference to the output.)
+> `ProcessIndexSettings` has none of these keys — only columns do.
 
 How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`):
 

@@ -443,7 +443,19 @@ values". That is exactly the case a per-field validation can't express cleanly.
 `{workflowIdentifier, workflowTaskId, actionId, validator}` — authored via cascading **Workflow → Task → Action**
 dropdowns + a `VALIDATION_RULE` picker, to bind a validator to *one specific* workflow/task/action.
 
-> ⚠️ **Prefer `validators` (global) for CRUD-form validation. `actionValidators` is authored/persisted but the
+> ✅ **FIXED — `validators` now run on a CRUD-form submit.** `FormPlugin.runFormLevelValidators()` executes
+> every `FormDto.validators[]` rule on the CRUD path, and a rule answering `valid:false` blocks the save and
+> renders its `validationMessages`. Keep the version in mind: on a platform build older than this,
+> `FormPlugin.onSubmit` branched to `submitCrudForm()` before the validation request was built, so the
+> form-level pass was skipped entirely and a form whose validator rejects a salary below the site minimum
+> saved **1000 against a minimum of 80000** with no message and no error panel — while the same rule run
+> through `nct_rule_execute` correctly returned `{"validationMessages": […], "valid": false}`.
+>
+> Two things that did NOT change: `validate` still cannot see a validator defect (only submitting a violating
+> value exercises it), and the `actionValidators` half below still holds.
+>
+> ⚠️ The paragraph below is the pre-measurement reading and is kept because the `actionValidators` half of it
+> still holds: **`actionValidators` is authored/persisted but the
 > observed submit path runs ONLY `form.getValidators()`** — a repo-wide grep finds no runtime read of
 > `getActionValidators()` outside the settings panel / `FormEntity` / MCP tooling. The **working per-action**
 > validation path is a different one: the **BPMN user-task action's `validationRuleIdentifiers`** on

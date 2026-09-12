@@ -291,6 +291,25 @@ an empty one), but such a CRUD can do nothing. A working CRUD carries the standa
 | `methodOrder` | Integer | Display order. Convention: `find`=**-1**, `findAll`=0, `count`=1, `get`=2, `create`=3, `update`=4, `delete`=5. | no | 0 | `.methodOrder` |
 | `queryIdentifier` | String\|null | SQL only: UUID of a saved *query* in `rep-objects.json.queries[]` (mirrors the SQL in `{name:'x',type:'y'}` form). | no⁴ | null | `.queryIdentifier` |
 | `ruleIdentifier` | String\|null | GROOVY only, and **mandatory for every GROOVY method except `find`** — without it the method does not run its script at all (*"has no rule identifier. Apply the CRUD first."*, see §Document CRUD variant). For a generated auto-find `find` = **null** (sentinel); non-empty → `find` is a real hidden rule (see Step 3). | no⁴ | null | `.ruleIdentifier` |
+
+> ⛔ **A GROOVY method's script is NOT what executes — the delegate rule named by `ruleIdentifier` is.**
+> The method record and the hidden rule (`crud_<alias>_<method>`) hold two separate copies of the body, and
+> they drift: an update that wrote only the record left the OLD code running while every read-back showed the
+> new script and every diff came out clean. Measured: record 3438 chars carrying the fix, delegate 2919 chars
+> without it — the delegate is the one that ran. The symptom is treacherous, because the keys the old code
+> already handled kept working while the new ones came out null, which reads as "some parameters are ignored"
+> rather than "the wrong code is running".
+>
+> On a current build `nct_bl_updateMethod` writes BOTH (and refuses the update outright if the delegate is
+> missing, rather than leaving a record that advertises code nothing runs), and `nct_bl_getMethod` returns a
+> `delegate` block with `inSync`. On an older build, push the script to the rule yourself with
+> `nct_rule_update` and verify by RE-RUNNING the method — not by reading it back.
+
+> ⛔ **A literal `?` in a SQL method is a JDBC bind marker.** The statement scanner only understands `:name`
+> and copies everything else through verbatim, so Postgres' jsonb existence operators (`?`, `?|`, `?&`) reach
+> the driver as unfilled parameter slots and the method dies with *"No value specified for parameter 2"*.
+> Use the function forms instead — `jsonb_exists(col,'k')`, `jsonb_exists_any(col, array['a','b'])`,
+> `jsonb_exists_all(...)` — and note they do not match a GIN index the way the operators do.
 | `contextIdentifiers` | array\|null | Contexts of the Groovy rule. In practice: `[]` for a GROOVY-find with a real rule, `null` for auto-find and for all SQL methods. | no | null | `.contextIdentifiers` |
 | `returnFields` | {col:Type}\|null | Result schema (for Groovy hints), `Map<String,String>`. Filled as a **side effect** of running the method via the Run dialog (`CrudEditorPanel.saveReturnFields`). Before the first Run = null. | no | null | `.returnFields` |
 | `parameters` | array | The method's parameter list (see below). For SQL — extracted from `:param` automatically. | yes⁵ | `[]` | `.parameters` |
@@ -1146,6 +1165,38 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
 
 ## Gotchas
 
+- ⛔ **A GROOVY method may DELEGATE to a rule, and that rule is the executable body.**
+  `method.ruleIdentifier` names it; `method.script` is only the copy the editor shows.
+  `nct_bl_addGroovyMethod` states the contract ("create the rule first, mark `hidden=true`, name it
+  `crud_<alias>_<methodName>`"). Two consequences bite hard:
+
+  1. **The delegate rule must be in `rep-objects.rules[]`.** A delivered project was found with six
+     methods pointing at rules the export never carried — including `customerOrder.create`,
+     `update` and `delete`, i.e. a whole register's write path. A re-import brings the methods back
+     with a dangling reference and the screen silently loses its ability to save. Because the rules
+     are hidden, any inventory has to ask for them (`nct_rule_findAll` with `includeHidden: true`).
+  2. **`nct_bl_updateMethod` writes `script`, not the delegate.** A push therefore reports success,
+     reads back clean, and leaves the old body running. For a GROOVY method a read-back proves
+     nothing — execute it and look at what it produced.
+
+  `validate` now checks both: an ERROR for a `ruleIdentifier` that resolves to no rule in the
+  export, and a WARN when `method.script` and the delegate's body have drifted apart. Same family
+  as the method-script / saved-query pair, and it needs the same discipline.
+- ⛔ **A literal `?` in a SQL method is a JDBC BIND MARKER, not an operator.** The platform binds a method's
+  `parameters[]` positionally onto the JDBC statement, and the driver counts every `?` it finds as a slot.
+  Postgres spells its jsonb existence operators `?`, `?|` and `?&`, so `WHERE localize ? 'en_US'` quietly adds
+  a phantom parameter and the method dies with **"No value specified for parameter 2"** — a message naming a
+  slot that does not exist in the statement you wrote, which is why it reads as a platform bug. Rewrite:
+
+  | instead of | write |
+  |---|---|
+  | `a ? 'k'` | `a->'k' IS NOT NULL` (or `jsonb_exists(a,'k')`) |
+  | `a ?\| ARRAY[…]` | `jsonb_exists_any(a, ARRAY[…])` |
+  | `a ?& ARRAY[…]` | `jsonb_exists_all(a, ARRAY[…])` |
+
+  `validate` ERRORs on any literal `?` in a SQL method script (`dyncheck.jdbc_question_marks`); quoted string
+  literals are excluded, so `WHERE note = 'what? no'` does not trip it. The same `?` IS fine in an ad-hoc query
+  you run outside a method — it is the method's parameter binding that breaks, not Postgres.
 - **A GROOVY method has the SAME `service.*` surface as an execution rule** — it IS one
   ([16](16-groovy-service-api.md)), including `service.store.session.*` / `service.store.user.*` §2.14.
   ⛔ Two exceptions, both because a method's response is read for its RETURN VALUE alone.

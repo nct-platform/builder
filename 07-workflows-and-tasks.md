@@ -299,6 +299,13 @@ actually extracted):
 
 ### 1. Service Task (`bpmn:ServiceTask`) — an automatic step that executes Groovy rules
 
+> ⛔ **A service-task rule's RETURN VALUE is not a verdict.** `RuleTask` never reads it: `return false` is
+> ignored and the token advances exactly as if the rule had returned nothing. To stop a step, **throw** — the
+> exception aborts the transaction. Note what that means for a step reached by completing a user task: the
+> rollback takes the `taskService.complete()` with it, so the user task re-opens and the operator sees the
+> form again with no message. That re-opening loop is the THROW path, not the `false` path; the two are
+> unrelated, and reading `false` as "stop" is the usual way to arrive at the wrong diagnosis.
+
 The full node:
 
 ```json

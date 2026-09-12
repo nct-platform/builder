@@ -304,6 +304,139 @@ cannot see, and name them in the hand-over as unverified.
 
 ---
 
+## 6b. Writing DATA over MCP — the temp-method pattern
+
+`nct_repository_execute_query` and `nct_repository_execute_ddl` both wrap the statement in a SELECT, so
+neither can run an `UPDATE`/`INSERT`/`DELETE`. The only write channel is a **throwaway SQL method on the
+relevant CRUD**: add it → execute it → delete it. Use it for data repairs the UI has no screen for (fixing a
+seeded jsonb, clearing a stuck flag, backfilling a column); never leave one behind — a temp method that
+survives the session becomes an unaudited write endpoint on a delivered project, and `validate` will flag it
+as an orphan on the next pack.
+
+Four facts about that pattern, each of which costs a failed execution to rediscover:
+
+1. **`nct_bl_addSqlMethod` silently DROPS any parameters in the method DTO.** One `nct_bl_addParameter` call
+   per `:placeholder`, or the very first execution dies with "No value specified for parameter 1" before the
+   SQL is even parsed.
+2. **`parameterOrder` IS the JDBC slot index**, not a display order. Edit the script to drop a placeholder and
+   the stale parameter left behind shifts every binding after it — the symptom is a complaint about a slot
+   number higher than the number of placeholders you can see.
+3. **The binder infers the SQL type from the parameter NAME when it matches a column.** A scratch parameter
+   called `technology_id` binds as `uuid` and rejects `""` with "Invalid UUID string" no matter what
+   `parameterType` says. Name scratch parameters something no column is called (`go`, `confirm`).
+4. **`nct_crud_executeMethod` takes `parameters` as a positional LIST of plain values** — `["yes"]`. A
+   name/value map raises `LinkedHashMap cannot be cast to List`; a list of `{name,value}` objects binds the
+   whole object and fails on the cast.
+
+And the trap that hides inside the SQL itself: a literal `?` is a bind marker, so Postgres' jsonb existence
+operators cannot appear in a method script at all — see [11](11-business-logic-dynamic-crud.md) §Gotchas for
+the rewrites.
+
+### ⛔ A GROOVY method's real code is a hidden DELEGATE rule — `updateMethod` does not touch it
+
+A dynamic CRUD's GROOVY method executes through an auto-generated hidden rule named
+`crud_<alias>_<method>`. `nct_bl_updateMethod` writes the METHOD record; the delegate keeps the
+old body and keeps running it. The method reads back with the new script, a method-level diff is
+clean, and nothing about the behaviour changes.
+
+The symptom is deceptive: after "fixing" `technology.copyVersion` to carry four more fields, the
+new rows came out with those four null while the fields the OLD code already passed landed fine —
+which reads as "the executor ignores some parameters", not "the wrong code is running".
+
+    method    crud_technology_copyVersion   3438 chars, has the fix
+    delegate  crud_technology_copyVersion   2919 chars, does NOT               <- this one runs
+
+So for a GROOVY method: **write the delegate rule too** (script goes in `executor`, see the trap
+above), and verify by EXECUTING the method and checking its output — a read-back of the method
+cannot see this. `nct_rule_findAll` needs `includeHidden: true` to list delegates at all.
+
+SQL methods are unaffected: they carry their statement on the method record itself.
+
+### ⛔ `nct_workflow_addElement` STRIPS `flowable:rule` from every existing serviceTask
+
+Editing a workflow's elements over MCP does not edit the deployed definition — it creates a new
+workflow VERSION and leaves the running one untouched. That is the good news, and it is the undo:
+`nct_workflow_deploy` on the **pre-edit version id** overwrites the draft with the old content.
+
+The bad news is what the serializer does on the way. Adding one SERVICE_TASK to a definition whose
+rules are in the attribute form (`flowable:rule="<identifier>"`) produced:
+
+    Bind technology      NO RULE AT ALL          <- existing
+    Refresh technology   NO RULE AT ALL          <- existing
+    Release version      NO RULE AT ALL          <- existing
+    Return for revision  <extensionElements><flowable:rule>…   <- the one just added
+
+The existing tasks' rules are not migrated to the extension form; they are **dropped**. Deploy that
+version and every service task in the process becomes a no-op — silently, because a serviceTask
+with no rule is still valid BPMN and `validateDefinition` passes it.
+
+**Use `nct_workflow_import` instead.** It takes a complete BPMN document and replaces the definition
+wholesale, so nothing is re-serialized and nothing is dropped:
+
+    nct_workflow_export(workflowId)          -> the current XML
+    ... edit the XML ...
+    nct_workflow_import(workflowId, bpmnXml) -> a new version, NOT deployed
+    nct_workflow_deploy(workflowId)          -> when you are ready
+
+Three things it does that make it safe to hand to an agent:
+
+- it **validates before writing** — a definition that fails validation leaves the stored one untouched;
+- it **never deploys**, so the engine keeps running the previous deployment until you say otherwise;
+- it **refuses to change the `<process id>`** unless you pass `allowProcessIdChange=true`, because running
+  instances are bound to the id they started under.
+
+And it answers with every service task and where its rule lives — `ruleSource: "attribute"` is the
+form the runtime resolves; `"extensionElements"` and `"none"` both **fail loudly at runtime**, not
+quietly. From the extension form the element extractor stores the list's `toString()` as the rule id,
+the executor is handed that garbage and throws; with no rule at all it throws "No rule ID provided in
+task configuration". Either way the exception rolls back the transaction that completed the preceding
+user task — so that task reopens, and keeps reopening. That makes the import its own check on the
+defect above.
+
+⚠️ And between the edit and the rollback the workflow lists as **`deployed: false`** while the
+engine is still running the previous deployment. One click on Deploy in that window ships the
+rule-less definition.
+
+So: **the element API cannot carry a change to a rule-bearing process.** If you must try it anyway,
+(1) export and keep the pre-edit XML, (2) note the pre-edit version id, (3) after the edit export
+the new version and check EVERY serviceTask still carries its rule, and (4) deploy the old version
+id to undo. A BPMN change to a process whose service tasks call rules needs a re-import.
+
+### ⛔ `nct_rule_update`: `executor` is ASYMMETRIC — read-modify-write DESTROYS the rule
+
+On READ, `nct_rule_findByIdentifier` returns the Groovy source in `rule.ruleScriptStr` and puts the
+**executor class name** in `executor` (`"GroovyExecutionRule"`). On WRITE, `nct_rule_update` reads the
+Groovy source **from `executor`** and ignores `rule.ruleScriptStr` entirely. The two ends of the same
+field mean different things.
+
+So the natural, careful-looking pattern — fetch the rule, change one line, send it back — silently
+replaces the rule's entire body with the literal string `GroovyExecutionRule`:
+
+```python
+live = findByIdentifier(ident)          # executor == "GroovyExecutionRule"
+live['rule']['ruleScriptStr'] = newCode # ...ignored on write
+update(rule=live)                       # -> body is now the 19-character class name
+```
+
+`update` returns **success: true**. Nothing errors, nothing logs, and the rule is destroyed. Write it
+the other way round, and never echo `executor` back from a read:
+
+```python
+payload = {k: live[k] for k in ('id','name','identifier','ruleType','contextIdentifiers','description','status')}
+payload['executor'] = newCode           # the Groovy source goes HERE on write
+update(rule=payload)
+```
+
+**Always read back after a rule write**, and compare against what you sent — this failure is invisible
+in the tool's own response. A cheap tripwire over the whole set: fetch every rule and flag any whose
+live script is a few dozen characters while the archive's is hundreds; a corrupted body is always short.
+
+
+⚠️ A data repair made this way lands ONLY in the live tenant. The archive's `project-db.dump` carries the same
+defect until you fix it there too, or the next re-import silently reinstates it. Fix both, in the §4 order.
+
+---
+
 ## 7. When a re-import is the only channel
 
 Re-import is the LAST resort, not a shortcut, because it is a whole-project REPLACE: the project's objects are

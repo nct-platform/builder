@@ -776,10 +776,12 @@ Example with `prohibitedPredicateIdentifier` (`erp`):
 |---|---|---|---|---|---|
 | `dateFormat` | String | Moment.js pattern. If empty — by `dataClass`: `LocalDate`→`"DD/MM/YYYY"`, `LocalDateTime`/`Instant`→`"DD/MM/YYYY HH:mm:ss"`. **Must pair with `dataClass` (see note).** | no | null | `DatePickerFilterControlSettings.java`; defaults `DatePickerFormControlPlugin.java` |
 
-> **`dateFormat` is a dataClass-gated curated picker in the panel** — not free-form. The panel offers a fixed
-> catalog of Moment.js patterns split into `DATE_ONLY_FORMATS` (10) and `DATE_TIME_FORMATS` (17), and
-> `getFormatsForDataClass` (`DatePickerFormControlSettingsControlPanel.java`) shows **only date-only for
-> `LocalDate`, only date-time for `LocalDateTime`, all for `Instant`**. Canonical values: date-only
+> **`dateFormat` is a dataClass-gated curated picker in the panel** — an autocomplete over a fixed
+> catalog, though a pattern of your own is still accepted (and moment's `[literal]` escaping works).
+> The catalog is 10 date-only + 17 date-time Moment.js patterns and lives in
+> `utils/DateFormatColumnUtils.java`, shared with the CRUD Table / CRUD Tree / Process Table column
+> `dateFormat`; `formatsForDataClass` shows **only date-only for `LocalDate`, only date-time for
+> `LocalDateTime`, all for `Instant`**. Canonical values: date-only
 > `"DD/MM/YYYY"`, `"YYYY-MM-DD"`, `"MMMM DD, YYYY"`; date-time `"DD/MM/YYYY HH:mm:ss"`, `"YYYY-MM-DD HH:mm"`,
 > `"DD/MM/YYYY hh:mm A"`. **A date-only pattern on a `LocalDateTime`/`Instant` field silently drops the time
 > component on display** — always give a time-bearing pattern to a time-bearing field.
