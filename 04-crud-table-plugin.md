@@ -364,6 +364,12 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > / `RIGHT_ALIGN_CLASS`), spreadsheet-style; string/enum cells stay left. Pure render CSS — no
 > settings key.
 
+> ⛔ **The column's `dataClass` must be numeric because the VALUE is money — not the other way round.**
+> `money: true` on a `java.lang.String` column is inert and silent, and the underlying mistake is that a
+> money value is being carried as text at some layer below. Fix the type everywhere it appears (DB column,
+> CRUD `dtoFields`, form control, column) rather than only here — the full rule and the `validate` check
+> are in [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
+>
 > **Money render** (`MoneyColumnUtils.formatCellValue`, reached from `extractColumnValue` via
 > `ColumnCellFormatUtils`): with `money: true` on a numeric column the amount is grouped per
 > `moneyFormat`, rounded HALF_UP to `moneyDecimals` places, and the `currency` marker is attached —

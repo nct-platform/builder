@@ -611,6 +611,13 @@ from the process context data via one of three sources.
 > §`CrudTableColumnSettings`. Note the sibling `ProcessIndexSettings` (below) has **no** `trueIcon`/`falseIcon` —
 > only columns do.
 
+> ⛔ **A `GLOBAL` money or date column is authored `java.lang.String` by default, and that makes both
+> formatters inert.** The attrs document is a string map, so the natural-looking column type is String —
+> but `money` needs a numeric `dataClass` and `dateFormat` needs a temporal one, and neither reports the
+> mismatch. Declare the COLUMN `java.math.BigDecimal` / `java.time.LocalDate`; the extractor converts the
+> stored value, so the bind rule can keep writing the attr as a string. See
+> [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
+>
 > **Money + date format** apply here identically too, through the same
 > `ColumnCellFormatUtils` seam — full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
 > §`CrudTableColumnSettings`. One thing is specific to the process table: the controls work in
