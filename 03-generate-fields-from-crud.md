@@ -2,6 +2,44 @@
 
 > 📐 **Field evidence — the generated field slot as it ships:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
+
+## ⛔ Wrap the generated row in `.container` — or the form spans the whole screen
+
+Generate-Fields emits one `nct.html.plugin` per row holding only a Bootstrap **row**:
+
+```html
+<div class="row">
+  <div class="col-md-3"><plugin id="gen_col1_8f5b9729" name="nct.parsis.plugin"></plugin></div>
+  …
+</div>
+```
+
+A bare `.row` inherits the page width, so on a wide monitor the controls stretch from edge to
+edge and a four-field form reads as four lonely inputs 1400px apart. Wrap it:
+
+```html
+<div class="container">
+  <div class="row">
+    <div class="col-md-3"><plugin id="gen_col1_8f5b9729" name="nct.parsis.plugin"></plugin></div>
+    …
+  </div>
+</div>
+```
+
+`.container` gives the form a max-width and centres it. The column split stays yours to choose —
+`col-md-3` ×4 for a dense register form, `col-md-4` ×3 or `col-md-6` ×2 for a short one; decide by
+how many fields the form actually has, not by what the generator emitted.
+
+> The `<plugin id=…>` tags are found anywhere in the markup (`AbstractHtmlPlugin` takes every
+> `<plugin>` element with no `<plugin>` ancestor), so adding wrapper `<div>`s around them is safe —
+> the slot ids keep resolving against the node's children. Just never rename an `id`: that string
+> **is** the child's `identifier` ([01](01-content-model-and-pages.md#-identifier-vs-uniqueidentifier--read-this-before-you-reference-a-node)).
+
+Measured on a delivered project: **45 generated form rows, 0 wrapped** — every form in it spanned
+the full width until the wrapper was added.
+
+---
+
 ## What it is / when to use
 
 "**Generate fields from CRUD**" is a dialog in Site Authoring that **bulk-creates form-controls**

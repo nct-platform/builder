@@ -297,6 +297,9 @@ def cmd_validate(args):
     _check_chart_colour_by_index(p, r)
     _check_localized_fields(p, r)
     _check_column_format_keys(p, r)
+    _check_date_format_tokens(p, r)
+    _check_money_field_typing(p, r)
+    _check_unclearable_optional_fields(p, r)
     _check_field_rule_refs(p, r)
     _check_table_fetch_rules(p, r)
     _check_event_mappings(p, r)
@@ -3384,6 +3387,263 @@ _MONEY_FORMATS = {"US", "EUROPEAN", "SPACE_COMMA", "SPACE_DOT", "SWISS", "INDIAN
 
 _COLUMN_TABLE_PLUGINS = ("crud.table.plugin", "crud.tree.plugin", "process.table.pluin")
 
+# ------------------------------------------------- dateFormat is MOMENT, not Java
+# `DateFormatAutoCompleteField` is an autocomplete over "the platform's curated moment.js
+# pattern catalogue" (DateFormatColumnUtils) and the runtime formatter "understands any
+# moment pattern" — so a pattern typed by hand is accepted verbatim, INCLUDING one that is
+# not moment at all. A Java/`SimpleDateFormat` pattern therefore never errors; it renders.
+_MOMENT_DATE_CATALOGUE = {
+    "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD", "DD-MM-YYYY", "DD.MM.YYYY",
+    "MMMM DD, YYYY", "MMM DD, YYYY", "DD MMMM YYYY", "DD MMM YYYY", "YYYY/MM/DD",
+}
+_MOMENT_DATETIME_CATALOGUE = {
+    "DD/MM/YYYY HH:mm:ss", "DD/MM/YYYY HH:mm", "MM/DD/YYYY HH:mm:ss", "MM/DD/YYYY HH:mm",
+    "YYYY-MM-DD HH:mm:ss", "YYYY-MM-DDTHH:mm:ss", "YYYY-MM-DD HH:mm",
+    "DD-MM-YYYY HH:mm:ss", "DD.MM.YYYY HH:mm:ss", "DD/MM/YYYY hh:mm:ss A",
+    "DD/MM/YYYY hh:mm A", "MM/DD/YYYY hh:mm:ss A", "MM/DD/YYYY hh:mm A",
+    "MMMM DD, YYYY HH:mm:ss", "MMM DD, YYYY HH:mm:ss", "DD MMMM YYYY HH:mm:ss",
+}
+_MOMENT_CATALOGUE = _MOMENT_DATE_CATALOGUE | _MOMENT_DATETIME_CATALOGUE
+
+_FORM_DATE_PLUGINS = ("dynaform.form.datepicker.field.plugin",
+                      "dynaform.filter.datepicker.field.plugin")
+
+# ---------------------------------------------------------------- money typing
+# A money value must be held in a NUMERIC type, and BigDecimal is the only one that
+# is exact. These name fragments are how a money field announces itself; the UNIT
+# fragments below veto the match, because a name can carry both ("totalSeconds",
+# "priceListLength") and the unit is the one that decides what the number IS.
+_MONEY_NAME_TOKENS = (
+    "price", "amount", "cost", "salary", "wage", "rate", "fee", "fare", "tariff",
+    "balance", "earning", "payment", "payout", "revenue", "turnover", "discount",
+    "tax", "vat", "charge", "budget", "premium", "deposit", "refund", "subtotal",
+    "grandtotal", "nettotal", "duty", "commission", "penaltyamount", "bonus",
+)
+# Physical quantities and counters. If one of these appears the field is NOT money,
+# however money-ish the rest of the name looks.
+_NON_MONEY_UNIT_TOKENS = (
+    "second", "minute", "hour", "day", "week", "month", "year", "duration", "time",
+    "count", "qty", "quantity", "pieces", "pcs", "units", "number", "index", "order",
+    "pct", "percent", "ratio", "length", "width", "height", "depth", "weight",
+    "meter", "metre", "gram", "litre", "liter", "volume", "area", "size", "grade",
+    "id", "code", "level", "step", "version", "score", "rating", "temperature",
+    # names that denote a KIND of money thing rather than an amount of money
+    "profile", "type", "kind", "category", "group", "policy", "scheme", "template",
+    "currency", "method", "mode", "status", "flag", "name", "label", "title",
+    "description", "comment", "note", "reference",
+)
+# A money amount is a SCALAR. These declared types mean the field is a nested object or a
+# collection — a relation to a record, never an amount — so the name heuristic must not fire.
+_RELATION_CLASSES = {"ObjectNode", "ArrayNode", "com.fasterxml.jackson.databind.node.ObjectNode",
+                     "com.fasterxml.jackson.databind.node.ArrayNode", "java.util.List",
+                     "java.util.Map", "java.util.Set"}
+_EXACT_MONEY_CLASSES = {"java.math.BigDecimal", "BigDecimal"}
+_INEXACT_MONEY_CLASSES = {"java.lang.Double", "java.lang.Float", "double", "float",
+                          "Double", "Float"}
+_NUMERIC_ANY = _NUMERIC_COLUMN_CLASSES | {
+    "BigDecimal", "BigInteger", "Integer", "Long", "Short", "Byte", "Double", "Float",
+}
+
+
+def _split_field_name(name):
+    """`monthlySalary` / `monthly_salary` / `MONTHLY_SALARY` -> ['monthly', 'salary']."""
+    out, cur = [], ""
+    for ch in str(name):
+        if not ch.isalnum():
+            if cur:
+                out.append(cur.lower())
+            cur = ""
+        elif ch.isupper() and cur and not cur[-1].isupper():
+            out.append(cur.lower())
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        out.append(cur.lower())
+    return out
+
+
+def _looks_like_money(name):
+    """True when the field name's HEAD NOUN announces a money value.
+
+    Only the last token decides, and that is the whole point. A money name routinely carries a
+    non-money qualifier (`monthlySalary`, `dayRate`, `secondRate` — per month, per day, per
+    second, all of them money), while a quantity name routinely carries a money-ish qualifier
+    (`priceListLength`, `bundlesTotal`). Scanning the WHOLE name gets both of those wrong; the
+    head noun says what the number IS and the qualifier only says what it is per."""
+    tokens = _split_field_name(name)
+    if not tokens:
+        return False
+    head = tokens[-1]
+    if any(tok in head for tok in _NON_MONEY_UNIT_TOKENS):
+        return False
+    return any(tok in head for tok in _MONEY_NAME_TOKENS)
+
+
+_SELF_COALESCE = re.compile(
+    r"\b(\w+)\s*=\s*COALESCE\s*\(\s*(?:CAST\s*\(\s*)?NULLIF\s*\(\s*(?:CAST\s*\()?\s*:\s*\w+"
+    r"[^,]*?,\s*''\s*\)(?:\s*AS\s+[\w ]+\s*\))?\s*,\s*\1\s*\)", re.I)
+
+
+def _check_unclearable_optional_fields(p, r):
+    """An optional field the user can EDIT but can never BLANK again.
+
+    `col = COALESCE(CAST(NULLIF(:col,'') AS t), col)` in an `update` means "keep the old value when
+    the parameter arrives empty". That is right for a column the form does not carry — without it
+    every save would wipe it. It is wrong for a column the form DOES carry, because a cleared input
+    arrives as `''` too: the old value is restored, the form redirects, and the toast says saved.
+    The user watches their deletion undo itself with no error anywhere.
+
+    So this WARNs only where both things are true: the column is NULLABLE, and a form control binds
+    to it. That pairing is the whole signal — neither half alone is a defect.
+
+    The fix is to drop the COALESCE for that column (`col = CAST(NULLIF(:col,'') AS t)`) once you have
+    checked that every form able to call this `update` carries the field; if two forms carry different
+    subsets, the column must stay guarded and the partial form is the thing to fix."""
+    crud_file = p.cruds_file
+    cruds = ((crud_file.data.get("cruds") or []) if crud_file else [])
+    if not cruds:
+        return
+
+    # which (alias, field) a form control actually binds to
+    on_form = set()
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName")
+        if not (isinstance(pn, str) and pn.startswith("dynaform.form.") and pn.endswith(".field.plugin")):
+            continue
+        try:
+            st = core.get_inner_json(node, "settings")
+        except core.ToolError:
+            continue
+        alias, fe = st.get("crudAlias"), st.get("fieldExpression")
+        if alias and fe:
+            on_form.add((alias, fe.split(".")[0]))
+
+    nullable = _dump_nullable_columns(p)
+    for crud in cruds:
+        if not isinstance(crud, dict):
+            continue
+        alias = crud.get("alias") or "?"
+        for m in (crud.get("methods") or []):
+            if m.get("methodName") != "update" or m.get("methodType") != "SQL":
+                continue
+            sql = m.get("script") or ""
+            tm = re.search(r"UPDATE\s+([\w.]+)", sql, re.I)
+            table = tm.group(1).split(".")[-1] if tm else None
+            for col in _SELF_COALESCE.findall(sql):
+                if nullable and nullable.get((table, col)) is not True:
+                    continue
+                field = _snake_to_camel(col.strip("_"))
+                base = field[:-2] if field.endswith("Id") else field
+                if (alias, field) in on_form or (alias, base) in on_form:
+                    r.warn("crud %r update keeps %r with COALESCE(..., %s) while a form control binds to "
+                           "it — the user can set that field but never clear it: a blanked input arrives "
+                           "as '' and the old value is restored, with a success toast and no error. Drop "
+                           "the COALESCE for this column if every form calling this update carries the "
+                           "field. (11-business-logic-dynamic-crud.md)" % (alias, col, col))
+
+
+def _snake_to_camel(c):
+    parts = [x for x in c.split("_") if x]
+    return parts[0] + "".join(x.capitalize() for x in parts[1:]) if parts else c
+
+
+def _dump_nullable_columns(p):
+    """{(table, column): is_nullable} read out of each table's DDL in project-db.dump.
+
+    Returns {} when the dump is absent or unreadable — the caller then skips the nullability
+    half of its test rather than guessing."""
+    out = {}
+    try:
+        db = p.db
+    except Exception:
+        return out
+    if not isinstance(db, dict):
+        return out
+    for schema in (db.get("schemas") or []):
+        for t in (schema.get("tables") or []):
+            ddl = t.get("ddl") or ""
+            table = t.get("name")
+            if not (ddl and table):
+                continue
+            body = ddl[ddl.find("(") + 1:]
+            for line in body.split("\n"):
+                line = line.strip().rstrip(",")
+                cm = re.match(r'"(\w+)"\s+\S', line)
+                if cm:
+                    out[(table, cm.group(1))] = "NOT NULL" not in line.upper()
+    return out
+
+
+def _check_money_field_typing(p, r):
+    """A money field must be NUMERIC, and BigDecimal is the only exact choice.
+
+    Money held in a String sorts lexicographically ("9" > "10"), cannot be summed, and — the
+    part that bites in the UI — silently disables every money display key, because `money:true`
+    is gated on a numeric `dataClass` at render (see `_check_column_format_keys`, which catches
+    the opposite mistake). Money held in a Double/Float is binary floating point: 0.1 + 0.2 is
+    not 0.3 and cents drift once the values are added up.
+
+    So this walks the three places a money field gets a declared type — table columns, form
+    controls and dynamic-CRUD dtoFields — and warns when the declared type is not numeric, or
+    is numeric but inexact.
+
+    Both warnings are name-driven heuristics, so they are WARN and never ERROR: `_looks_like_money`
+    requires a money token AND the absence of a unit token, which is what keeps `totalSeconds`,
+    `allowancePct` and `chainLength` out of it."""
+    def _flag(where, label, declared, kind):
+        if declared in _EXACT_MONEY_CLASSES or declared in _RELATION_CLASSES:
+            return
+        if declared in _INEXACT_MONEY_CLASSES:
+            r.warn("%s %r is a money field typed %s — binary floating point loses cents once "
+                   "values are summed; use java.math.BigDecimal. (10-database-management.md)"
+                   % (kind, "%s.%s" % (where, label), declared))
+        elif declared not in _NUMERIC_ANY:
+            r.warn("%s %r is a money field typed %r — money must be numeric (preferably "
+                   "java.math.BigDecimal): a non-numeric type sorts as text, cannot be summed, "
+                   "and silently disables money/currency display, which is gated on a numeric "
+                   "dataClass at render. (04-crud-table-plugin.md)"
+                   % (kind, "%s.%s" % (where, label), declared or None))
+
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName")
+        if pn in _COLUMN_TABLE_PLUGINS:
+            try:
+                model = core.get_inner_json(node, "model")
+            except core.ToolError:
+                continue
+            where = node.get("name") or node.get("identifier") or pn
+            for c in (model.get("columnSettings") or []):
+                if not isinstance(c, dict):
+                    continue
+                fe = c.get("fieldExpression") or ""
+                leaf = str(fe).split(".")[-1]
+                if _looks_like_money(leaf):
+                    _flag(where, fe, (c.get("dataClass") or "").strip(), "table column")
+        elif isinstance(pn, str) and pn.startswith("dynaform.form.") and pn.endswith(".field.plugin"):
+            try:
+                st = core.get_inner_json(node, "settings")
+            except core.ToolError:
+                continue
+            fe = st.get("fieldExpression") or st.get("key") or ""
+            leaf = str(fe).split(".")[-1]
+            if _looks_like_money(leaf):
+                where = node.get("name") or node.get("identifier") or pn
+                _flag(where, fe, (st.get("dataClass") or "").strip(), "form control")
+
+    crud_file = p.cruds_file
+    for crud in ((crud_file.data.get("cruds") or []) if crud_file else []):
+        if not isinstance(crud, dict):
+            continue
+        alias = crud.get("alias") or "?"
+        for f in (crud.get("dtoFields") or []):
+            if not isinstance(f, dict):
+                continue
+            fn = f.get("fieldName")
+            if _looks_like_money(fn):
+                _flag(alias, fn, (f.get("fieldType") or "").strip(), "crud field")
+
+
 
 def _check_column_format_keys(p, r):
     """Table-column money/date display keys are gated on `dataClass` at RENDER — a mismatch is
@@ -3443,6 +3703,85 @@ def _check_column_format_keys(p, r):
             if isinstance(md, int) and not (0 <= md <= 6):
                 r.warn("%s %r column %r has moneyDecimals %d — outside 0..6; the runtime clamps it. "
                        "(04-crud-table-plugin.md)" % (pn, where, label, md))
+
+
+
+def _check_date_format_tokens(p, r):
+    """`dateFormat` is a **moment.js** pattern. A Java / `SimpleDateFormat` pattern is accepted
+    verbatim and then RENDERS AS GARBAGE — no error, no log, nothing to grep for.
+
+    The tell is lowercase `y`: moment has no `yyyy` token, so it emits the four characters
+    literally. Lowercase `dd` is a moment token, but it means *minified weekday name* ("Mo"),
+    not day-of-month. So the very common Java pattern `dd.MM.yyyy` renders as::
+
+        dd.11.yyyy          <- "dd" literal-ish, month 11 substituted, "yyyy" literal
+
+    On a **date picker form control** that string is written into the input's `value` (the field
+    has no placeholder), so the user sees a filled box of nonsense, the calendar opens on
+    "January 1926" with NaN cells, and anything typed is appended to the junk. On a **table
+    column** the cell just draws the same mess.
+
+    Valid patterns come from `DateFormatColumnUtils`; the defaults are `DD/MM/YYYY` for
+    `LocalDate` and `DD/MM/YYYY HH:mm:ss` for `LocalDateTime`/`Instant`.
+
+    See 02-form-controls-reference.md §5 and 04-crud-table-plugin.md."""
+
+    def _judge(fmt, data_class, where, label):
+        f = (fmt or "").strip()
+        if not f:
+            return
+        if "y" in f:
+            r.err("%s %s dateFormat %r is a JAVA pattern — `dateFormat` is moment.js, which has "
+                    "no `yyyy` token and reads `dd` as a WEEKDAY name. It renders literally "
+                    "(e.g. `dd.MM.yyyy` -> `dd.11.yyyy`) into the field's VALUE, with no error "
+                    "anywhere. Use %r. (02-form-controls-reference.md §5)"
+                    % (where, label, f,
+                       "DD/MM/YYYY HH:mm:ss" if data_class in (
+                           "java.time.LocalDateTime", "java.time.Instant") else "DD/MM/YYYY"))
+            return
+        if re.search(r"(?<![A-Za-z])d{1,4}(?![A-Za-z])", f):
+            r.warn("%s %s dateFormat %r uses lowercase `d` — in moment that is a WEEKDAY name, "
+                   "not the day of the month (which is `D`/`DD`). "
+                   "(02-form-controls-reference.md §5)" % (where, label, f))
+        if f not in _MOMENT_CATALOGUE:
+            r.warn("%s %s dateFormat %r is not in the platform's curated catalogue "
+                   "(DateFormatColumnUtils) — legal, but verify it renders. "
+                   "(02-form-controls-reference.md §5)" % (where, label, f))
+        elif data_class in ("java.time.LocalDateTime", "java.time.Instant") \
+                and f in _MOMENT_DATE_CATALOGUE:
+            r.warn("%s %s dateFormat %r is date-only but the field is %s — the time component is "
+                   "silently dropped on display. (02-form-controls-reference.md §5)"
+                   % (where, label, f, data_class))
+
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName")
+        where = "%s %r" % (pn, node.get("name") or node.get("identifier") or "?")
+
+        if pn in _FORM_DATE_PLUGINS:
+            try:
+                cfg = core.get_inner_json(node, "settings")
+            except core.ToolError:
+                cfg = None
+            if isinstance(cfg, dict):
+                _judge(cfg.get("dateFormat"), (cfg.get("dataClass") or "").strip(),
+                       where, "field %r" % (cfg.get("fieldExpression") or "?"))
+
+        is_list = pn == "dynaform.form.list.field.plugin"
+        if pn in _COLUMN_TABLE_PLUGINS or is_list:
+            try:
+                model = core.get_inner_json(node, "settings" if is_list else "model")
+            except core.ToolError:
+                continue
+            if not isinstance(model, dict):
+                continue
+            for c in (model.get("columnSettings") or []):
+                if not isinstance(c, dict):
+                    continue
+                label = ((c.get("localizedNames") or {}).get("en_US")
+                         or c.get("name") or c.get("fieldExpression") or "?")
+                _judge(c.get("dateFormat"), (c.get("dataClass") or "").strip(),
+                       where, "column %r" % label)
+
 
 
 def _check_localized_fields(p, r):

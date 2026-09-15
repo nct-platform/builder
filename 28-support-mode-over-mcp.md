@@ -1,5 +1,7 @@
 # 28 · Support mode — changing a LIVE project over MCP
 
+> ⛔ **`identifier` or `uniqueIdentifier`?** They are different ids with different scopes and swapping them fails silently. The rule, the source that decides it and the measured evidence: [01 — `identifier` vs `uniqueIdentifier`](01-content-model-and-pages.md#-identifier-vs-uniqueidentifier--read-this-before-you-reference-a-node).
+
 > 📐 **Field evidence — what a delivered project looks like when you inherit it:** [README.md](references/README.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
 > **Scope.** What changes when you are handed a project that already RUNS, plus a token, instead of a PRD and a
@@ -244,6 +246,66 @@ never as *retry the whole payload*, which re-applies the half that already worke
 changed the project in the UI since your last session) and again when you finish. A support session that never
 compared is a session that does not know what it changed.
 
+### 4a. Table plugins keep their settings in TWO places — and only one of them is the answer
+
+A CRUD Table, a CRUD Tree, a Process Table and a Calendar each carry their configuration twice:
+
+* on the plugin's **content node**, as its `model` property — this is the one that is per-branch, the one the
+  `.mrjun` carries, and **the one the running page renders from**;
+* as a flat **settings row** keyed by that node's unique identifier — which is what lets a *different service*
+  look the configuration up by identifier (the workflow service resolves a Process Table that way).
+
+**The content is the source of truth. The row is its projection.** It has to be that way round: the row's key
+has no branch in it, so a draft branch and the published branch address the same row — were the row
+authoritative, editing a table on a draft would change the live page the instant you saved.
+
+**What this means for you.** Writing the plugin's properties is the whole write; the projection is refreshed
+for you. You do not write the row, and you must never try to "fix" a disagreement by writing it directly.
+
+**The symptom this replaces.** There was a window in which writing a plugin's properties updated the content
+alone. The table then rendered the new configuration — a money column formatted as money — above a settings
+panel that still showed the old one, with the checkbox unticked. Worse, the panel autosaves: one touch of any
+field in it wrote the panel's stale copy back over both stores and silently undid the change. If you are
+working against an older platform build and see exactly that split, do not re-write the properties in a loop.
+Open the plugin's settings panel once and save it — that republishes both stores from one model — then verify
+and report the build as needing the fix.
+
+**Read-back.** Read the property back from the plugin, which is the authoritative store. A read that goes to
+the row is reading a copy, and on an old build a copy that may lag.
+
+---
+
+### 4b. Three write tools that do not do what their name suggests
+
+**`nct_repository_execute_ddl` is also the DATA-repair channel.** `execute_query` cannot write — it wraps
+your statement for paging, so an INSERT there is a syntax error. The DDL tool passes its text straight to
+the driver, which runs `DELETE FROM orders` as readily as `ALTER TABLE`. It now asks before it does:
+
+* a row-changing statement (INSERT/UPDATE/DELETE/MERGE/TRUNCATE/COPY, or a `DO`/`CALL` block) is refused
+  unless you pass `allowDataChange: true`;
+* one with no top-level `WHERE` — i.e. one that hits every row it can reach — needs
+  `allowUnfilteredDataChange: true` as well. A `WHERE` inside a subquery does not bound the outer statement
+  and does not count;
+* the response reports `affectedRows`, so "it worked" is a number and not a fixed string;
+* a row change is deliberately NOT written to the schema changelog: it changed rows, not structure.
+
+Remember what a data source can be. It may point at a customer's own database on a customer's own server.
+Ask for the narrowest statement that does the repair, and read the affected-row count back.
+
+**`nct_form_update` REPLACES its list fields.** Sending `validators: ["amountCheck"]` to *add* one used to
+leave the form with that one validator and silently delete the others. Replace is still the default — it is
+the only way to clear a list — but you can now say what you mean with `listMode: "add"` or
+`listMode: "remove"`, and the response echoes the resulting lists and names anything the write removed.
+Read that summary; it is the only place a loss shows up.
+
+**`nct_ui_set_page_access` PATCHES, and can now be verified.** It leaves roles, groups and flags you did not
+mention exactly as they were, and the response carries `ownRoleAccess` — the page's full configuration after
+the write. `nct_ui_get_page_detail` returns the same field. Note the name: it is the page's OWN config. What
+a visitor can actually reach is that intersected with every ancestor section's access, so a page granted to
+a role inside a section that is not granted stays invisible.
+
+---
+
 ---
 
 ## 5. Which channel carries which object
@@ -449,6 +511,50 @@ accepting a default; and after it finishes, read the per-object report and then 
 report cannot see.
 
 ---
+
+### ⛔ Import/Export is hidden until the session is in AUTHOR MODE
+
+`Settings → Import/Export` is the only channel for everything MCP cannot reach (PDF and mail
+template text, project locales, seed rows in `project-db.dump`). It is also **missing from the
+Settings menu most of the time**, and its absence looks exactly like a missing privilege:
+
+```
+Settings · Branding · Template Management · General · Localization ·
+Integrations · Zombie Integrations · Appearance            <- what you normally see
+```
+
+versus
+
+```
+Settings · Branding · Import/Export · Layout · Accesses · Template Management ·
+General · Localization · Integrations · Zombie Integrations · Appearance · Developer
+```
+
+The four that come and go — **Import/Export, Layout, Accesses, Developer** — are gated on
+**author mode**, a per-session toggle, not on a role group:
+
+> top bar → **Կայք / Site** dropdown → **«Ես հեղինակ եմ» / "I am the author"**
+
+Turn it on and the four items appear immediately; the page does not even reload. It is a
+*different* switch from **«Խմբագրել կայքը» / "Edit site"** in the same dropdown — edit mode
+gives you the page editor and the left-nav editor, and having it on does **not** bring
+Import/Export back.
+
+**Why this costs time.** The toggle resets — a fresh login, and seemingly an import, drop the
+session out of author mode. The next visit to Settings then shows the short menu, and the
+natural reading is "this account lost `PROJECT_EDIT`, I need to grant it a role group". On a
+project whose `Administrator` persona carries the platform `ADMIN` role, acting on that reading
+hands the author account privileges it must never have (see `24-role-matrix-and-admin-page-hardening`
+in a project's own case notes for how that plays out). **Flip author mode first; only then
+suspect roles.**
+
+Do not confuse the three things the top bar offers:
+
+| Control | Where | What it gates |
+|---|---|---|
+| «Ես հեղինակ եմ» | Site dropdown | Import/Export, Layout, Accesses, Developer in Settings |
+| «Խմբագրել կայքը» | Site dropdown | the page editor + the left-nav (kicker) editor |
+| branch pill (`Արտադրական`…) | top bar, right | which branch the editors write to |
 
 ## 8. Live test — driving the running project in a real browser
 

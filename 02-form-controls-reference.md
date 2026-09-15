@@ -1,5 +1,7 @@
 # Form controls — settings, HTML, mapping, validation
 
+> ⛔ **`identifier` or `uniqueIdentifier`?** They are different ids with different scopes and swapping them fails silently. The rule, the source that decides it and the measured evidence: [01 — `identifier` vs `uniqueIdentifier`](01-content-model-and-pages.md#-identifier-vs-uniqueidentifier--read-this-before-you-reference-a-node).
+
 > 📐 **Field evidence — which controls real forms are built from:** [04-forms-actions-validation.md](references/04-forms-actions-validation.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
 ## What it is / When to use
@@ -786,6 +788,38 @@ Example with `prohibitedPredicateIdentifier` (`erp`):
 > `"DD/MM/YYYY hh:mm A"`. **A date-only pattern on a `LocalDateTime`/`Instant` field silently drops the time
 > component on display** — always give a time-bearing pattern to a time-bearing field.
 
+> ### ⛔ A Java pattern in `dateFormat` does not error — it RENDERS
+>
+> `dateFormat` is **moment.js**, always. `DateFormatAutoCompleteField` is "an autocomplete over
+> the platform's curated moment.js pattern catalogue" and "the runtime formatter understands any
+> moment pattern" — so a hand-typed pattern is taken verbatim, *including one that is not moment
+> at all*. Nothing validates it, nothing logs, and the gates stay green.
+>
+> The tell is **lowercase `y`**: moment has no `yyyy` token, so those four characters come out
+> literally. And **lowercase `dd` is a moment token that means the minified weekday name** ("Mo"),
+> not the day of the month — that is `D`/`DD`. So the single most common Java pattern renders:
+>
+> ```
+>   dateFormat: "dd.MM.yyyy"     ->     dd.11.yyyy
+>                                        ^^     ^^^^   literal
+>                                           ^^          month, substituted
+> ```
+>
+> On a **date picker control** this is written into the input's `value` — the control has no
+> placeholder — so the customer opens the form and finds a box already full of junk over a field
+> that *does* have a stored date. Click it and the calendar opens on "January 1926" with NaN
+> cells; type into it and the text is appended to the garbage (`20112026dd.11.yyyy`). On a **table
+> column** the same string is simply drawn in the cell.
+>
+> The trap is that the two halves of a project disagree in silence: `crud.table.plugin` columns
+> were authored with `DD/MM/YYYY` and looked perfect in the register, while the form controls
+> behind them carried `dd.MM.yyyy` — the same date, right in the list, garbage in the form.
+>
+> **Use the catalogue.** Defaults: `LocalDate` → `DD/MM/YYYY`, `LocalDateTime`/`Instant` →
+> `DD/MM/YYYY HH:mm:ss`. `validate` now fails the export on a lowercase-`y` pattern
+> (`_check_date_format_tokens`) and warns on a lowercase `d`, on a pattern outside the catalogue,
+> and on a date-only pattern bound to a time-bearing field.
+
 HTML (`datepicker/DatePickerFormControlPlugin.html`):
 
 ```html
@@ -925,6 +959,146 @@ Related: `mandatoryPredicateIdentifier` (conditional mandatory) uses the identic
 decision-only step that needs no document view at all, an action with `direct: "on"` (workflow/list) /
 `direct: true` (crud.table) fires its rule on the selected row and opens NO form — but a direct crud.table
 action has no `validationRuleIdentifiers` slot (see 25).
+
+### ⛔ 7.0 The item's field controls bind to a TEMP location — not to the child CRUD
+
+The single most expensive mistake with a List: authoring the item's controls against the child
+CRUD (`crudAlias: "orderSizeLine"`, the project context). They then render fine, accept input —
+and write nowhere. The row appears in the grid with **empty cells before you even save**, and the
+lines never reach the database.
+
+`ListItemFormPlugin` (nct-ui) keeps the row being edited in a temporary location and says so:
+
+```java
+private static final String TEMP_CONTEXT_IDENTIFIER = "__temp_list_item_context__";
+private static final String TEMP_CRUD_ALIAS         = "__temp_item__";
+
+/** Stores the item in a temporary CRUD location within the contextData.
+ *  This is where child form controls will read/write their values. */
+private void storeTempItem(ContextDataDto contextData, ObjectNode item) { … }
+```
+
+and its own "Auto add fields" generator binds every control it creates to exactly that:
+
+```java
+new GenerateFieldsFromCrudDialog(…,
+        buildNestedCrudAlias(),    // field LIST source  = "customerOrder.lines"
+        TEMP_CONTEXT_IDENTIFIER,   // binding target context
+        TEMP_CRUD_ALIAS,           // binding target crud
+        parentListScope)           // scope = the parent list's scope
+```
+
+So an item control must read:
+
+```json
+{ "scope": "CRUD",
+  "contextIdentifier": "__temp_list_item_context__",
+  "crudAlias": "__temp_item__",
+  "fieldExpression": "quantity" }
+```
+
+The nested alias (`customerOrder.lines`) is only where the **field list** comes from; it is never
+the binding target. The plugin does **not** rewrite a hand-authored control — it only generates
+correct ones, so a wrong `crudAlias` stays wrong and stays silent.
+
+**An FK inside the row: bind the whole object, not the id.** `fieldExpression: "size.id"` stores
+only the id, so a column showing `size.label` renders blank. Bind `fieldExpression: "size"` with
+`dataClass: com.fasterxml.jackson.databind.node.ObjectNode` and let `key`/`displayName` do their
+work.
+
+**And the parent CRUD must expose the collection.** The List binds to
+`crudAlias: <parent>` + `fieldExpression: <lines>`; if the parent's `dtoFields` has no such field,
+there is nothing to bind to and the rows die with the page. Declare it as **`ArrayNode`** — the
+supported Jackson tree type for a top-level JSON array (`FieldEditorDialog.ALL_FIELD_TYPES`).
+A scaffolded `create`/`update` already iterates `param['lines']` and calls `insertLine` per row, so
+the DTO field is usually the only thing missing.
+
+> **How to recognise it:** values blank in the grid **before** saving → the controls are bound to
+> the wrong location. Grid fine but nothing in the database → the parent CRUD has no collection
+> field. Both are silent; neither logs.
+
+### ⛔ 7.0b Showing a reference's NAME in the grid — the before-complete rule
+
+Bind the FK as an object (§7.0) and the row still shows a blank `size.label` the moment it is
+added: the picker writes back only what it knows, `{"id": "..."}`. The label lives in another
+table and nothing has fetched it. Saving the order and reopening it fills the column — which is
+exactly the demo-killing symptom "the line is empty until I reload".
+
+The platform has a designed hook for this, and only this. `ListItemFormPlugin.handleSubmit()`
+runs a rule at **Step 1.5** — after the item is collected, *before* it joins the parent list:
+
+```java
+// Step 1.5: let a rule enrich the item while it is still editable — e.g. look a
+// reference up by its id and fill the line's display fields, so the grid shows
+// them straight away.
+if (!executeBeforeCompleteRule(action)) { return; }
+```
+
+and `executeBeforeCompleteRule` writes the rule's mutated context back:
+
+```java
+contextData.setContextDataMap(result.getContextDataMap());
+```
+
+So: **take the id in the sub-form's rule, fetch the name, write it into the context.** Wire it per
+action in the List's `settings` (create and edit each need their own entry — they are separate
+action objects):
+
+```json
+"createNewActions": { "actions": [
+  { "id": "…01", "direct": "off",
+    "onBeforeUserTaskCompleteRuleIdentifier": "7a1c4e02-…" } ] },
+"userActions": { "actions": [
+  { "id": "…02", "direct": "off",
+    "onBeforeUserTaskCompleteRuleIdentifier": "7a1c4e02-…" } ] }
+```
+
+The rule is an `EXECUTION_RULE`. It reaches the row through the temp location of §7.0 and must
+return truthy — **a falsy return aborts the submit**, so every failure path returns `true`:
+
+```groovy
+def ROOT = { ->
+    try { return context.contextData.contextDataMap['__temp_list_item_context__']
+                        .crudDataMap['__temp_item__'].value }
+    catch (Throwable ignored) { return null }
+}
+def item = ROOT()
+if (item == null) { return true }
+
+def sid = null                                   // the FK may be {"id":…} or a bare string
+try {
+    def s = item.get('size')
+    if (s != null && !s.isNull()) {
+        sid = s.isObject() ? (s.get('id') == null ? null : s.get('id').asText()) : s.asText()
+    }
+} catch (Throwable ignored) { }
+if (sid == null || sid.trim().isEmpty()) { return true }
+
+def row = service.crud.size.get([id: sid])
+if (!(row instanceof Map)) { return true }
+def label = ((row.label ?: row.code ?: '') as String)
+
+try {                                            // mutate the ObjectNode IN PLACE
+    def s = item.get('size')
+    if (s != null && s.isObject()) { s.put('label', label) }
+    else { item.putObject('size').put('id', sid).put('label', label) }
+} catch (Throwable ignored) { }
+return true
+```
+
+Three things that are easy to get wrong:
+
+- **Mutate the node in place.** The hook applies `getContextDataMap()` back wholesale; replacing
+  the item with a fresh map instead of editing the `ObjectNode` loses the other fields.
+- **The column must read the enriched path** — `fieldExpression: "size.label"`, matching the key
+  the rule writes. A column on `"size"` renders the object.
+- **The rule is not authorization and not validation.** It runs on the client's submit path only;
+  the same row can still arrive through the CRUD API unenriched, so the display value must be
+  recomputed on read (or the column must tolerate its absence).
+
+> A rule referenced here that is **not in the export** is a silent hole: the settings panel shows
+> the field empty and nothing runs. `validate` warns on it — heed that warning, or add the rule to
+> `rep-objects.rules[]` before packing.
 
 ### 7. List field — `dynaform.form.list.field.plugin`
 

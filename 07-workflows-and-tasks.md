@@ -367,6 +367,28 @@ process variables (`workflowExecutionService.saveContextDataToProcessVariables`,
 snapshot is taken; if a rule changed `access`, the engine updates `ProcessAccess`. Rules are of
 type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)).
 
+> ⛔ **CONTRACT — a service-task rule's RETURN VALUE is ignored.** `null`, `true`, `false`, a Map, a List:
+> all identical. The token advances in every case. A rule on a service task is a COMMAND, not a question.
+> `return false` does **not** stop the step, and until recently said nothing at all when it failed to —
+> which is how an author could believe a step was gated when it never was.
+>
+> To make a step conditional, WRITE state the rule can be branched on (`context.data.setAttr(...)`) and put
+> the decision on a gateway, whose predicate's `false` genuinely IS a verdict. That inversion between the
+> two surfaces — same rule editor, opposite meaning for the same return value — is the thing to hold in
+> mind.
+>
+> To ABORT a step, `throw new ServiceException("Order is already shipped — cannot cancel")`. The message
+> reaches the user verbatim (`AbstractGroovyExecutor` special-cases `ServiceException`; everything else is
+> prefixed "Failed to execute Groovy script: "). Note what an abort costs: the service task runs inside the
+> transaction that completed the user task, so throwing rolls that completion back and the **user task
+> re-opens** — which is correct, but means "the task came back" is the normal appearance of a failed rule,
+> not evidence of a loop.
+>
+> With several rules on one task, execution now **stops at the first failure**. It used to continue, and
+> because the later rules' side effects are HTTP calls into other services they do not take part in the
+> rollback — so a failing step still sent the mail and wrote the rows, and did it again on every retry of a
+> step that could never succeed.
+
 > ⛔ **TRAP — a serviceTask rule that uses `context.<ctx>.<alias>.data` needs `<alias>` SEEDED into the process
 > `contextData` FIRST, or it throws `No CRUD data available for CRUD: <alias>` (`DynamicRuleContext.groovy`).
 > `.data` is evaluated on property access **before** `.get()/.put()` — a `?: [:]` fallback does NOT save you, and a

@@ -62,6 +62,14 @@ config while the table renders the new one (an action id the mirror doesn't know
 and no rules, yet the submit still reports success). Keep the two in sync — `node set-model`/`patch-model` do it
 for you.
 
+**When the two disagree, `properties.model` wins.** That is not a convention you may choose differently — the
+mirror's key carries no branch, and a branch clone keeps node unique identifiers, so a draft and the published
+branch address the SAME mirror object; were the mirror authoritative, editing a table on a draft would change the
+live page on save. A node whose configuration exists ONLY in the mirror is the legacy shape and still resolves —
+it is read from the mirror once and rendered — but anything you AUTHOR belongs in `properties.model`, and the
+platform refreshes the mirror from it on every save. See
+[28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) §4a for what that means when you edit a live project.
+
 > ⚠️ **The mirror's `content` is a JSON OBJECT, not a string.** `SettingsDto.content` is a Jackson `ObjectNode`,
 > so the mirror stores the parsed model **object** — the OPPOSITE of `properties.model.stringValue`, which is a
 > JSON *string*. If you edit a table by hand and write the mirror `content` as a string (e.g. by copying the node's
@@ -337,7 +345,7 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 | `currency` | String | Money columns: the marker drawn with the amount — a symbol (`$`, `€`, `֏`, `₹`) or an ISO code (`USD`, `AMD`). **Free text** — the settings control is an autocomplete over suggestions, not a closed list. Blank → amount only. | no | `null` | |
 | `moneyFormat` | String (enum name) | Money columns: the grouping/decimal standard. One of `US` (1,234.56) · `EUROPEAN` (1.234,56) · `SPACE_COMMA` (1 234,56) · `SPACE_DOT` (1 234.56) · `SWISS` (1'234.56) · `INDIAN` (12,34,567.89) · `PLAIN` (1234.56). Blank → `US`. | no | `null` (= `US`) | |
 | `moneyDecimals` | Integer | Money columns: decimal places, `0`–`6`. Null → `2`. Needed as its own key because the DB scale is already lost before the UI sees the value (a `BigDecimal(1234.50)` arrives as the double `1234.5`), so this is the only authority on how many decimals show. | no | `null` (= `2`) | |
-| `dateFormat` | String (moment.js) | **Temporal columns only** (`dataClass` = `java.time.LocalDate` / `LocalDateTime` / `Instant`): display pattern, e.g. `DD/MM/YYYY HH:mm:ss`. **Same catalogue and same vocabulary as the Date Picker form control** (doc [14a](14a-plugin-config-reference.md) §Date Picker). Blank → the raw stored ISO value. | no | `null` | ; render `DateFormatColumnUtils.formatCellValue` (`utils/DateFormatColumnUtils.java`) |
+| `dateFormat` | String (**moment.js — never a Java pattern**; `dd.MM.yyyy` renders as the literal `dd.11.yyyy`, see [02](02-form-controls-reference.md) §5) | **Temporal columns only** (`dataClass` = `java.time.LocalDate` / `LocalDateTime` / `Instant`): display pattern, e.g. `DD/MM/YYYY HH:mm:ss`. **Same catalogue and same vocabulary as the Date Picker form control** (doc [14a](14a-plugin-config-reference.md) §Date Picker). Blank → the raw stored ISO value. | no | `null` | ; render `DateFormatColumnUtils.formatCellValue` (`utils/DateFormatColumnUtils.java`) |
 
 > **Enum render** (`extractColumnValue` → `EnumColumnUtils.formatEnumCellValue`): for an enum column
 > the "live" projection from the integration service (`enumProjections`) is taken; if absent — the snapshot
@@ -364,6 +372,12 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > / `RIGHT_ALIGN_CLASS`), spreadsheet-style; string/enum cells stay left. Pure render CSS — no
 > settings key.
 
+> ⛔ **The column's `dataClass` must be numeric because the VALUE is money — not the other way round.**
+> `money: true` on a `java.lang.String` column is inert and silent, and the underlying mistake is that a
+> money value is being carried as text at some layer below. Fix the type everywhere it appears (DB column,
+> CRUD `dtoFields`, form control, column) rather than only here — the full rule and the `validate` check
+> are in [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
+>
 > **Money render** (`MoneyColumnUtils.formatCellValue`, reached from `extractColumnValue` via
 > `ColumnCellFormatUtils`): with `money: true` on a numeric column the amount is grouped per
 > `moneyFormat`, rounded HALF_UP to `moneyDecimals` places, and the `currency` marker is attached —

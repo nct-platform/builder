@@ -1,5 +1,7 @@
 # CRUD Tree & Process Table plugins
 
+> ⛔ **`identifier` or `uniqueIdentifier`?** They are different ids with different scopes and swapping them fails silently. The rule, the source that decides it and the measured evidence: [01 — `identifier` vs `uniqueIdentifier`](01-content-model-and-pages.md#-identifier-vs-uniqueidentifier--read-this-before-you-reference-a-node).
+
 > 📐 **Field evidence — trees, process tables, and what replaced them:** [03-dynamic-crud-conventions.md](references/03-dynamic-crud-conventions.md) · [05-process-and-scheduling.md](references/05-process-and-scheduling.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
 `crud.tree.plugin` and `process.table.pluin` are two "list" plugins, siblings of
@@ -59,6 +61,14 @@ This is the key difference from the form controls in
 [02](02-form-controls-reference.md): the node is read via `getContent().getJsonProperty("model", ...)`
 (`CrudTreePlugin.java`, `ProcessTablePlugin.java`) and written via
 `getContent().setJsonProperty("model", ...)` (`ProcessTablePlugin.java`).
+
+**When the two disagree, `properties.model` wins.** That is not a convention you may choose differently — the
+mirror's key carries no branch, and a branch clone keeps node unique identifiers, so a draft and the published
+branch address the SAME mirror object; were the mirror authoritative, editing a table on a draft would change the
+live page on save. A node whose configuration exists ONLY in the mirror is the legacy shape and still resolves —
+it is read from the mirror once and rendered — but anything you AUTHOR belongs in `properties.model`, and the
+platform refreshes the mirror from it on every save. See
+[28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) §4a for what that means when you edit a live project.
 
 > ⛔⛔ **The MIRROR is read at RUNTIME, not just by the editor — keep it IN SYNC with the model.** The node, its
 > columns and its rows render from `properties.model.stringValue` (`ProcessTablePlugin.java`), and so do **direct**
@@ -611,6 +621,13 @@ from the process context data via one of three sources.
 > §`CrudTableColumnSettings`. Note the sibling `ProcessIndexSettings` (below) has **no** `trueIcon`/`falseIcon` —
 > only columns do.
 
+> ⛔ **A `GLOBAL` money or date column is authored `java.lang.String` by default, and that makes both
+> formatters inert.** The attrs document is a string map, so the natural-looking column type is String —
+> but `money` needs a numeric `dataClass` and `dateFormat` needs a temporal one, and neither reports the
+> mismatch. Declare the COLUMN `java.math.BigDecimal` / `java.time.LocalDate`; the extractor converts the
+> stored value, so the bind rule can keep writing the attr as a string. See
+> [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
+>
 > **Money + date format** apply here identically too, through the same
 > `ColumnCellFormatUtils` seam — full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
 > §`CrudTableColumnSettings`. One thing is specific to the process table: the controls work in

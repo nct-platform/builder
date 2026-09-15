@@ -1,5 +1,7 @@
 # 24b · Composition — embedding plugins in HTML, and reusing a component
 
+> ⛔ **`identifier` or `uniqueIdentifier`?** They are different ids with different scopes and swapping them fails silently. The rule, the source that decides it and the measured evidence: [01 — `identifier` vs `uniqueIdentifier`](01-content-model-and-pages.md#-identifier-vs-uniqueidentifier--read-this-before-you-reference-a-node).
+
 > 📐 **Field evidence — the composition vocabulary production actually uses:** [10-visual-design.md](references/10-visual-design.md) · [09-studio-components.md](references/09-studio-components.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
 > **Scope.** The two tags that live inside an html body — `<plugin>` and `<include>`: the complete grammar of

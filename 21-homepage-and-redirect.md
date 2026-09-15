@@ -2,6 +2,53 @@
 
 > 📐 **Field evidence — what four front doors actually are:** [02-navigation-and-front-door.md](references/02-navigation-and-front-door.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
+
+## ⛔ A page in the nav must stand on its own — the dead-end screen
+
+A screen that is opened *both* from a row action (`?orderId=…`) and from the left nav has two
+entry states, and the second one is the easy one to forget. The usual shape of the bug:
+
+```js
+if (!oid) {
+  q('.sm-body').innerHTML = '<div class="sm-empty">' +
+    esc(t('pick')) + '</div>';        // "Open the register and pick an order with the row action"
+  return;
+}
+```
+
+Every gate passes. The page renders, returns HTTP 200, logs nothing — and a user who clicks the
+item in the menu gets a paragraph telling them to go somewhere else. In a demo it reads as
+"this screen is empty / not finished", which is the most expensive possible misreading.
+
+**The rule: if it is reachable from the nav, it must be usable from the nav.** The no-parameter
+state is a real state, not an error state, so give it the thing the parameter would have
+selected:
+
+```js
+if (!oid) { await renderPicker(); return; }   // list the orders, each row a link to ?orderId=…
+```
+
+A picker is cheap — one EXECUTION rule returning `{ok, locale, rows[]}` and a table whose last
+column is `<a href="?orderId=…">`. Two details decide whether it feels native:
+
+- **Localize the labels in the rule, not the component.** A status column bound to the raw code
+  renders `DRAFT`; the label lives on the joined `…Ref.localize.name.<locale>`, so resolve it
+  server-side where the session locale is readable (`service.global.locale.getKey()`).
+- **Give the detail state a way back.** Once the URL carries `?orderId=…`, nothing in the page
+  returns to the picker — browser Back is not a UI. Put the link in the header actions and
+  build it from `window.location.pathname`, so it works whatever the query string holds:
+
+```js
+const back = '<a class="sm-btn sm-back" href="' + window.location.pathname + '">\u2190 ' +
+  esc(t('backToList')) + '</a>';
+```
+
+Not every parameterised screen needs a picker — one that can pick a sensible default should
+just do that (the operation map opens on a released technology and needs no list). The test is
+simply: **open every nav item in a fresh tab and look at it.** Anything that answers with prose
+instead of data is a defect.
+
+
 ## What it is / when to use
 
 When a user opens the bare project URL (`/<realm>/<alias>` with no page path), the platform resolves the

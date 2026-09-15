@@ -39,6 +39,121 @@ Read this doc when you need to **manually add a page, tab, column grid, set acce
 > `tree`, `find --plugin <n>`, `show node <id>`, `page add/rm`, `node add/rm`, `roleaccess show/set`.
 > Full index and rules — [`tools/README.md`](tools/README.md); before re-import — `mrjun.py validate`.
 
+---
+
+## ⛔ `identifier` vs `uniqueIdentifier` — read this before you reference a node
+
+Two id fields on every node. They are **not** interchangeable, and swapping them fails
+**silently** — no exception, no log line, just an empty panel or a "not found" from a tool.
+This is the most expensive confusion in the whole content model, so it is stated here with
+the source that decides it.
+
+| | `identifier` | `uniqueIdentifier` |
+|---|---|---|
+| **Scope** | unique **only among one parent's children** | unique **across the entire project** |
+| **Shape** | a UUID **or a plain string** (`"parsis"`, `"header"`, `"left-nav"`) | always a UUID |
+| **Who sets it** | **you** — it is the `id=` you type in `<plugin id="…">` | the platform (`@PrePersist`), or you by hand |
+| **Column** | `s_identifier` — no NOT NULL, no unique constraint | `content_unique_identifier` — **`nullable = false`** |
+| **Getter** | `getIdentifier()` **lazily mints a random UUID** when null | `getUniqueIdentifier()` returns the field as-is, never generates |
+| **Referenced by** | `<plugin id=…>` tags · a form's `contentIdentifier` · a form group's `contentPageIdentifier` | MCP `nct_ui_*` content lookups · `componentIdentifier` refresh targets · Hidden-Content `contentIdentifiers` · the settings-mirror `name` |
+
+### The code that decides it
+
+`<plugin id="X" name="nct.parsis.plugin">` in a layout's HTML is parsed by
+`AbstractHtmlPlugin.constructListModel` (`mrjun-cms-view/.../html/AbstractHtmlPlugin.java`):
+
+```java
+String id = plugin.attr("id");                     // the id you typed
+ListModel.createPlugin(id, name, vpId, props, behaviors);
+```
+
+and resolved by `PluginUtils.getOrCreateChildContent`
+(`mrjun-cms-view/.../kicker/utils/PluginUtils.java`) — note the parameter is literally
+named `identifier`, and the search set is **this parent's children only**:
+
+```java
+private ContentDomain getOrCreateChildContent(..., String identifier, ...) {
+    Set<ContentDomain> parsisContents = parent.getChildren();      // ← scope: ONE html plugin
+    for (ContentDomain child : parsisContents) {
+        if (Objects.equals(child.getIdentifier(), identifier)) {   // ← matched on identifier
+            ...
+            return child;
+        }
+    }
+    ContentDomain contant = ...;
+    contant.setIdentifier(identifier);
+    contant.setName(identifier);                                   // ← name == identifier on creation
+    ...
+}
+```
+
+So: **the `id` in your markup IS the child's `identifier`, and it only has to be unique
+inside that one html plugin.** That is why `"header"`, `"parsis"` and `"left-nav"` legitimately
+repeat on every page in the tree.
+
+> Because auto-created children get `name == identifier`, some tooling matches slots by
+> `name`/`alias` instead — e.g. `ContentMcpTools.resolveParsisSlots` (`nct-ui`) indexes
+> parsis children by name and alias and reports `parsisSlots: {slotId → uniqueIdentifier}`.
+> That map is the bridge between the two worlds: **key = what you write in HTML, value = what
+> the MCP tools want.**
+
+### Measured on a delivered project (3 809 content nodes)
+
+```
+uniqueIdentifier : 3 809 nodes → 3 809 distinct values, 0 duplicates
+identifier       : 3 809 nodes → only 1 952 distinct values
+                   left-nav ×154 · logo-plugin ×154 · footer ×153 · breadcrumb ×153
+                   header ×153 · right-kicker ×153 · parsis ×152 · siteMapPageParsis ×151
+                   form-label ×124 · field ×123 …
+identifier among children of ONE parent : 0 collisions
+```
+
+Reproduce it on any unpacked export:
+
+```python
+import json, collections
+d = json.load(open('work/branches.json')); nodes = []
+def walk(n):
+    if isinstance(n, dict):
+        if 'pluginName' in n and ('uniqueIdentifier' in n or 'identifier' in n):
+            nodes.append(n)
+            for c in (n.get('children') or []): walk(c)
+        else:
+            for v in n.values(): walk(v)
+    elif isinstance(n, list):
+        for v in n: walk(v)
+walk(d)
+uid   = collections.Counter(n.get('uniqueIdentifier') for n in nodes if n.get('uniqueIdentifier'))
+ident = collections.Counter(n.get('identifier')       for n in nodes if n.get('identifier'))
+print('uid  dups:', {k: v for k, v in uid.items()   if v > 1})          # expect {}
+print('ident dups:', sorted(((v, k) for k, v in ident.items() if v > 1), reverse=True)[:10])
+for n in nodes:                                                          # expect nothing
+    c = collections.Counter(k.get('identifier') for k in (n.get('children') or []) if k.get('identifier'))
+    for k, v in c.items():
+        if v > 1: print('SIBLING COLLISION in', n.get('name'), '->', k, v)
+```
+
+### Which one does this API want?
+
+| You are… | Pass |
+|---|---|
+| writing `<plugin id=…>` in a layout | **`identifier`** (any string, unique in that html plugin) |
+| pointing a form at its fields page (`contentIdentifier`) | **`identifier`** |
+| pointing a form group at its page (`contentPageIdentifier`) | **`identifier`** |
+| calling `nct_ui_get_content_by_identifier` / `set_plugin_properties` over MCP | **`uniqueIdentifier`** |
+| naming a refresh target (`componentIdentifier`, [02](02-form-controls-reference.md)) | **`uniqueIdentifier`** |
+| listing Hidden Content (`contentIdentifiers`, [06](06-form-groups-and-mapping.md)) | **`uniqueIdentifier`** |
+| matching a CRUD-tree / process-table settings mirror (`setting.name`, [05](05-crud-tree-and-process-table.md)) | **`uniqueIdentifier`** |
+
+> **The symptom to recognise.** Pass an `identifier` where a `uniqueIdentifier` is wanted and
+> you get `Content not found` — which reads like a broken reference and sends you hunting for
+> a dangling link that does not exist. Pass a `uniqueIdentifier` into `<plugin id=…>` and the
+> renderer simply **creates a new empty child** under that id (see the code above: no match →
+> create) — the slot renders blank and nothing is logged. Both failures look like data loss.
+> They are id-kind mistakes.
+
+---
+
 > **Don't confuse "Page" with the MCP `PageDto`.** The persistent page model is a `ContentDomain` with
 > `pluginName="siteMapPage"` and a typed `properties` map (see below). The class
 > `PageDto.java` (fields `layoutName`, `navigationGroup`,

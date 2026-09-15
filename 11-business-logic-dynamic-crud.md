@@ -1065,6 +1065,64 @@ The shape:
 > **auto-find sentinel** of §Step 3 Variant A: `isAutoFindWrapper` catches it ahead of the delegation branch and
 > `executeAutoFindWrapper` runs the sibling `findAll` + `count` in-process. Leave it null.
 
+### ⛔ A derived header column must be recomputed where the lines are written
+
+A document header almost always carries a column that *summarises the lines* — `total_pieces`,
+`total_amount`, `line_count`. There is a natural place to maintain it (a SQL helper, usually
+scaffolded alongside the others):
+
+```sql
+-- recalcTotal
+UPDATE customer_order SET total_pieces = COALESCE(
+         (SELECT SUM(l.quantity) FROM order_size_line l WHERE l.order_id = customer_order.id), 0),
+       modification_time = now()
+ WHERE id = CAST(:id AS uuid) RETURNING *
+```
+
+…and a natural place to *forget to call it*. The scaffolded `create`/`update` delegates write the
+header, replace the lines, and return `get` — they never touch the derived column, because they
+cannot know which columns are derived. If the only caller is a business action further down the
+process (a "Release" rule, a nightly scheduler), the column is correct **only for documents that
+reached that step**. Everything else shows `0` in the register while the sub-grid plainly lists
+the rows — and the two screens disagree with no error anywhere.
+
+Call it in the same delegate, after the lines are in, on **both** `create` and `update`:
+
+```groovy
+_list(param['lines']).eachWithIndex { ln, i ->
+    service.crud.customerOrder.insertLine(_line(ln, i, hid))
+}
+try { service.crud.customerOrder.recalcTotal([id: hid]) } catch (Throwable ignored) { }
+return service.crud.customerOrder.get([id: hid])
+```
+
+Placement matters in three ways:
+
+- **After the inserts**, never before — the statement reads the child table back.
+- **Unconditionally**, even on the `update` path where `lines` was not sent. The helper derives
+  from the database, so a no-op call is correct and it repairs rows that drifted earlier.
+- **Before the closing `get`**, so the value the caller receives is the one just stored. Put it
+  after and the form redraws the stale number until the next open.
+
+> The `try/catch` is deliberate: a summary column must never be the reason a document fails to
+> save. Losing the total is recoverable; losing the order is not.
+
+**Auditing an existing project for this** — one query per derived column, no guessing:
+>
+> ```sql
+> SELECT o.order_no, o.total_pieces AS stored, COALESCE(SUM(l.quantity),0) AS real_sum
+>   FROM customer_order o LEFT JOIN order_size_line l ON l.order_id = o.id
+>  GROUP BY o.id, o.order_no, o.total_pieces
+> HAVING o.total_pieces IS DISTINCT FROM COALESCE(SUM(l.quantity),0)
+> ```
+>
+> Run it **before** the fix to size the damage and **after** a round-trip through the form to
+> prove the delegate now maintains it. `IS DISTINCT FROM` — not `<>` — or NULL totals hide.
+
+Remember where the code actually lives: these methods are GROOVY **delegates**, so the body is in
+the hidden rule `crud_<alias>_<method>`, not in `method.script`. Editing the script reports
+success and changes nothing (§Gotchas).
+
 The full SQL bodies of these methods — the header INSERT/UPDATE with `COALESCE` NOT-NULL handling, the
 `jN`/`elN` join-alias convention, the `json_agg` lines subquery, the enum-lookup `(SELECT id FROM lookup_x WHERE
 code = :x)` write — live in **[18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §3**
@@ -1164,6 +1222,34 @@ The plugin shows **both** kinds in the left-hand list (`crudClient.findAll` retu
 but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
 
 ## Gotchas
+
+- ⛔ **A literal `?` in a SQL method is a JDBC bind marker — double it.** The executor rewrites every
+  `:name` it recognises into a `?` and binds exactly that many slots; any other `?` you wrote is copied
+  through verbatim and the driver counts it as one more slot, so the method dies with
+  `No value specified for parameter 2`. That makes Postgres' jsonb existence operators unusable *as
+  written*. The escape is to double them — the driver collapses `??` to a literal `?` and allocates no
+  slot:
+
+  | you mean | you write |
+  |---|---|
+  | `meta ? :key` | `meta ?? :key` |
+  | `meta ?\| ARRAY[:a,:b]` | `meta ??\| ARRAY[:a,:b]` |
+  | `meta ?& ARRAY[:a,:b]` | `meta ??& ARRAY[:a,:b]` |
+
+  Do **not** reach for `jsonb_exists_any(...)` instead: the binder has no array branch, so a JSON array
+  arrives as `["a","b"]` rather than a Postgres array literal, and the function forms do not match the
+  GIN `jsonb_ops` operator class — you would silently buy a sequential scan.
+
+- ⚠️ **Declare a method's parameters ONCE.** `nct_bl_addSqlMethod` / `nct_bl_addGroovyMethod` persist the
+  `parameters` you pass inline; `nct_bl_addParameter` adds them one at a time. Doing both creates
+  duplicate bindings. (Older tool descriptions said the inline `parameters` were dropped and that
+  `addParameter` was mandatory — that stopped being true, and the descriptions have been corrected.)
+
+- ⚠️ **`parameterOrder` is the POSITIONAL argument order, not the JDBC slot index.** The slot index comes
+  only from where each `:name` first appears in the script, and each slot is bound by name. `parameterOrder`
+  is what orders the list a positional caller passes. Omit it and the server appends after the existing
+  ones; supply it and you own the numbering. Leaving every parameter at `0` — which incremental building
+  used to do — makes the ordering a total tie, and the database is then free to return any permutation.
 
 - ⛔ **A GROOVY method may DELEGATE to a rule, and that rule is the executable body.**
   `method.ruleIdentifier` names it; `method.script` is only the copy the editor shows.

@@ -555,6 +555,45 @@ emit a CHECK constraint — the accompanying CHECK for INTEGER-encoded enums is 
 `DbColumn.enumValues` (`List<String>`); the repository service does `CREATE TYPE … AS ENUM` in the same transaction
 as the ALTER. See [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md) about project Enumerations.
 
+### ⛔ Money is `NUMERIC`, and it stays numeric all the way up
+
+A money value must be held in a numeric type in **every** layer it passes through, and
+`NUMERIC(p,s)` / `java.math.BigDecimal` is the only pair that is exact:
+
+| layer | the money type | authored with |
+|---|---|---|
+| `project-db.dump` column | `NUMERIC(p,s)` — never `VARCHAR`/`TEXT`, never `REAL`/`DOUBLE PRECISION` | `db add-table` |
+| dynamic-CRUD `dtoFields[].fieldType` | `BigDecimal` | `crud add` / `nct_bl_addField` |
+| form control `settings.dataClass` | `java.math.BigDecimal` | `node patch-settings` |
+| table / tree / process column `dataClass` | `java.math.BigDecimal` | `node patch-model` |
+
+Three distinct things break when one layer slips:
+
+1. **Text sorts as text.** `"9"` sorts after `"10"`, and the register's sort-by-amount silently lies.
+2. **Binary floating point loses cents.** `REAL`/`DOUBLE PRECISION`/`Double` cannot represent `0.1`;
+   the error is invisible on one row and shows up the moment a report sums a column.
+3. **The money display keys go dormant.** `money: true` is gated on a numeric `dataClass` at RENDER
+   ([04-crud-table-plugin.md](04-crud-table-plugin.md)) and a mismatch is **not reported** — the cell
+   just draws its raw value, so a column configured as money that renders unformatted looks like a
+   platform bug rather than a type mistake.
+
+⚠️ **The process table is where this slips in practice.** A `scope: "GLOBAL"` column reads an attr out
+of the case's context-data document, and attrs are a string map, so the column is authored
+`java.lang.String` by default and money on it is inert. Declare the COLUMN
+`java.math.BigDecimal` (`GLOBAL`/`CONTEXT` columns pick their type in the Field Expression type
+dropdown) — the extractor converts the stored value on the way out, so the bind rule can keep
+writing the attr as a string. Same for a date attr: declare the column `java.time.LocalDate`.
+See [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md).
+
+⚠️ **`moneyDecimals` should mirror the column's DB scale**, which is the only authority once the
+value reaches the UI — a `NUMERIC(14,6)` rate drawn with the default 2 decimals loses four digits of
+a per-second rate and looks like a rounding bug.
+
+`mrjun.py validate` enforces the whole rule (`_check_money_field_typing`): it decides "is this money?"
+from the field name's **head noun** — so `monthlySalary`, `dayRate` and `secondRate` are money while
+`totalSeconds`, `bundlesTotal` and `chainLength` are not — then WARNs when such a field is typed
+non-numerically anywhere in the three layers, and separately when it is typed `Double`/`Float`.
+
 ### Server-side type dictionary (RIMM `SqlTypeMapper`)
 
 For RIMM tables (lookup data, `rimm_` prefix) input types are normalized by `nct-rimm/.../util/SqlTypeMapper.java`
