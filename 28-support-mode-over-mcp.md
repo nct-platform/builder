@@ -242,6 +242,20 @@ never as *retry the whole payload*, which re-applies the half that already worke
 | both failed | Safe. Fix and repeat. |
 | **partially live** | The common case. Stop. Enumerate what landed and what did not, from the read-back — not from the request you sent. |
 
+**Make the mirror a GATE, not a habit.** "Edit the file first" is the right order and it still fails,
+because a live write is sometimes the only way to *test* a fix (a seeded default, a generated label, a
+gesture) and the mirror then gets deferred "until the file is free" — and forgotten. Every gate stays green
+while it is missing: `validate`, `crud verify` and `pack` check the archive's internal consistency, not
+whether it agrees with the running tenant. The cheap mechanism that actually holds:
+
+* keep a **registry** beside the export — one line per live change, with a marker string that must be
+  findable in `work/` (a rule name + a distinctive fragment of its body, a settings key, a node id);
+* a **checker** that greps the archive for every marker and exits non-zero on the first miss;
+* run it **before every `pack`**, and treat red exactly like a failed test: do not pack, do not import.
+
+A session that ran this check at the end found two rule fixes and a scheduler identity that existed only
+on the tenant and would have been erased by the next import — with every other gate green.
+
 **Reconcile at both ends of the session.** Run the live/local comparison when you start (someone may have
 changed the project in the UI since your last session) and again when you finish. A support session that never
 compared is a session that does not know what it changed.
@@ -464,7 +478,26 @@ So: **the element API cannot carry a change to a rule-bearing process.** If you 
 the new version and check EVERY serviceTask still carries its rule, and (4) deploy the old version
 id to undo. A BPMN change to a process whose service tasks call rules needs a re-import.
 
-### ⛔ `nct_rule_update`: `executor` is ASYMMETRIC — read-modify-write DESTROYS the rule
+### ⛔ Which field carries the Groovy is PER TOOL and PER BUILD — verify it, never assume it
+
+**`create` and `update` do not agree, and the disagreement is silent either way.**
+`nct_rule_create`'s own tool description says the Groovy goes in **`executor`**. On the 2026-09
+build, `nct_rule_update` takes it in **`rule.ruleScriptStr`** and leaves `executor` as the class
+name — six rules were rewritten that way in one session, each read back byte-for-byte and each
+changed live behaviour (a screen gesture appeared, two dead buttons started working, a generated
+label changed). The asymmetry documented below was observed on an earlier build.
+
+**So the rule is: establish the shape on the build in front of you, with one cheap probe, before you
+touch anything that matters.** Pick a rule you own, add a comment line, write it, read it back, and
+compare the whole body. If the body came back as the 19-character string `GroovyExecutionRule`, the
+build is the one described below and you have just destroyed that rule — restore it from `work/` and
+switch fields. Both failures are invisible in the tool's own response: `success: true` either way.
+
+**Whichever field it turns out to be, never echo `executor` back from a read into a write.** That is
+the single habit that makes the asymmetry harmful; a payload you build from named fields cannot have
+it.
+
+### ⛔ (earlier build) `nct_rule_update`: `executor` is ASYMMETRIC — read-modify-write DESTROYS the rule
 
 On READ, `nct_rule_findByIdentifier` returns the Groovy source in `rule.ruleScriptStr` and puts the
 **executor class name** in `executor` (`"GroovyExecutionRule"`). On WRITE, `nct_rule_update` reads the

@@ -241,6 +241,26 @@ counterparty, stored per locale:
 | `defaultValueLocalized` | `Map<String,String>` | Static default per locale (for `localized` fields). | no | null | `FormControlSettings.java` |
 | `defaultValueRuleIdentifier` | String (UUID) | EXECUTION rule whose return becomes the default (when `defaultValueStatic=false`). | with rule default | null | `FormControlSettings.java` |
 
+> ⛔ **A `java.lang.Boolean` control with no default posts a literal `false`, and every create is born
+> switched OFF.** The toggle has no third "not set" state: it renders unchecked and submits `false`, which
+> is a *value*, not a blank — so an INSERT whose column reads
+> `COALESCE(CAST(NULLIF(CAST(:active AS text),'') AS boolean), true)` faithfully stores `false`. The SQL is
+> not at fault and reads as if it defaults to true; nothing warns.
+>
+> This is how a delivered ERP shipped with **all 30 of its create forms** producing rows that vanished from
+> the register that had just created them — an `active` flag on every reference book, every document, every
+> order and every employee. It was found by creating one row through the UI and then failing to find it.
+>
+> Fix it on the CONTROL, not in the SQL: `defaultValueEnabled: true`, `defaultValueStatic: true`,
+> `defaultValue: "true"`. The default substitutes only when the bound value is NULL — i.e. on create — so a
+> row that was deliberately deactivated still opens with the toggle off. Verify the column is `NOT NULL`
+> first (it is in any sane schema); then the default can never silently flip an existing row.
+>
+> **Check every Boolean control in the project, not just `active`.** The same shape hits `blocked`,
+> `confirmed`, `thread_change`, `is_default` — any flag whose business meaning is "yes unless somebody says
+> otherwise".
+
+
 Base helper predicates (`FormControlSettings.java`): `isLocalized`, `isDefaultValueEnabled`,
 `isDefaultValueStatic`, `hasDefaultValue`, `isJsonNodeType`, `hasJsonNodeExpression`,
 `isBetween`, `getOrCreateBetweenMapping`, `isAlwaysMandatory`, `hasMandatoryValidation`,

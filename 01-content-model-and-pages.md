@@ -354,6 +354,18 @@ The `empty` root `Home` actually has **20 children**: one `parsis.plugin` (`iden
 + 19 admin pages `siteMapPage` (`Sources`, `Queries`, `Database`, …); four more admin pages hang off those,
 for 23 in all. So navigation is a tree of `siteMapPage` nodes, not a flat list.
 
+> ⛔ **On an admin page, ADD THE REPLACEMENT FIRST — then delete.** Some plugin classes on those
+> pages cannot be re-created through the API at all: `nct_ui_add_plugin` only accepts names the site
+> template **registers in its palette**, and an inherited baseline node may carry a name that is not in
+> it (`processes.plugin` is exactly that — see [14](14-plugin-catalog-all.md), "dead/legacy"). Remove
+> such a node and only an **import** can put it back. So the order is always: look the plugin up in
+> [14](14-plugin-catalog-all.md) **before** touching it → add the replacement → open the page and see it
+> render → only then remove what it replaced. A real 2026 failure ran that backwards and left the
+> Processes console blank: the author had merged the list plugin into a single self-contained
+> master-detail plugin years earlier, the catalog said so in one line, and nobody read the line.
+> The generalisation worth keeping: **an admin page's node is not yours — it is the console's, it is
+> undocumented in your own project, and the catalog is the only place that says what it is.**
+
 > ⛔ **NEVER delete the admin/system pages — ADD, don't replace.** Those admin children (Settings, Rules, Form
 > Groups + Landing, PDF/Mail Templates, Sources, Queries, Contexts, Workflows, Schedulers, Roles, Users, Database,
 > Business Logic, …) are the **management console** — deleting them breaks `/settings`, the form-group `?group=`
