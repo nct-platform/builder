@@ -1353,9 +1353,10 @@ The full form-group framing of these sub-forms (they are forms too) —
 
 ### 9. File Upload — `dynaform.form.file.upload.field.plugin`
 
-Settings: `FormControlFileUploadFieldSettings` → base. `dataClass` — whitelist `ArrayList`/`ObjectNode`,
-but **real nodes write `java.util.List`** (the same ArrayList-vs-List trap as in List). Delta (all with
-`@Builder.Default` defaults):
+Settings: `FormControlFileUploadFieldSettings` → base. `dataClass` — whitelist `String` / `ArrayNode` /
+`ArrayList`; **older nodes in the wild write `java.util.List`**, which the control still reads (the same
+ArrayList-vs-List trap as in List). Which of them you pick changes the stored shape — see the table below.
+Delta (all with `@Builder.Default` defaults):
 
 | Field | Type | Meaning | Required | Default | Backing |
 |---|---|---|---|---|---|
@@ -1367,39 +1368,86 @@ but **real nodes write `java.util.List`** (the same ArrayList-vs-List trap as in
 
 The fields `maxFiles`/`showPreview`/`acceptedFileTypes` do **not** exist (fiction of old docs).
 
-> **Runtime — files live in nct-file-storage, the field stores PATHS not bytes.** On upload the control persists
-> the bytes to the file-storage microservice and keeps the **returned storage path** in the field value:
-> `fileStorageService.upload(bytes, settings.uploadPath + fileName)` (`FileUploadFieldFormControlPlugin.java`),
-> download via `fileStorageService.getFile`, remove via `fileStorageService.delete`
-> `FileStorageServiceImpl` → `FileStorageClient` (Feign → the file-storage service).
-> So the `java.util.List` field value is a **list of storage paths** under `settings.uploadPath`; a ported project
-> needs those files present in the target file-storage.
+> **Runtime — files live in nct-file-storage, the field stores PATHS not bytes.** On upload the control
+> persists the bytes to the file-storage microservice and keeps the **returned storage path** in the field
+> value: `fileStorageService.upload(bytes, uploadPath + fileName)` (`FileUploadFieldFormControlPlugin.java`),
+> read via `fileStorageService.getFile`, remove via `fileStorageService.delete` —
+> `FileStorageServiceImpl` → `FileStorageClient` (Feign → the file-storage service). A ported project needs
+> those files present in the TARGET file-storage; the paths travel in the export, the bytes do not.
 
-**Example — field "Images" over CRUD `ticket`** with non-default
-`allowedFileTypes` and `dataClass:"java.util.List"`:
+**The stored shape is not one shape.** It follows `dataClass` first and `allowMultiple` second
+(`fileupload/FileRefCodec.java` is the single encoder — do not reimplement it):
 
-```json
-{
-  "uploadPath": "uploads/",
-  "allowedFileTypes": "jpg,jpeg,png,gif,bmp",
-  "maxFileSize": 10485760,
-  "allowMultiple": true,
-  "showProgress": true,
-  "name": "Images",
-  "dataClass": "java.util.List",
-  "scope": "CRUD",
-  "contextIdentifier": "fe5e9b03-5b46-4fde-846b-6a01362bc553",
-  "crudAlias": "ticket",
-  "fieldExpression": "images"
-}
-```
+| `dataClass` | `allowMultiple` | Value written |
+|---|---|---|
+| `ArrayNode` / `ArrayList` | either | always a JSON array / `List<String>` of paths |
+| `JSON` (`ObjectNode`) | `true` | a JSON array of paths |
+| `JSON` | `false` | a bare path string |
+| `String` | `true` | the **text** of a JSON array (`["a.pdf","b.pdf"]`) |
+| `String` | `false` | a bare path (`uploads/a.pdf`) |
 
-The degenerate case — an upload field with all defaults and no mapping at all (only the 5 default fields):
-`{"uploadPath":"uploads/","allowedFileTypes":"pdf,doc,docx,xls,xlsx,jpg,jpeg,png,gif","maxFileSize":10485760,"allowMultiple":true,"showProgress":true}`.
+Decoding is unambiguous only because a storage path never starts with `[`. Read tolerantly (any of the
+five shapes), write per the table.
 
-HTML: `fileupload/FileUploadFieldFormControlPlugin.html` — drop-zone (`#fileUploadArea` +
-`wicket:id="fileUpload"` `<input type="file" multiple>`), `progressContainer`, `fileList` (a grid of cards
-with download/remove).
+> ⛔ **`supportedDataClasses()` must return only `Serializable` classes — and the compiler will not tell
+> you.** The list is shipped to executor-service over RSocket. Slip a `JsonNode.class` into it (it is not
+> `Serializable`) and the failure surfaces nowhere near the cause: the **Field Expression dropdown in Form
+> Settings comes back EMPTY**, with no browser error and no UI log. The only trace is in the
+> executor-service log: `ApplicationErrorException: Class com.fasterxml.jackson.databind.JsonNode does not
+> implement Serializable`. Keep the declared return type bounded
+> (`List<Class<? extends Serializable>>`) and never cast into it.
+
+> ⛔ **Never hand-build a browser URL for a stored file.** The one converter is
+> `RichCoreUtils.getSettingsInstance().getFileStorageProvider().getFileUrl(path)` — it is what makes the
+> URL follow `storage.url` (`${IMAGE_STORAGE_URL:http://localhost:4126/stores}`, routed by nct-gateway) in
+> every environment. `UploadedFileUrls` wraps it; ImagePlugin, `BackgroundImageBehavior` and the profile
+> panels all go through the same door. Writing a Wicket resource mount instead is the wrong layer — the
+> file service already exists and already has the bytes.
+
+> **Serving route.** `GET /**` on `FileController` declares `produces = image/jpeg|gif|png`, so everything
+> it returns is **mislabelled as an image**, and `/pdf-file/**` always forces `attachment`. Neither can
+> preview a PDF. Use **`/raw-file/**`**: real content type from the file name, `inline` only for images
+> and PDFs (never SVG — scriptable markup), `attachment` for everything else, `X-Content-Type-Options:
+> nosniff`, and `?download=true` to force the save dialog. `RawFileRoutingTest` guards that `/raw-file/**`
+> stays more specific than the catch-all — if it ever lost, every file would silently become `image/jpeg`
+> again.
+
+> ⛔ **An `<iframe>` pointing at a storage URL shows "refused to connect".** nct-file-storage answers with
+> Spring Security's default `X-Frame-Options: DENY`, so no page may embed it — same origin or not. Do
+> **not** relax the header for the sake of a preview. `fetch` the bytes and frame a `blob:` URL instead:
+> it is owned by the embedding document, carries no such header, and drops the cross-origin coupling.
+> Revoke it (`URL.revokeObjectURL`) on close and on switching file, or the decoded document stays in
+> memory for the life of the page.
+
+> ⛔ **`AjaxRequestTarget.add(component)` REPLACES markup — and silently unbinds every jQuery handler on
+> it.** The classic symptom here: delete a file, then upload does nothing — *not even an AJAX request*,
+> because the repaint swapped out the `<input type="file">` the handler was bound to. Two halves to the
+> fix, and you need both: repaint the **smallest** thing (a hint `Label`, never the drop area that
+> contains the input), and **delegate** from the component root
+> (`$root.on('change', '.selector', …)`) so a replaced child is still covered.
+
+HTML (`fileupload/FileUploadFieldFormControlPlugin.html`): `dropArea` (`uploadHint` + `uploadFormats` +
+the `<input type="file">`), `progressContainer`, `fileListContainer` → `fileList` — one card per file
+(`fileOpen` → `thumb` / `fileIcon`, `fileNameText`, `fileKindText`, `removeFile`). The list is suppressed
+entirely when `allowMultiple` is false and one file is held: a single-file field shows the file, not a
+list of one. `FileKinds.java` maps extension → IMAGE / PDF / OTHER — a **presentation** decision (which
+viewer opens), deliberately separate from the MIME table, which belongs to file-storage.
+
+JS (`FileUploadFieldFormControlPlugin.js`): `window.NctFileViewer` is a **singleton** framework-free
+overlay shared by every upload field on the page — images get a gallery that arrows between the other
+images in the same list, PDFs get the framed blob plus a download button, everything else downloads.
+
+Two rules make the gallery transition work, and both are easy to get wrong:
+
+- **The stage holds TWO `<img>` layers, not one.** Swapping `src` on a single element can only
+  blink: the old picture is gone the moment the new `src` is set. Two layers let the outgoing one
+  travel out while the incoming one travels in.
+- **Decode before you animate.** Animate on `src` alone and an empty box slides in with the picture
+  popping halfway through — worse than no transition. Wait for `img.decode()` (fall back to
+  `onload`), and hold a token so a newer arrow press discards the stale callback.
+- **Park, flush, then move.** Setting the start position and the end position in the same frame gets
+  coalesced and nothing animates. Add a `transition: none` class, write the start position, force a
+  reflow (`el.offsetWidth`), remove the class, then write the end position.
 
 ### 10. Gantt Chart — `dynaform.form.gantt.chart.plugin`
 
