@@ -501,7 +501,18 @@ does. What you **cannot** do is publish a custom property to the rest of the pag
 | `nct.html.plugin`/`html.plugin` **without** `studioModel`, inline `<style>` in `properties.html` | the html property is written **raw into the page body** (escaping off) | **no** (and `validate` warns — but only for `nct.html.plugin`) |
 | `chart.js.plugin` markup (`properties.Javascript` → the model's `html`) | rendered raw into the page body (the panel writes the `html` string with escaping off) | **no** |
 | `chart.js.plugin` → the model's **`cssByTheme`** map, and the legacy single **`css`** field folded into it | ✅ emitted per theme and scoped to the chart instance — see §5.6 | **yes**, `#<chart markupId>` |
+| project-global CSS (Settings → Developer → Global Resources) | one `<link>` per file in the page **head**, after everything the page itself contributed — see [29](29-global-resources.md) | **none.** The sheet is served as written, so an unscoped rule beats the platform's own at equal specificity across the whole project. Scope it inside the sheet when that is not what you want. It CAN be limited to particular skins — see below |
 | `style="…"` attribute anywhere | inline style | n/a — and it beats every stylesheet, §7.3 |
+
+> 💡 **A project-global stylesheet can be limited to particular skins** — `skins: ["Dracula", "Dark Blue"]`
+> on its registry entry, or the skin chips beside its name in Settings → Developer → Global Resources. **An empty
+> list means EVERY skin, and that is the default and almost always right**: a project stylesheet is about the
+> project, not about the palette it is viewed in. Reach for the list only for a sheet that patches one theme's
+> colours. It is applied at include time — a sheet keyed to `Dracula` is not sent at all under `Standard` —
+> and a project that has one makes the theme switcher fall back to a full page reload, because swapping the
+> skin's own `<link>` cannot exchange a sheet the server chose when the page was rendered.
+> ⛔ A **script** is never filtered by skin. Read the tokens at runtime instead (§2).
+> See [29](29-global-resources.md) §5.
 
 > ⚠️ **A classic (non-studio) html plugin has no CSS slot.** If it needs more than utility classes,
 > either keep it to §2 classes + Bootstrap utilities, or promote the node to a studio component
@@ -696,7 +707,40 @@ five per-skin blocks, ≈5 × 1 kB): it is a third of the size and there is no f
 > **Fix:** `style=` is for **layout only** (`style="width:120px"`, `style="grid-column:span 2"`). Every
 > colour goes in a class. Grep for it before shipping — §9.
 
-### 7.4 ⚠️ Charts: Plotly paints white paper
+### 7.4 ⛔ A bootstrap component the skins only PARTLY dress — `.popover-header` is the proof
+
+The dark skins are not a full re-theme of bootstrap; they are a list of selectors someone wrote by
+hand, and that list has holes. `.popover` is in it — `dark.css`, `dracula.css`, `dark-blue.css` and
+`forest.css` all set its `background` and `color`. **`.popover-header` is not in it.** So the
+moment you render a popover with a header on any dark skin, bootstrap's own default paints a
+**light grey slab** across the top of a dark window. `standard.css` styles the header explicitly,
+which is exactly why the hole is invisible to whoever built it on the light skin.
+
+The same shape of hole exists wherever a component has sub-parts: header/footer/arrow/caret. The
+skin dresses the box and forgets the trim.
+
+> **Caught by `validate`?** No — your CSS is clean; the *skin* is incomplete.
+> **Fix:** do not chase the skins, and do not pick a colour per skin. Dress the component with
+> **your own component tokens** — the same `var(--token, fallback)` set the rest of your markup
+> already uses (§2). For a bootstrap 5.2+ component the cheapest lever is its own CSS variables,
+> because they cascade into the parts you cannot see:
+>
+> ```css
+> .x-pop{--bs-popover-bg:var(--x-card);--bs-popover-border-color:var(--x-line);
+>   --bs-popover-header-bg:var(--x-card);--bs-popover-header-color:var(--x-ink);
+>   --bs-popover-body-color:var(--x-ink);}
+> /* bootstrap < 5.2 has no such variables — pair it with a plain rule, and WITHOUT
+>    `!important`, so a skin that DOES dress the part (the light one) still wins */
+> .x-pop .popover-header{background:var(--x-card);color:var(--x-ink);
+>   border-bottom:1px solid var(--x-line);}
+> ```
+>
+> Setting `--bs-popover-bg` also repaints the **arrow tip**, which bootstrap draws from that
+> variable — miss it and a correctly-dark popover still grows a white spike.
+> Check the real list before you assume coverage:
+> `grep -n "popover\|tooltip\|dropdown-header" nct-ui/src/main/resources/static/architectui-html-pro/themes/dark.css`
+
+### 7.5 ⚠️ Charts: Plotly paints white paper
 
 `Plotly.newPlot` defaults `paper_bgcolor`/`plot_bgcolor` to **white** → a white square on the four dark
 skins. Chart.js canvases are transparent and already safe. Full recipe (transparent paper + reading
@@ -711,7 +755,7 @@ CSS in the chart's `html`: a `<style>` there is global. (2) Chart **series** col
 hexes are correct (22 §6.1 requires a semantic ramp mapped by label); they live in the model's `js`, which none
 of this doc's rules or greps should be applied to — see the §9.2 note.
 
-### 7.5 ⚠️ Contrast inside the dark skins is not uniform
+### 7.6 ⚠️ Contrast inside the dark skins is not uniform
 
 The four dark skins' raised surfaces span **21 L\***. `--current-line` is `#101b2c` (Dark, CIE
 **L\*9.6**), `#262f36` (Dark Blue, **18.8**), `#2c302e` (Forest, **19.4**) and `#44475a`

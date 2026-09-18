@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 from . import (case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
                crudverify_cmds, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
                packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
-               workflow_cmds)
+               globalresource_cmds, workflow_cmds)
 
 
 def _add_project(sp):
@@ -190,6 +190,73 @@ def build_parser():
     sp = asset.add_parser("ls", help="list tenant-files assets in the bundle")
     _add_project(sp)
     sp.set_defaults(func=content_cmds.cmd_asset_ls)
+
+    # -- globalresource (the project's own files, loaded on EVERY page) ------------
+    # ONE tree: scripts, stylesheets, HTML fragments, fonts, images. Only a script or a stylesheet
+    # has a switch; everything else is stored and served for whatever references it.
+    wa = sub.add_parser(
+        "globalresource",
+        help="the project's global resources: js/css/html/fonts "
+             "(Settings > Developer > Global Resources) — "
+             "registry on the branch, bytes in tenant-files",
+    ).add_subparsers(dest="sub", metavar="<sub>")
+
+    sp = wa.add_parser("add", help="copy one local file into the bundle and register it")
+    _add_project(sp)
+    sp.add_argument("file", help="local .js/.css/.html/font/image to copy in and register")
+    sp.add_argument("--name", help="display name (default: the file's own name)")
+    sp.add_argument("--folder", help="folder inside the tree, e.g. 'vendor/charts'. "
+                                     "Missing folders are created; blank is the root")
+    sp.add_argument("--branch", help="only this branch (default: every branch in branches.json)")
+    sp.add_argument("--on", action="store_true",
+                    help="also switch it on. Without this it is registered switched OFF, which is "
+                         "the default everywhere: arriving is not the same as being loaded")
+    sp.add_argument("--by", help="who to record as the author")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_add)
+
+    sp = wa.add_parser("mkdir", help="create an empty folder in the tree")
+    _add_project(sp)
+    sp.add_argument("path", help="folder path, e.g. 'vendor/charts'")
+    sp.add_argument("--branch", help="only this branch (default: every branch)")
+    sp.add_argument("--by", help="who to record as the author")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_mkdir)
+
+    sp = wa.add_parser("add-zip",
+                       help="unpack an archive into a folder of its own, in a worked-out load order")
+    _add_project(sp)
+    sp.add_argument("file", help="local .zip")
+    sp.add_argument("--folder", help="the folder to unpack into (default: the archive's own name)")
+    sp.add_argument("--branch", help="only this branch (default: every branch)")
+    sp.add_argument("--by", help="who to record as the author")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_add_zip)
+
+    sp = wa.add_parser("ls", help="print each branch's tree and what actually loads, in order")
+    _add_project(sp)
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_ls)
+
+    sp = wa.add_parser("set", help="switch a file or folder on/off, rename it, reorder it, pick skins")
+    _add_project(sp)
+    sp.add_argument("name", help="a file's display path or name, or a folder's path, or an id")
+    sp.add_argument("--branch", help="only this branch (default: every branch)")
+    sp.add_argument("--on", action="store_true",
+                    help="load it on every page. On a FOLDER this un-blocks everything under it "
+                         "without rewriting the per-file switches")
+    sp.add_argument("--off", action="store_true",
+                    help="stop loading it. It keeps its bytes and its place in the order")
+    sp.add_argument("--rename", help="new last segment — a file keeps its extension; a folder takes "
+                                     "its whole subtree and its bytes with it")
+    sp.add_argument("--skins", help="stylesheet only: comma-separated skin names "
+                                    "(Standard, Dracula, Forest, Dark, Dark Blue). "
+                                    "An EMPTY string means every skin, which is the default")
+    sp.add_argument("--order", type=int, help="new position in the branch's asset list")
+    sp.add_argument("--by", help="who to record as the author")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_set)
+
+    sp = wa.add_parser("rm", help="remove a file, or a folder and everything under it, bytes included")
+    _add_project(sp)
+    sp.add_argument("name", help="a file's display path or name, or a folder's path, or an id")
+    sp.add_argument("--branch", help="only this branch (default: every branch)")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_rm)
 
     # -- case (per-project notes, kept OUT of the reusable library) ----------
     ca = sub.add_parser(

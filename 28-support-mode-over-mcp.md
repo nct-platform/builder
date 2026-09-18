@@ -339,8 +339,49 @@ a role inside a section that is not granted stays invisible.
 | Applying one rep-object collection as a delta | MCP `project.apply` | ⏳ planned |
 | Uploading an image, a logo, a favicon, a PDF asset | — | ⏳ planned (re-import only) |
 | A translation / a locale | — | ⏳ planned (re-import only) |
+| The project's global JavaScript / CSS (loaded on every page) | MCP `nct_globalresource_*` tools | available — see §5a |
 | A mail template | MCP messaging tools | available — but see §6: a re-IMPORT of templates is delete-all-then-insert, so never mix the two channels |
 | A PDF template | — | **no channel** (§6) |
+
+
+### 5a. The project's own files — `nct_globalresource_*`
+
+The tools describe themselves: `tools/list` gives you their names, what each is for and when NOT to reach for
+one. Nothing about them is repeated here. What follows is only what a tool description cannot tell you.
+
+All of them take `branchId` — call `nct_branch_getActive` first. What the switches actually mean, and the
+offline half of the same object, is [29-global-resources.md](29-global-resources.md).
+
+**ONE tree holds everything** — scripts, stylesheets, HTML fragments, fonts, images — because that is the
+only arrangement in which a stylesheet's relative `url(../fonts/kit.woff2)` resolves.
+`nct_globalresource_settings`, `_rename` and `_delete` take an `id` that may name a FILE or a FOLDER and tell
+you which it turned out to be; that is not a shortcut, it is the same tree the screen shows.
+
+⛔ **Four things this channel does not do, or does differently from what you would assume.**
+
+* **Creating a file does NOT switch it on.** Everything arrives switched off, here and in the screen and in the
+  toolkit. A create followed by no `nct_globalresource_settings {enabled:true}` is a file nobody loads, and the
+  create's own summary says so. That is deliberate: an import or a tool call must never change what a live
+  site serves without somebody choosing it.
+* **Only a script or a stylesheet has a switch at all.** An HTML fragment, a font and an image are stored,
+  served and editable, and never loaded on their own — something has to fetch them by URL.
+  `nct_globalresource_settings {enabled:…}` on one is refused with a sentence, not ignored.
+* **No archive upload.** There is no `add-zip` over MCP: unpacking one has real traps (entry and size caps,
+  path sanitising, dependency ordering) and they live in the upload screen and in the toolkit's
+  `globalresource add-zip`, where they are exercised. Over MCP you write source. A library you were going to
+  vendor as a zip is one create per file in dependency order — you are choosing that order yourself, and
+  `nct_globalresource_move` is how you correct it.
+* **A change needs a page RELOAD to show.** The include happens when a page is rendered; an ajax panel update
+  does not re-run it. Say so in the hand-over, the same way you do for a workflow that needs a Deploy.
+
+💡 **`nct_globalresource_suggest` before you hand anything over.** With no `assetId` it audits everything
+currently switched on and answers the question you cannot answer by reading: a script that uses a global
+nothing switched-on publishes, a folder switched off above a file that is ticked, a library ordered after the
+plugin that needs it. All three fail in the browser and look perfectly fine in a listing.
+
+⚠️ **The branch you write is the branch you are on.** These live on the branch, like content — so a file
+created against a draft is not on the published site until that branch is published, and a branch publish
+REBUILDS the published branch from the draft. §2.4's branch trap applies here unchanged.
 
 ⚠️ **Workflow caveat.** A workflow written over MCP is saved as a DRAFT and is never deployed by the save. A
 process whose definition you changed will keep running the old one until somebody presses Deploy. Say so
@@ -727,6 +768,45 @@ For each scenario, in the order you chose:
 Stop when every scenario passes or when what remains is recorded and named. ⛔ **Never report a scenario as
 passing because its fix was applied.** Applied is not verified. Only a re-drive that you watched counts,
 and if you could not re-drive it, that is what the report says.
+
+### 8.5a ⛔ Two ways the browser lies about a change you just made
+
+A component behaves correctly, your probe says it does not, and you spend the evening fixing code that
+was never broken. Both of these produce exactly that, and both are silent.
+
+**1 · `computer` coordinates are SCREENSHOT pixels, not CSS pixels.** A screenshot comes back scaled
+(1502 px wide for a 2056 px viewport — a factor of 0.73). Compute a target from `getBoundingClientRect`
+and pass it straight to `computer` and you click ~370 px away from what you measured, on a real element
+that reacts plausibly. Calibrate once per session instead of assuming:
+
+```js
+// hover a known screenshot point, then read what clientX the PAGE actually saw
+document.addEventListener('mousemove', e => document.documentElement
+  .setAttribute('data-lm', e.clientX + ',' + e.clientY), true);
+// … computer hover at (1000, 500) … then:
+const K = 1000 / +document.documentElement.getAttribute('data-lm').split(',')[0];
+// screenshotX = cssX * K
+```
+
+⛔ And **verify the hit before the gesture**: `document.elementFromPoint(cssX, cssY)` must already
+return the element you mean to hit. If it returns the thing behind it, the bug is z-order, not the
+handler — do not go looking in the JS.
+
+**2 · A BACKGROUND tab swallows clicks while still delivering mousemove.** If the human switched to
+another tab, `document.visibilityState === "hidden"`: hover events still arrive and highlight things,
+so the page looks alive, but `click` never fires and every click-driven assertion reports a failure.
+Read the flag before you believe a negative result:
+
+```js
+JSON.stringify({vis: document.visibilityState, focus: document.hasFocus()})
+```
+
+`hidden` means **stop testing** and say so, rather than reporting "does not work".
+
+> ⛔ And the rule that outranks both: **never verify an interaction with a synthetic event.**
+> `el.dispatchEvent(new MouseEvent('click'))` reaches the handler through a path a mouse can never
+> take — it ignores z-order, `pointer-events`, and overlays. It will report green on a control that is
+> physically unreachable. Drive it with `computer`, or do not claim it works.
 
 ### 8.6 ⛔ What you must not drive on a live tenant
 

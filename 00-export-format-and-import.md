@@ -192,7 +192,8 @@ Written as `gson.toJson(clonedBranches)` (`ProjectServiceImpl.java`). Each branc
 
 ```json
 { "name": "master", "tenantId": 1, "virtualPlugins": [ ... ],
-  "rootContent": { ... recursive content tree ... } }
+  "rootContent": { ... recursive content tree ... },
+  "globalAssets": { "version": 3, "storageId": "…", "folders": [ ... ], "assets": [ ... ] } }
 ```
 
 | Field | Type | Meaning |
@@ -201,6 +202,7 @@ Written as `gson.toJson(clonedBranches)` (`ProjectServiceImpl.java`). Each branc
 | `tenantId` | int | id of the source tenant. **Overwritten on import** with the new one (`ProjectServiceImpl.java` `br.setTenantId(tenant.getId())`) |
 | `virtualPlugins` | array | Shared/reusable plugins (layout HTML, headers/footers). On import marked `virtualContent=true` recursively. The count **depends on the project** — an empty admin scaffold already ships about twenty, and a built project adds its own. See [01-content-model-and-pages.md](01-content-model-and-pages.md) |
 | `rootContent` | object | **Recursive content tree** — all of the project's pages/plugins |
+| `globalAssets` | object | *Optional.* The project's own files — js, css, html, fonts, images — in ONE folder tree; a script or a stylesheet in it can be switched on and then loads on every page. Links and metadata only: the bytes are in `tenant-files/webassets/<storageId>/`, and each BRANCH owns its own `storageId`. Absent means the project has none. See [29-global-resources.md](29-global-resources.md) |
 
 **Content-tree node** (recursive, `rootContent` and each `children[]` element). The
 scalar fields of a root node:
@@ -584,6 +586,11 @@ Flat file trees (binaries). Export — `exportFilesRecursively`
 - `favicon/` ← from the storage `tenant/{tenantId}/favicon`; on import placed in
   `tenant/{newTenantId}/favicon`. Several dozen files: `favicon.ico`
   `apple-icon.png`, `pwa-icon-*.png`, `favicon-16x16.png`, etc.).
+- `tenant-files/webassets/<storageId>/` ← the project's own js, css, html, fonts and images, one subtree
+  per BRANCH. Registered on the branch in `branches.json` → `globalAssets`; the two halves line up only
+  because the registry stores the path RELATIVE to the tenant root — an absolute `t/{id}/…` survives the
+  import unchanged and then reads, successfully, from the DONOR project. See
+  [29-global-resources.md](29-global-resources.md)
 - `tenant-files/` ← from `t/{tenantId}`; on import → `t/{newTenantId}`. Logos
   (`fixed/90-60/logo1.png`), the 404 image (`fixed/400-250/404.png`), avatars
   (`{id}/profile/camera_*.png`).

@@ -1,7 +1,9 @@
 """validate — automates the reimport checklist. Exits non-zero on errors."""
 
+import hashlib
 import html
 import json
+import os
 import re
 
 from . import core
@@ -311,6 +313,8 @@ def cmd_validate(args):
     # -- a Create/Edit/Delete action with no persist rule → the form submits and saves NOTHING --
     _check_action_persist(p, r)
     _check_settings_mirror(p, r)
+    # -- project-global .js/.css: registry on the branch vs the bytes in tenant-files --
+    _check_global_resources(p, r)
     # -- process.table: flat-name (blank button) + model-vs-editor-mirror drift --
     _check_process_table(p, r)
     # -- a process.table / settings bound to a workflow that isn't in the project → empty worklist / orphan config --
@@ -7593,3 +7597,184 @@ def _check_workflow_locales(rep, locales, r):
                 if missing:
                     r.warn("workflow %r action %s missing locales %s"
                            % (wf.get("name"), key, sorted(missing)))
+
+
+def _check_global_resources(p, r):
+    """The project's own files — the two halves have to agree.
+
+    Everything here is a way for the feature to be silently half-present after an import, which is
+    the worst shape: the registry looks right in the export and the page loads nothing, or worse,
+    loads a grey placeholder image where a stylesheet used to be. File storage answers a path it does
+    not have with a generated JPEG and a 200, so "the import did not complain" proves nothing.
+    """
+    try:
+        branches = p.branches
+    except Exception:
+        return
+    for branch in branches or []:
+        if not isinstance(branch, dict):
+            continue
+        reg = branch.get("globalAssets")
+        if reg in (None, ""):
+            continue
+        label = "branch %r" % branch.get("name")
+        if not isinstance(reg, dict) or not isinstance(reg.get("assets"), list):
+            r.err("%s globalAssets must be {\"version\":3,\"storageId\":…,\"folders\":[…],"
+                  "\"assets\":[…]} — an object with ARRAYS (jsonb does not keep object key order, "
+                  "and the load order is the whole point)" % label)
+            continue
+
+        storage = reg.get("storageId") or ""
+        if not storage:
+            r.err("%s globalAssets has no storageId. Every branch owns "
+                  "webassets/<storageId>/ outright: without one, two branches name the same files "
+                  "and an edit in the draft rewrites what the published site serves" % label)
+        if storage and not re.fullmatch(r"[A-Za-z0-9._-]+", storage):
+            r.err("%s globalAssets storageId %r is not safe in a path" % (label, storage))
+
+        folders = reg.get("folders")
+        if folders is not None and not isinstance(folders, list):
+            r.err("%s globalAssets.folders must be an array" % label)
+            folders = []
+        folders = [f for f in (folders or []) if isinstance(f, dict)]
+        folder_paths = set()
+        for folder in folders:
+            path = folder.get("path") or ""
+            if not path:
+                r.err("%s has a folder with no path — the root is not a folder" % label)
+                continue
+            if not folder.get("id"):
+                r.err("%s folder %r has no id" % (label, path))
+            if path in folder_paths:
+                r.err("%s folder %r is declared twice" % (label, path))
+            folder_paths.add(path)
+            parent = path.rsplit("/", 1)[0] if "/" in path else ""
+            if parent and parent not in folder_paths and not any(
+                    f.get("path") == parent for f in folders):
+                r.err("%s folder %r has no parent folder %r. Folders are entities, not path "
+                      "prefixes: a missing one cannot be switched off, and the screen cannot draw "
+                      "the file underneath it" % (label, path, parent))
+
+        seen_paths, seen_ids, orders = {}, set(), []
+        for asset in reg["assets"]:
+            if not isinstance(asset, dict):
+                r.err("%s has a globalAssets entry that is not an object" % label)
+                continue
+            name = asset.get("name") or asset.get("id") or "<unnamed>"
+            kind = asset.get("kind")
+            path = asset.get("path") or ""
+            folder = asset.get("folder") or ""
+            display = ("%s/%s" % (folder, name)) if folder else name
+
+            if kind not in ("JS", "CSS", "HTML", "OTHER"):
+                r.err("%s asset %r: kind must be JS, CSS, HTML or OTHER (got %r)"
+                      % (label, display, kind))
+            if not asset.get("id"):
+                r.err("%s asset %r has no id — the id is the identity every copy path preserves; "
+                      "a path changes on every rename and cannot stand in for it" % (label, display))
+            elif asset["id"] in seen_ids:
+                r.err("%s asset %r reuses an id already in the registry" % (label, display))
+            else:
+                seen_ids.add(asset["id"])
+
+            if folder and folder not in folder_paths:
+                r.err("%s asset %r sits in folder %r, which the registry does not declare. The "
+                      "screen draws the tree from the FOLDERS, so this file is invisible in it"
+                      % (label, display, folder))
+
+            if not path:
+                r.err("%s asset %r has no path" % (label, display))
+                continue
+            if path.startswith("t/"):
+                r.err("%s asset %r: path must be RELATIVE to the tenant root (%r). The import "
+                      "re-homes every stored file under a NEW tenant id while rewriting nothing "
+                      "inside the registry, so an absolute path keeps reading — successfully — from "
+                      "the DONOR project" % (label, display, path.split("/", 2)[-1]))
+            if not path.startswith("webassets/"):
+                r.err("%s asset %r: path must start with webassets/ — the serving endpoint refuses "
+                      "anything else, deliberately (the project's database dump lives one directory "
+                      "up)" % (label, display))
+            elif storage and not path.startswith("webassets/%s/" % storage):
+                r.err("%s asset %r: path %r is not inside this branch's own storage subtree "
+                      "webassets/%s/. A branch that names another branch's files is the shape a "
+                      "publish turns into a live site changing under its readers"
+                      % (label, display, path, storage))
+            if ".." in path.split("/"):
+                r.err("%s asset %r: path contains '..'" % (label, display))
+            expected_leaf = path.rsplit("/", 1)[-1]
+            if name and expected_leaf != name:
+                r.warn("%s asset %r is stored as %r — the tree shows the name, the browser fetches "
+                       "the path, and a rename that moved only one of them is why they differ"
+                       % (label, display, expected_leaf))
+
+            disk = os.path.join(p.root, "tenant-files", *path.split("/"))
+            if not os.path.isfile(disk):
+                r.err("%s asset %r points at tenant-files/%s, which is not in this bundle — the "
+                      "page would load a placeholder image, with a 200" % (label, display, path))
+            else:
+                size = os.path.getsize(disk)
+                if asset.get("size") not in (None, size):
+                    r.warn("%s asset %r records size %s but the file is %d bytes"
+                           % (label, display, asset.get("size"), size))
+                recorded = asset.get("sha256") or ""
+                if recorded:
+                    with open(disk, "rb") as fh:
+                        actual = hashlib.sha256(fh.read()).hexdigest()
+                    if actual != recorded:
+                        r.err("%s asset %r: sha256 does not match tenant-files/%s. The served URL "
+                              "carries that hash and the endpoint refuses bytes that do not match, "
+                              "so this file would 404 on every page" % (label, display, path))
+                else:
+                    r.err("%s asset %r has no sha256 — the URL is built from it, and it is the only "
+                          "thing that tells a real file from storage's placeholder"
+                          % (label, display))
+
+            if path in seen_paths and seen_paths[path] != display:
+                r.warn("%s: %r and %r point at the same file; it would be loaded twice"
+                       % (label, seen_paths[path], display))
+            seen_paths[path] = display
+
+            if asset.get("skins") and kind != "CSS":
+                r.err("%s asset %r: skins applies to a stylesheet only" % (label, display))
+            for skin in (asset.get("skins") or []):
+                if skin not in _WEBASSET_SKINS:
+                    r.warn("%s asset %r names skin %r, which this platform does not have — it "
+                           "simply matches nothing, so the sheet loads nowhere"
+                           % (label, display, skin))
+            if kind not in ("JS", "CSS") and asset.get("enabled"):
+                r.warn("%s asset %r is kind %s but is marked enabled — only a script or a "
+                       "stylesheet is loaded on its own. Fonts, images and HTML fragments are "
+                       "served for whatever references them" % (label, display, kind))
+            if asset.get("isolate") and kind != "JS":
+                r.err("%s asset %r: isolate applies to JavaScript only" % (label, display))
+            if kind in ("JS", "CSS", "HTML") and _globalresource_kind_of(name) != kind:
+                r.err("%s asset %r is registered as %s but its extension says %s. The extension "
+                      "decides how the browser is told to interpret the bytes"
+                      % (label, display, kind, _globalresource_kind_of(name)))
+            if "-ver-" in name:
+                r.err("%s asset %r contains '-ver-'. Wicket strips <base>-ver-<version> out of the "
+                      "last URL segment of every mapped resource request, so this file would be "
+                      "asked for under a different name and never found" % (label, display))
+            orders.append(asset.get("order"))
+
+        if any(o is None for o in orders):
+            r.err("%s: every globalAssets entry needs an explicit integer order — it is what makes "
+                  "the load order survive a jsonb round trip" % label)
+        elif len(set(orders)) != len(orders):
+            r.warn("%s: two globalAssets entries share an order; the load order is then arbitrary"
+                   % label)
+
+
+#: The skins a stylesheet may name. An empty list means every skin, which is the default.
+_WEBASSET_SKINS = ("Standard", "Dracula", "Forest", "Dark", "Dark Blue")
+
+
+def _globalresource_kind_of(name):
+    leaf = (name or "").rsplit("/", 1)[-1].lower()
+    if leaf.endswith(".js") or leaf.endswith(".mjs"):
+        return "JS"
+    if leaf.endswith(".css"):
+        return "CSS"
+    if leaf.endswith(".html") or leaf.endswith(".htm"):
+        return "HTML"
+    return "OTHER"

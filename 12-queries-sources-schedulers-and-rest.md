@@ -930,11 +930,20 @@ localization, import/export, appearance, AI) via services, not via the node:
 ```
 
 Panel sections (`ProjectSettingsPlugin.createSectionPanel`): `BRANDING`, `IMPORT_EXPORT`, `LAYOUT`,
-`TEMPLATE_MANAGEMENT`, `GENERAL`, `LOCALIZATION`, `INTEGRATIONS`, `APPEARANCE`, `AI`. It is from here that
+`ACCESSES`, `TEMPLATE_MANAGEMENT`, `GENERAL`, `LOCALIZATION`, `INTEGRATIONS`, `ZOMBIE_INTEGRATIONS`,
+`APPEARANCE`, `AI`, `DEVELOPER`. It is from here that
 the `.mrjun` export itself is launched (the Import/Export button, `AJAXDownloadBehaviour` →
 `projectService.exportProjectOrTemplate(tenant())`, `ProjectSettingsPlugin.java`). For building a project
 via export files, **this node is simply copied as-is** (empty config) — there is nothing
 to construct in it. How to build pages in general — see [01-content-model-and-pages.md](01-content-model-and-pages.md).
+
+> ⚠️ **One of its sections DOES write into the export, and not into this node.** Settings → **Developer** →
+> **Global Resources** registers the project's own files — js, css, html, fonts, images, in one folder tree — on the
+> BRANCH, as `globalAssets` in `branches.json`, with the bytes under
+> `tenant-files/webassets/<storageId>/`. So "the settings node stores nothing" is
+> still true of the node, and no longer true of the screen. See
+> [29-global-resources.md](29-global-resources.md). (The tab's other section, MCP access
+> tokens, genuinely stores nothing in an export — a token is a credential and is never exported.)
 
 > **Tenant-level project quotas — `QuotaConfig`.** Separate from this UI node, a project carries a tenant-level
 > `QuotaConfig` (`nct-transfer/.../dto/QuotaConfig.java`) with four caps: `maxEmailsPerDay`, `maxActiveProcesses`

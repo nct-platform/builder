@@ -338,6 +338,19 @@ Reference library — doc/builder/ :
                                         the object -> how-to-change-it map; the support-mode gate ladder; what
                                         is NOT reachable over MCP at all (PDF templates, project locales, seed
                                         data, node identifiers) and what to do when an apply half-lands.
+  29-global-resources.md ..... GLOBAL RESOURCES - the project's own files on EVERY page
+                                        (Settings > Developer > Global Resources):
+                                        the optional globalAssets key on each branch + the bytes under
+                                        tenant-files/webassets/<storageId>/. Read it when a requirement says
+                                        "on all pages"; a script that belongs to ONE screen is 24, not this.
+                                        ONE tree holds js, css, html, fonts and images together (the only way a
+                                        stylesheet's relative url(../fonts/..) resolves); only a script or a
+                                        stylesheet has a SWITCH; folders switch a whole kit off as a unit;
+                                        NOTHING ever arrives switched on; one storage subtree per BRANCH; a
+                                        stylesheet can be limited to particular skins (empty = all, the
+                                        default); one load order, and how an archive is ordered; the dependency
+                                        suggestions; environment PUBLISH does not carry these.
+                                        Toolkit: globalresource add / add-zip / mkdir / ls / set / rm.
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).
