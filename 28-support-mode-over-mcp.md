@@ -289,7 +289,7 @@ the row is reading a copy, and on an old build a copy that may lag.
 
 ---
 
-### 4b. Three write tools that do not do what their name suggests
+### 4b. Four write tools that do not do what their name suggests
 
 **`nct_repository_execute_ddl` is also the DATA-repair channel.** `execute_query` cannot write — it wraps
 your statement for paging, so an INSERT there is a syntax error. The DDL tool passes its text straight to
@@ -311,6 +311,16 @@ leave the form with that one validator and silently delete the others. Replace i
 the only way to clear a list — but you can now say what you mean with `listMode: "add"` or
 `listMode: "remove"`, and the response echoes the resulting lists and names anything the write removed.
 Read that summary; it is the only place a loss shows up.
+
+**`nct_ui_create_page` creates a page with NOTHING IN IT.** `layoutName` writes the layout's NAME onto the
+page and builds nothing: the shell is cloned in lazily, by the browser, the first time a human opens that
+page. Until that happens the page has no parsis and no body root, so `nct_ui_add_plugin` has nothing to add
+to, `nct_ui_find_body_root` finds nothing, and `nct_ui_get_page_detail` shows a page with no children —
+which reads like the create failed, and it did not. Over MCP, follow every `create_page` with
+`nct_ui_apply_layout_to_page`, which clones the shell in up front (§5b — and read there what that still
+does not give you). `nct_ui_update_page {layoutName}` has the
+same shape and a worse failure: on a page that is ALREADY built it changes the stored name and nothing else,
+so the page keeps rendering the old shell and the tool reports success.
 
 **`nct_ui_set_page_access` PATCHES, and can now be verified.** It leaves roles, groups and flags you did not
 mention exactly as they were, and the response carries `ownRoleAccess` — the page's full configuration after
@@ -340,6 +350,7 @@ a role inside a section that is not granted stays invisible.
 | Uploading an image, a logo, a favicon, a PDF asset | — | ⏳ planned (re-import only) |
 | A translation / a locale | — | ⏳ planned (re-import only) |
 | The project's global JavaScript / CSS (loaded on every page) | MCP `nct_globalresource_*` tools | available — see §5a |
+| A page LAYOUT — the shell a page renders into, and building a page from one | MCP `nct_ui_*_layout*` tools | available — see §5b |
 | A mail template | MCP messaging tools | available — but see §6: a re-IMPORT of templates is delete-all-then-insert, so never mix the two channels |
 | A PDF template | — | **no channel** (§6) |
 
@@ -382,6 +393,80 @@ plugin that needs it. All three fail in the browser and look perfectly fine in a
 ⚠️ **The branch you write is the branch you are on.** These live on the branch, like content — so a file
 created against a draft is not on the published site until that branch is published, and a branch publish
 REBUILDS the published branch from the draft. §2.4's branch trap applies here unchanged.
+
+### 5b. Page layouts — `nct_ui_*_layout*`
+
+A layout is the SHELL a page renders into: the header, the left nav, the breadcrumb, the footer, and one slot
+the page's own content goes in. The model behind it — a named virtual plugin holding one HTML string with
+`<plugin>` tags — is [01](01-content-model-and-pages.md); read it before you write a shell by hand. What
+follows is only what the tool descriptions cannot tell you.
+
+`nct_ui_all_layouts` lists them with how many pages name each; `nct_ui_get_layout` gives you one in full —
+the HTML, the `<plugin>` tags it places, and the pages on it. Read one before you edit one.
+
+⛔ **Building a page is TWO steps, and only the first one is yours.** `nct_ui_apply_layout_to_page` clones the
+layout's shell into the page immediately. The shell's own `<plugin>` slots — the header, the nav, and the
+`nct.parsis.plugin` that page content goes into — are still only text inside the shell's `html` until the
+RENDERER turns them into nodes, and it does that when the page is first opened. So straight after the call
+`nct_ui_find_body_root` still finds nothing and `nct_ui_add_plugin` still has no parsis to address. Open the
+page once in a browser (§8) and both start working. What the tool removes is the page having no tree at all —
+not the visit.
+
+⚠️ **A freshly built page looks half-empty, and that is NOT your doing.** Its nav renders blank and its logo
+renders as a placeholder, because those slots carry per-node configuration (`modelGroups`, the image URL)
+that an author fills in per page — a brand-new copy starts empty. Measured on a live project against a
+control page built the lazy way: the two are byte-identical. Do not go hunting for a layout bug here.
+
+⛔ **A page NAMES its layout. It does not follow it.** Applying a layout COPIES the shell into the page, and
+from then on the page owns that copy. So:
+
+* Editing a layout's HTML changes what pages built **from now on** look like. The forty pages already built
+  keep the shell they were given and do not move. "Used by 40 pages" in the tool output is not the blast
+  radius of an HTML edit — it is who breaks if you RENAME or DELETE it.
+* The only way a new shell reaches a page that already exists is `nct_ui_apply_layout_to_page` with
+  `replace: true`, and that **discards that page's content** before rebuilding it. On a page with authored
+  content, that is a destructive operation with no undo (§2.4) — say so before you run it, and re-add the
+  content yourself afterwards.
+
+⛔ **Renaming and deleting are therefore not ordinary edits.** A page whose layout name no longer resolves
+renders as an EMPTY page — not "a page missing its header", an empty one, because the header, the nav and the
+footer all come from the shell too. ⚠️ Check that as a VISITOR: an author still sees the authoring toolbar,
+which is the platform's own and not the page's, and that alone is enough to make a dead page look alive.
+
+The tools stand in the way of both halves: `nct_ui_update_layout` repoints every page that named the old name
+and reports the count, and `nct_ui_delete_layout` refuses while pages still name it and lists them
+(`force: true` overrides, and then says which pages it stranded). Neither guard exists in the Settings
+screen, so a layout renamed there may already have left pages behind — `nct_ui_all_layouts` plus a page
+listing is how you find them.
+
+⚠️ **`isLayout` is not a reliable marker, and it leaks into these tools.** [01](01-content-model-and-pages.md)
+records it: the stock "Nct layout" that many pages render into has `isLayout=false`, and only `Main` and
+`Form` carry the flag. `nct_ui_all_layouts`, `_get_layout`, `_update_layout` and `_delete_layout` address
+FLAGGED layouts only, while the renderer — and `nct_ui_apply_layout_to_page` — resolve a name across every
+virtual plugin of the branch. So a page can legitimately name a shell that `nct_ui_all_layouts` does not
+list. If a page's layout is one you cannot find, look in `nct_ui_list_virtual_plugins` before concluding it
+is stranded; you can still apply it by name, you just cannot edit it as a layout.
+
+⚠️ **A shell with no `nct.parsis.plugin` is not broken.** That slot is what an author's own plugins go into,
+and `nct_ui_add_plugin` needs it — but a form page or a report page puts a form or a report plugin there
+instead and has nothing free to add, on purpose. The shipped "Form" starter and the stock "Pdf" layout are
+both like that. The tools say which kind you are holding rather than refusing to save it; decide which one
+the requirement means.
+
+💡 **Use `nct_ui_create_layout`, not the generic virtual-plugin tools.** Before these tools existed the only
+route was `create_virtual_plugin {isLayout:true}` followed by `set_virtual_plugin_root_properties {html}`,
+and it produces a layout that is subtly wrong in two ways nothing tells you about: the wrong plugin type on
+the shell node, and no site template on the virtual plugin — and THAT one is dereferenced for every virtual
+plugin of the branch by the plugin picker, so one bad layout takes that screen down for the whole project.
+`nct_ui_create_layout` takes `html`, or `templateName` from `nct_ui_list_layout_templates` to start from a
+shipped shell.
+
+⚠️ **The branch trap (§2.4) applies unchanged.** A layout edit is live for every user of the project the
+moment it lands, and a `replace: true` rebuild is live and irreversible.
+
+> **Per build.** These tools are newer than the CMS tools around them. Check `tools/list` for
+> `nct_ui_apply_layout_to_page` before you plan around it; on a build without them, creating a usable page
+> over MCP ends at "the customer must open it once in a browser", and that belongs in the hand-over.
 
 ⚠️ **Workflow caveat.** A workflow written over MCP is saved as a DRAFT and is never deployed by the save. A
 process whose definition you changed will keep running the old one until somebody presses Deploy. Say so

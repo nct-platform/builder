@@ -463,6 +463,15 @@ The consequence for hand-assembly — **two valid variants**:
 
 An export taken from a project that was already rendered in authoring always shows variant (A).
 
+> **(C) Built on demand — only on a LIVE project, never in an export.** In support mode
+> `nct_ui_apply_layout_to_page` performs steps (2)–(3) on the spot, so the page has its tree before anybody
+> opens it in a browser. It stops exactly where step (3) stops: the shell's own `<plugin>` slots are still
+> created by `AbstractHtmlPlugin` at render time, so the inner `nct.parsis.plugin` appears on first view and
+> not before. It exists because `nct_ui_create_page` does the naming half only: a page created
+> over MCP IS variant (B), stays empty until a human renders it, and until then the plugin tools have no
+> parsis to address. This is not a route for a generated export — nothing in a `.mrjun` executes, so (A) is
+> still the only safe shape to ship. → [28 §5b](28-support-mode-over-mcp.md).
+
 > ⛔ **For any generated export that must SHIP business content, (A) is REQUIRED.** (B) always yields an
 > **EMPTY content parsis** on import: the platform clones the vp `"Nct layout"` only on first live render, and that vp is
 > **CHROME-ONLY** — its `content.children` is `[]` (open the vp and check: the inner

@@ -335,7 +335,12 @@ Reference library — doc/builder/ :
                                         here. Connecting with an MCP token and which tool profile you get;
                                         `./.dokie/project.json` and the `mode` field; the dual-write protocol
                                         (edit ./work -> validate -> write ONE collection live -> read it back);
-                                        the object -> how-to-change-it map; the support-mode gate ladder; what
+                                        the object -> how-to-change-it map; PAGE LAYOUTS over MCP (5b) -
+                                        create_page writes the layout NAME and builds NOTHING, so follow it
+                                        with apply_layout_to_page or the page has no parsis for add_plugin;
+                                        applying a layout COPIES it, so editing a shell never reaches a page
+                                        already built, and rebuilding one DISCARDS its content;
+                                        the support-mode gate ladder; what
                                         is NOT reachable over MCP at all (PDF templates, project locales, seed
                                         data, node identifiers) and what to do when an apply half-lands.
   29-global-resources.md ..... GLOBAL RESOURCES - the project's own files on EVERY page
