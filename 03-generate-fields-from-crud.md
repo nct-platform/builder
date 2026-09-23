@@ -38,6 +38,66 @@ how many fields the form actually has, not by what the generator emitted.
 Measured on a delivered project: **45 generated form rows, 0 wrapped** — every form in it spanned
 the full width until the wrapper was added.
 
+### ⛔ A LINE form gets NO row and NO columns at all — lay it out yourself
+
+The wrapper above is about the **parent** form. The nested **list-item** sub-form (§Nested-mode) is
+generated differently and the difference is easy to miss because both look fine in the editor tree:
+
+| | parent form | line form (`dynaform.list.item.plugin`) |
+|---|---|---|
+| what the generator emits | ONE `gen_row_<batch>` html plugin whose HTML is a `row` + N `col-md-*` wrapping N `gen_col<N>` parsis columns | N **independent** `gen_slot_*` html plugins, each `<div class="mb-3">label+field</div>`, all direct children of the item's `form.parsis` |
+| resulting layout | N columns | **one column, every field full width** |
+
+So a 14-field line form renders as a 14-row ladder of stretched inputs, opened from a parent form
+that is a tidy three-column grid right behind it. Users read that as a broken screen, and it is the
+single most visible layout defect a generated project ships with.
+
+Two ways to fix it; prefer the first, because it is one write per line form instead of one per field:
+
+1. **Grid the item's parsis container.** The slots are its direct children, so set
+   `properties.className` on that `nct.parsis.plugin` to a class of your own and give the class a
+   CSS grid in a global stylesheet ([29-global-resources.md](29-global-resources.md)). Mirror the
+   parent form's split so the two forms agree:
+
+   ```css
+   .cy-line-grid { display: grid; grid-template-columns: 1fr; gap: 0 1.5rem; margin: 0; }
+   .cy-line-grid > div { min-width: 0; }              /* let long select labels shrink */
+   @media (min-width: 768px)  { .cy-line-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+   @media (min-width: 1200px) { .cy-line-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+   ```
+
+   ⚠️ Verified: `className` on a parsis node lands on the **rendered container** of that node, so the
+   grid applies to the slots; do NOT use Bootstrap's `row` here — its negative margins fight the
+   modal padding, and the slots carry no `col-*` class to pair with it.
+
+2. **Rewrite the item's children the way the parent row is built** — one `nct.html.plugin` holding
+   `row`+`col-md-4` and three parsis columns, then move the slots into them. Correct, but it is a
+   structural rewrite of every line form; do it only when you need different column counts per form.
+
+### Two line-form behaviours that look like bugs and are not
+
+**The first action on a list field can fail once.** Opening a form and immediately triggering the
+list field's action (Add row / Edit row) can return an error on the *first* call after the form is
+opened; the same action then works for the rest of the session. Retry once before recording a
+defect — and never "fix" it by adding a retry loop in a rule, because the failure is on the
+platform's side of the form, not in your code.
+
+**Joined columns in the line grid are blank until the parent is saved.** A line you have just added
+shows its scalar columns (line number, quantity) at once, but a column over a joined entity
+(`item.code`, `uom.code`) stays empty: the control stored the FK id, and the label for it is
+resolved server-side on read. The value is NOT lost — reopen the saved record and the grid fills in.
+Verify with a DB read before treating it as data loss, and do not add a column over the raw FK id
+just to make something appear: a uuid in a grid is worse than a blank.
+
+### The rule this generalises to
+
+**Decide the column split for EVERY form you generate — parent and line — and check it on screen at
+the widest window you support.** The generator's output is a field list, not a layout. A control that
+stretches edge-to-edge is not neutral: it reads as unfinished, it separates a label from its input by
+a thousand pixels, and on a form with more than ~6 fields it forces scrolling that a grid would not.
+Budget one pass per form group: wrap the parent row in `.container`, pick `col-md-3/4/6` by field
+count, and grid the line form to the same split.
+
 ---
 
 ## What it is / when to use
@@ -831,6 +891,10 @@ The second dialog call — from a list-item sub-form (`ListItemFormPlugin`, "Aut
   way, but `service.crud.<anyAlias>.find(...)`.
 - **The enum snapshot is mandatory** here: a nested-collection-item enum is not indexed by the project-enum-registry, and without
   `settings.enumValues`/`enumFieldNames` the dropdown will be empty (see Gotcha 6).
+
+⛔ **The nested dialog emits no row and no columns** — every field becomes its own full-width slot.
+See [§A LINE form gets NO row and NO columns at all](#-a-line-form-gets-no-row-and-no-columns-at-all--lay-it-out-yourself)
+at the top of this doc for the two fixes; skipping it ships a ladder of stretched inputs.
 
 The concept of nested forms and `context.currentData` — see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)
 (older platform documentation on form fields is stale on other points but correct on the nested mechanics).

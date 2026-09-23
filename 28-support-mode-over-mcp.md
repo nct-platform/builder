@@ -745,6 +745,28 @@ it; **run that line yourself and re-run the command.** Installing the driver is 
 question for the user. Then ⚠️ **restart Claude Code once** — MCP servers connect at session start, so the
 session that wrote the file cannot use it.
 
+### 8.1b ⛔ Correction — the re-import is YOURS to drive when you have a browser
+
+Earlier revisions of this document said the import channel "is a re-import the human
+drives". That is only true without a browser. **The project's own Settings page takes
+the archive**, and the session you drive is already signed in:
+
+```
+<root>/<realm>/<client>/settings      <- import / export the .mrjun
+```
+
+So the support loop closes without handing work back: edit the export -> `validate` ->
+`pack` -> import at `/settings` -> re-drive the scenario. Ask the user only if that page
+refuses you, or if they asked to perform the change themselves.
+
+⚠️ **After every import, re-deploy the workflows.** They come back `deployed: false`
+and `service.workflow.start` throws until they are deployed again. And anything you
+changed live over MCP but never mirrored into the export is REVERTED by the import —
+which is the practical reason every fix must land in `work/` as well.
+
+The full order of work — import, deploy, drive, buglist, fix, re-drive, and only then
+the autotest project — is [30-live-test-bugfix-and-autotest.md](30-live-test-bugfix-and-autotest.md).
+
 ### 8.2 Where to test, and ⛔ who logs in
 
 **Open the PROJECT, not the installation.** The platform serves every project under

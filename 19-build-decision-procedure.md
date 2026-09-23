@@ -1142,7 +1142,10 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
 > is theirs, exactly as before and as the rest of this phase assumes. With a token it becomes yours — and as of
 > CONTRACT-VERSION 2 the tools for it do not exist on any platform yet, so in practice it is still theirs and
 > the AI says so. Nothing else in this phase changes either way, and step 7b's handoff files are written in
-> both. See [28](28-support-mode-over-mcp.md) for the connected channel and its honest limits.
+> both. See [28](28-support-mode-over-mcp.md) for the connected channel and its honest limits, and
+> [30](30-live-test-bugfix-and-autotest.md) for the order of work once it IS live: import at
+> `/settings`, re-deploy the workflows, drive every scenario in the browser, keep a BUGLIST, fix and
+> re-drive — then, only when it is green, offer to build the Playwright autotest project.
 
 1. `mrjun.py validate --project <dir>` → **0 errors** (warnings about pre-existing platform orphans are ok). It
    also runs the schema-aware dynamic-CRUD checks (CHECK-literal coverage, field-expression coverage incl. list

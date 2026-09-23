@@ -307,6 +307,12 @@ caused it ([23](23-distribution-and-known-gaps.md) §2). Validate after each uni
 > browser MCP server and works through the scenarios in a real browser, fixing what it finds over MCP —
 > [28](28-support-mode-over-mcp.md) §8. The order below is still the order; the difference is only who is
 > holding the mouse. ⛔ The login is not part of what you drive: the human authenticates, always (§8.2).
+>
+> The full loop around this sweep — import, deploy the workflows, drive, BUGLIST, fix, re-drive, and only
+> once it is green **ask the user whether to build an autotest project** — is
+> [30](30-live-test-bugfix-and-autotest.md). Two things there change what you do here: the `.mrjun` is
+> imported from the project's own `/settings` page **by you**, not handed back to the user; and an
+> autotest is written AFTER the scenarios pass, never while they are still red.
 
 `validate` never imports; it does not deserialize into the platform DTOs, and no offline gate opens a page. So
 the deliverable is proven by a live run — **but not by yours.** You do not have a platform and you do not ask

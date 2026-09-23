@@ -1486,6 +1486,76 @@ a screen that is blank or a step that throws on the first live run.
 
 ---
 
+## ⛔ The task form is the weakest link in a case — two defects it ships with by default
+
+A user task's form is the only place a human meets the process, and both of these survive every
+offline gate, both look like "the platform does that", and neither shows up unless someone actually
+completes a task and then goes looking in the database.
+
+### 1. The form opens blank — the case knows the subject, the form does not
+
+The case carries the record (`contextDataMap[ctx].crudDataMap['<alias>']`), and the bind rule wired to
+`onBeforeUserTaskStart` republishes its identifying attributes for the worklist. But if the task's form
+edits a **different** entity — a case about a *stock lot* whose task records a *QC inspection* — then
+nothing seeds that second alias, and the inspector is handed an empty form and asked to pick, from a
+list of every lot in the system, the one the case is already about.
+
+That is a correctness risk, not a convenience: the wrong pick attaches the decision to the wrong
+record and nothing detects it.
+
+Seed it in the same bind rule, guarded so a re-entered task keeps what the user typed:
+
+```groovy
+try {
+    def seed = context.choco_context.qcInspection.data.get()
+    if (!(seed instanceof Map) || !(seed['stockLotId'])) {
+        context.choco_context.qcInspection.data.put([
+            'stockLotId'    : sid,
+            'stockLot'      : ['id': sid],     // BOTH forms: a control bound as `stockLot.id`
+            'objectType'    : 'STOCK_LOT',     //             reads the nested one
+            'stage'         : 'INCOMING',
+            'inspectorEmail': ((service.security.user()?.email ?: '') as String),
+            'status'        : 'DRAFT'
+        ])
+    }
+} catch (Throwable ignored) { }
+```
+
+⚠️ Seed a dropdown **both ways** — `'<alias>Id': id` *and* `'<alias>': ['id': id]`. A control generated
+as `stockLot.id` reads the nested shape and ignores the flat one; scalar controls read the flat one.
+A seed that sets only `stockLotId` silently leaves the picker empty, which looks exactly like no seed
+at all.
+
+### 2. The form is filled and then thrown away
+
+A task's `onBeforeUserTaskComplete` rule typically does the state change the branch is named after —
+release the lot, approve the deviation, close the NCR. If that is *all* it does, then everything the
+user typed into the form is discarded when the task completes: no inspection document, no checklist,
+nothing for the certificate PDF to render and nothing for the quality report to count. The lot status
+changes, so the screen looks right, and the missing document is only found later.
+
+Persist the form's entity in the complete rule, after the state change succeeds:
+
+```groovy
+def insp = null
+try { insp = context.choco_context.qcInspection.data.get() } catch (Throwable ignored) { }
+if (insp instanceof Map && !(insp['id'])) {
+    def doc = new LinkedHashMap(insp)
+    doc['result'] = (((doc['result'] ?: '') as String).trim() ?: 'PASS')   // per branch
+    doc['status'] = 'COMPLETED'
+    // …assign the document number here too (11-business-logic-dynamic-crud.md)
+    def made = service.crud.qcInspection.create(doc)
+    …
+}
+```
+
+And check the **child rows**: a checklist copied from a template needs the copy method to be *called*.
+A `buildLinesFromTemplate`-style method that exists but no rule invokes is a very quiet failure — the
+inspection saves, the lines table is empty, and the "failed checkpoints" branch downstream always sees
+zero. `mrjun.py validate` reports a crud method nothing references.
+
+---
+
 ## Gotchas
 
 1. **`bpmnContent` is the source of truth; `elements` is derived.** The server re-reads the XML on every save/deploy

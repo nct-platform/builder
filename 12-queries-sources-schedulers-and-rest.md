@@ -654,6 +654,48 @@ one group per business role it needs to gate on — e.g. `Front Office Employee`
 `Warehouse Clerk`, `Customs Declarant`, `Approver` — and the same names are then used in
 `userRoleGroupAssignments` and in any `service.security.hasAnyRoleGroup("…")` check.
 
+### 4.3 ⛔ A role group gates NOTHING until two separate places say so
+
+Creating the groups and writing the role matrix into the PRD is the easy half. A group only takes
+effect where it is *checked*, and there are **two** places, with different jobs:
+
+| Where | What it does | What happens if it is missing |
+|---|---|---|
+| the entity's `<alias> Persist Create/Update/Delete` rule — `service.security.hasAnyRoleGroup("<Role>", "Administrator")` | **the authorisation control** | every user who can open the form can write the entity, including a read-only role and anyone who reaches the form by URL |
+| the crud table action's `predicateIdentifier` — a PREDICATE rule over the SAME role set | **what the user is offered** | the button is shown to everyone; a read-only user fills the form, presses Save, and is told they are not authorised |
+
+Both, always. The predicate alone is a courtesy a client can skip; the rule alone produces a screen
+that invites a user to do something and then refuses them. A role matrix is normally written as
+*"the button must be ABSENT, not present and inert"*, and only the pair delivers that.
+
+```groovy
+// in <alias> Persist Create / Update / Delete — the control
+if (!service.security.hasAnyRoleGroup("WarehouseManager", "Administrator")) {
+    throw new RuntimeException('<hy> / <ru> / <en>')   // a rule has no locale: all languages at once
+}
+```
+
+```groovy
+// the PREDICATE the Create / Edit / Delete actions point at — what is offered
+return service.security.hasAnyRoleGroup("WarehouseManager", "Administrator")
+```
+
+Reuse ONE predicate per distinct role set (`Can Write [Administrator+WarehouseManager]`) rather than
+one per action — otherwise the set drifts between Create and Edit on the same entity.
+
+Measured on a delivered MES: **45 persist rules with no guard and 87 write actions with no predicate**,
+every one of them on a screen that had been walked through and looked finished, because the author
+account carried every role. `mrjun.py validate` now reports both as ERRORs.
+
+> **Master data is where this is forgotten.** The document entities got their guards — orders,
+> receipts, inspections. Suppliers, warehouses, equipment, shifts, units, reason codes and route
+> stages did not, and those are exactly the rows whose silent edit is hardest to notice later.
+
+> ⚠️ **An all-hidden actions column still renders.** When every row action fails its predicate the
+> platform draws the dropdown anyway — an empty menu under an "Actions" header. Hide it (a few lines
+> in a global script, [29-global-resources.md](29-global-resources.md)) if the matrix says the control
+> must be absent.
+
 ---
 
 ## 5. userRoleGroupAssignments

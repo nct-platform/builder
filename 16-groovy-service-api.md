@@ -681,6 +681,37 @@ There is no third slot: a CRUD envelope carries **only** `value` (`CrudDataDto` 
 `crudDataMap: [ customer: [ value: […], attrs: […] ] ]` loses those attributes in silence — unknown keys in this
 document are dropped, not rejected — and a service task then reads back nothing.
 
+⛔ **The shape a hand-built document gets wrong, and what it costs.** Both levels must be NESTED. Writing the
+context entry or the global attributes at the document ROOT is the single most expensive mistake on this call,
+because unknown root keys are **dropped, not rejected** — `start` still returns a process identifier:
+
+```groovy
+// ⛔ WRONG — every key below is silently discarded
+def doc = [:]
+doc['<contextIdentifier>'] = ['crudDataMap': [order: ['value': row]]]   // context at the ROOT
+doc['subjectId'] = id                                                   // attr at the ROOT
+doc['orderNo']   = row.orderNo
+
+// ✅ RIGHT
+def doc = [
+    'contextDataMap': [ ('<contextIdentifier>'): ['crudDataMap': [order: ['value': row]], 'attrs': [:]] ],
+    'attrs': [ subjectId: id, orderNo: ((row.orderNo ?: '') as String) ]
+]
+```
+
+The case then carries neither the CRUD rows nor the GLOBAL attributes, and **nothing at the start site says
+so**. What you see instead, all of it a long way downstream:
+
+| Symptom | Why |
+|---|---|
+| the worklist renders a column of BLANK rows | `process.table.pluin` columns at `scope: GLOBAL` read the root `attrs` |
+| a task form's GLOBAL controls come up empty | same slot |
+| **the task form fails to open — HTTP 500** | `onBeforeUserTaskStart` bind rule finds no `subjectId`, cannot resolve the record |
+| a serviceTask computes nulls | `context.<ctx>.<alias>.data` is the empty auto-created envelope |
+
+`validate` flags this offline (`_check_workflow_start_document_shape`) — it is not something to rediscover by
+opening a queue.
+
 **Fill them rather than delete them.** A form-started case gets its global attributes from the start form's
 `GLOBAL`-scope controls; a rule has no form, so unless the call publishes them the case arrives with nothing but
 CRUD rows — a worklist of blank columns and task forms of empty fields. Put the values that IDENTIFY the case

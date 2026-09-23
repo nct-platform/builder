@@ -1179,6 +1179,61 @@ export/import (`CmsProjectServiceImpl`):
    per param `bl.addParameter` → `bl.setReturnFields`; per dtoField `bl.addDtoField`; per
    filterField `bl.addFilterField`.
 
+## ⛔ A document number is the system's job — generate it, never make a user type one
+
+A register entity has a business key on its form — `orderNo`, `docNo`, `ncrNo`, `movementNo` — and
+the generator leaves it as an ordinary mandatory text field. Nothing fills it, so every user types
+one. That looks harmless in a walkthrough and is not:
+
+* two people create a document in the same minute and pick the same number — the second save fails,
+  or, with no unique index, succeeds and the register now has a duplicate key;
+* the format drifts the moment a second person types one (`PO-20260923-001`, `PO 20260923 1`, `po-1`);
+* any requirement of the form *"the system assigns the document a unique number"* is unmet while the
+  screens look finished.
+
+**The pattern.** One SQL method per entity that reads the current maximum for the period and returns
+the next value, plus three lines in the entity's `Persist Create` rule.
+
+```sql
+-- crud_<alias>_nextNo — the prefix and width follow the numbers already in the data,
+-- so a generated key sorts and reads exactly like a seeded one
+SELECT 'PO-' || to_char(now(), 'YYYYMMDD') || '-' ||
+       lpad((COALESCE(MAX((regexp_match(order_no, '-(\d+)$'))[1]::bigint), 0) + 1)::text, 3, '0')
+       AS next_no
+FROM production_order
+WHERE order_no LIKE 'PO-' || to_char(now(), 'YYYYMMDD') || '-%'
+```
+
+```groovy
+// <alias> Persist Create, before the write
+if (!((payload['orderNo'] ?: payload['order_no'] ?: '') as String).trim()) {
+    def res = service.crud.productionOrder.nextNo([:])
+    if (res instanceof List) { res = res.isEmpty() ? null : res[0] }
+    def next = (res instanceof Map) ? (res['nextNo'] ?: res['next_no']) : null
+    if (next == null) { throw new RuntimeException('<hy> / <ru> / <en>') }
+    payload['orderNo'] = (next as String); payload['order_no'] = (next as String)
+}
+```
+
+Then **take `alwaysMandatory` off the control** — the system fills it, so a blank field is correct,
+and leaving the flag on makes the form refuse a save the rule would have completed. Guard the update
+side too: a blank key on edit means *unchanged*, never *erase it*, so restore it from the row you
+read before the write.
+
+Three more things the pattern needs:
+
+* **Derived keys come after it.** A planned lot code built from the order number (`PO-20260912-014`
+  on `FG-PCH-230-01` → `260912-PCH-14`) must be generated in the same rule, *after* the number is
+  assigned — not from the form, which has neither.
+* **A code a human chooses stays typed.** `skuCode`, `recipeCode`, `routeCode`, `paramCode` carry
+  meaning the system cannot invent. Only *numbers* are generated.
+* **This is a read-then-write, not an atomic sequence.** Two simultaneous creates can still collide;
+  a unique index on the column turns that into a clean failure instead of a duplicate. Add one.
+
+`mrjun.py validate` reports a mandatory `*No` field whose Persist Create rule never assigns it.
+
+---
+
 ## Localization (`localizationField`)
 
 - `localizationField` = the **column name** (usually `"localized"`, jsonb) or `null` (localization off) —

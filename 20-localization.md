@@ -241,6 +241,100 @@ filter" / "Clear filter") is resolved through the **L1** key path (§iii), so it
 For a **single-language** project none of this matters: type the text in that language and move on — one more
 reason to settle `locales` in Phase 0 before any dashboard work starts.
 
+### ⛔ A GROOVY RULE has no locale — every sentence it shows carries all of them at once
+
+A rule cannot ask which language the caller is reading in. `service.global.locale.getKey()` answers
+only where a session context reached the rule (§vi); a persist hook, an action engine, a workflow
+complete-rule and a scheduler sweep have none. So every string a rule hands a user —
+
+* `throw new RuntimeException('…')` → the red toast,
+* `return [ok: true, message: '…']` → the green toast,
+* an audit `note: '…'` → the register,
+
+— must carry **every project language in the one string**, conventionally separated by ` / `:
+
+```groovy
+throw new RuntimeException('Այս կարգավիճակում փոփոխությունն արգելված է'
+    + ' / Изменение в этом статусе запрещено'
+    + ' / A record in this status cannot be edited')
+```
+
+When the sentence is built from values, repeat the value per language rather than appending it once:
+
+```groovy
+message: 'Ստեղծվեց ' + n + ' խմբաքանակ'
+       + ' / Создано партий: ' + n
+       + ' / Lots created: ' + n
+```
+
+**Why this is the most-missed layer.** Everything visible on a happy path is L2 content with a real
+per-locale map, so the screens look perfect in all three languages. Rule strings only appear when
+something is **refused** — a wrong status, a missing right, a blocked close — and a walkthrough that
+completes successfully never sees one. Measured on a delivered MES: **170 monolingual user-facing
+sentences** shipped behind screens that had been reviewed in all three languages.
+
+Two more places the same blindness hits:
+
+* **`hy / ru` but no `en`.** A partially translated string passes the eye of a reviewer who speaks
+  the first two. Count the segments, do not read them.
+* **Latin words inside the other languages.** `Պատվերը փակված է։ Պատրաստի lot՝ …` reads as unfinished
+  in Armenian; so does an Armenian sentence pasted into the Russian segment.
+
+`mrjun.py validate` reports a user-facing rule expression written in one script — it reads the whole
+`+`-chain, so a message assembled per language is correctly seen as multilingual.
+
+### ⛔ An enum column shows its raw CODE unless you point at the translated twin
+
+`WAITING_MATERIALS`, `CHOCO_DRIED_FRUIT`, `BOX` — the same text in every language. Enum localisation
+is **three** edits and the middle one is the one that gets skipped:
+
+1. join the vocabulary in the crud's SQL and select the code as `<field>_label`;
+2. publish the translation: `'<field>Label', COALESCE(rl.localize->'label', '{}'::jsonb)` inside the
+   row's `localize` object;
+3. **point the table column's `fieldExpression` at `<field>Label`** — the step that is forgotten,
+   because after (1) and (2) the data is right and the screen still is not.
+
+The same applies to a **joined** entity's name: the parent's `localize` needs the nested key
+(`'item', jsonb_build_object('name', COALESCE(j1.localize->'name', '{}'::jsonb))`) or the column over
+`item.name` prints whatever the base column holds.
+
+### ⛔ A REPORT does not inherit any of this
+
+A report crud is SQL over a join, so it has no `localize` column of its own and nothing localises it.
+It will happily select `s.name_hy` and print Armenian to an English reader. Build the map in the
+SELECT and declare it:
+
+```sql
+SELECT …,
+       jsonb_strip_nulls(jsonb_build_object(
+           'skuName', s.localize -> 'nameHy',
+           'status',  (SELECT rl.localize -> 'label' FROM ref_label rl
+                        WHERE rl.vocabulary = 'order_status' AND rl.code = po.status
+                          AND rl.deleted = false LIMIT 1)
+       )) AS localize
+FROM …
+```
+
+then set the crud's `localizationField` to `localize` and add `localize` to its `dtoFields`. The keys
+are the **DTO field names the report's columns use** — `skuName`, not `sku_name`.
+
+### ⛔ Four platform slots have no per-locale variant at all
+
+Beyond charts (above), these render one fixed string under every locale:
+
+| What | Where it comes from | Remedy |
+|---|---|---|
+| the breadcrumb's page name | the page's `name` field | derive it from the page's localized `<title>` / a generated alias→title map, in a global script |
+| a crud table's card title | the dynamic CRUD's `name` | it duplicates the breadcrumb or the tab label on a tabbed page — hide it |
+| the filter submit button | `settings.buttonName`, a plain STRING | swap the caption per `document.documentElement.lang` |
+| the row-actions column header | platform-rendered | same |
+| a process table's card title | the workflow's `name` | a name→caption table in the same script |
+
+All five are display-only text, so the honest fix is one small **global resource**
+([29-global-resources.md](29-global-resources.md)) that reads `document.documentElement.lang` and
+rewrites them. Keep it to captions the platform genuinely cannot localise — a global script that
+starts rewriting *data* is a maintenance trap.
+
 ---
 
 ## (v) L3 — entity DATA localization (per-locale row values)

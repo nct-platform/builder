@@ -333,6 +333,28 @@ def cmd_validate(args):
     _check_workflow_start_seeds_entity(p, r)
     # -- service.workflow.start("<identifier>") pointing at a workflow that is missing or not deployed --
     _check_rule_workflow_start_targets(p, r)
+    # -- a hand-built start document with the context/attrs at the ROOT -> dropped in silence, blank queues --
+    _check_workflow_start_document_shape(p, r)
+    # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
+    _check_rule_context_binding(p, r)
+    # -- a persist rule with no hasAnyRoleGroup -> anyone who reaches the form can write the entity --
+    _check_persist_rule_role_guard(p, r)
+    # -- a write action with no predicate -> the button shows for every role and fails only on Save --
+    _check_write_action_predicate(p, r)
+    # -- a grid column over a raw enum whose translated *Label twin already exists in localize --
+    _check_enum_column_shows_code(p, cruds, r)
+    # -- a rule showing the user a message in ONE language while the project is multilingual --
+    _check_rule_strings_multilingual(p, r)
+    # -- a choices rule mapping options by 'id' -> raw uuids in the picker --
+    _check_choices_display_is_identifying(p, r)
+    # -- a mandatory document number nobody generates -> typed by hand, duplicated, drifting --
+    _check_business_key_is_assigned(p, r)
+    # -- a crud method nothing calls -> a step that was written and never wired --
+    _check_crud_method_is_called(p, cruds, r)
+    # -- a Groovy name read above its own `def` -> "Context 'x' not found", the action never runs --
+    _check_groovy_var_used_before_def(p, r)
+    # -- a user-task action with no complete rule -> the task closes and the record is untouched --
+    _check_user_task_action_has_complete_rule(p, r)
     # -- a SCHEDULER's own rule forwarding the null `contextDataMap` binding -> an EMPTY process, silently --
     _check_scheduler_rule_context_data_map(p, r)
     # -- anything a PROCESS touches that still reaches its subject through the CRUD context -> blank / null --
@@ -490,6 +512,8 @@ def cmd_validate(args):
     _check_form_group_page_aliases(p, root, r)
     # -- a form page must carry the baked page Layout (else the form renders empty at runtime) --
     _check_form_page_layout(p, root, r)
+    # -- a form-group LANDING page that lost its landingplugin when cloned -> blank page, dead task actions --
+    _check_form_group_landing_plugin(p, root, r)
     # -- a CRUD-table action's rule reading its own form's fields from the attrs (always null there) --
     _check_crud_action_form_values(p, root, r)
     # -- an html.plugin draws a child ONLY if its own html names it (cloning + regenerated ids = blank pages) --
@@ -885,6 +909,159 @@ def _check_form_page_layout(p, root, r):
                   "nct.parsis.plugin 'parsis'->dynaform.form.plugin, exactly like `page add` output. "
                   "Clone a page WITH the Layout and inject the form plugin into its content parsis. "
                   "(06-form-groups-and-mapping.md - canonical recipe)" % (form.get("name"), node.get("alias")))
+
+
+_WF_START_CALL_RE = re.compile(r"service\.workflow\.start\s*\(\s*[^,]+,\s*([A-Za-z_]\w*)\s*[,)]")
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# `doc['key'] = ...` / `doc["key"] = ...` — a key assigned at the ROOT of the start document
+_DOC_ROOT_PUT_RE = r"""(?<![\w.]){var}\s*\[\s*['"]([^'"]+)['"]\s*\]\s*="""
+# the only keys the platform reads at the document root (16-groovy-service-api.md 2.12)
+_WF_DOC_ROOT_KEYS = {"contextDataMap", "attrs", "localeKey"}
+
+
+def _check_rule_context_binding(p, r):
+    """RUNTIME-THROW (ERROR). A rule whose script touches `context.data` or `context.<ctxAlias>` needs that
+    context listed in its own **`contextIdentifiers`**. With an EMPTY `contextIdentifiers` the executor
+    attaches no context, `context.data` is null, and the first `getAttr` / `setAttr` throws - which surfaces
+    far from the rule: a serviceTask aborts mid-process, an `onBeforeUserTaskStart` bind rule takes the task
+    form down with an HTTP 500, a PREDICATE on a gateway answers by exception and the token stops.
+
+    It is easy to produce: `rule add` defaults `contextIdentifiers` to empty, and a rule that only ever ran
+    through a form (where the document arrives with the request) looks fine until the same rule is wired to a
+    workflow element, which passes no document of its own.
+
+    Fix: `rule add --context <ctxIdentifier>` at authoring time, or set `contextIdentifiers` on the existing
+    rule. (08-groovy-rules-and-context.md, 16-groovy-service-api.md)"""
+    rep = p.rep
+    ctx_aliases = {c.get("alias") for c in (rep.get("contexts") or []) if c.get("alias")}
+    for rule in rep.get("rules", []) or []:
+        if rule.get("contextIdentifiers"):
+            continue
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src:
+            continue
+        used = []
+        if re.search(r"(?<![\w.])context\.data\b", src):
+            used.append("context.data")
+        for a in sorted(ctx_aliases):
+            if re.search(r"(?<![\w.])context\.%s\b" % re.escape(a), src):
+                used.append("context.%s" % a)
+        if not used:
+            continue
+        r.err("rule %r (%s) reads %s but its `contextIdentifiers` is EMPTY - no context is attached at "
+              "runtime, so `context.data` is null and the first getAttr/setAttr THROWS. That surfaces far "
+              "from here: a serviceTask aborts mid-process, an onBeforeUserTaskStart bind rule takes the "
+              "task form down with a 500, a gateway PREDICATE answers by exception and the token stops. "
+              "Attach the context: `rule add --context <ctxIdentifier>` (or set contextIdentifiers on the "
+              "existing rule). (08-groovy-rules-and-context.md)"
+              % (rule.get("name"), rule.get("ruleType"), ", ".join(used[:3])))
+
+
+def _check_workflow_start_document_shape(p, r):
+    """SILENT-DATA-LOSS (ERROR). The document handed to `service.workflow.start(wfId, doc[, opts])` has
+    EXACTLY three root keys: **`contextDataMap`** (keyed by context IDENTIFIER -> `crudDataMap` / `attrs`),
+    **`attrs`** (the process's GLOBAL attributes) and the optional **`localeKey`**. Unknown root keys are
+    **DROPPED, not rejected** - the start succeeds and returns a process identifier either way.
+
+    So a hand-built document of the shape
+
+        def doc = [:]
+        doc['<contextIdentifier>'] = ['crudDataMap': [alias: ['value': row]]]   // WRONG: context at the root
+        doc['subjectId'] = id                                                   // WRONG: attr at the root
+        doc['orderNo']   = row.orderNo
+
+    starts a process that carries **neither the CRUD rows nor the GLOBAL attributes**. The damage is entirely
+    downstream and never points back here:
+
+      * the worklist (`process.table.pluin`) renders its `scope: GLOBAL` columns EMPTY - a queue of blank rows;
+      * a task form's `GLOBAL`-scope controls come up empty;
+      * an `onBeforeUserTaskStart` bind rule finds no `subjectId`, cannot resolve the record, and the task
+        form fails to open (HTTP 500) - so the user task is UNCOMPLETABLE;
+      * a serviceTask reading `context.<ctx>.<alias>.data` gets an empty envelope and computes nulls.
+
+    The correct shape nests both levels:
+
+        def doc = [
+            'contextDataMap': [ (ctxId): ['crudDataMap': [alias: ['value': row]], 'attrs': [:]] ],
+            'attrs': [ subjectId: id, orderNo: (row.orderNo ?: '') as String ]
+        ]
+
+    This flags a root assignment whose key is a context identifier (a UUID, or one that matches a context in
+    the export) or any key outside the three the platform reads.
+    (16-groovy-service-api.md 2.12, 27-event-driven-process-start.md)"""
+    rep = p.rep
+    ctx_ids = {c.get("identifier") for c in (rep.get("contexts") or []) if c.get("identifier")}
+    for rule in rep.get("rules", []) or []:
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if "service.workflow.start" not in src:
+            continue
+        for m in _WF_START_CALL_RE.finditer(src):
+            var = m.group(1)
+            put_re = re.compile(_DOC_ROOT_PUT_RE.format(var=re.escape(var)))
+            bad_ctx, bad_attr = [], []
+            for km in put_re.finditer(src):
+                key = km.group(1)
+                if key in _WF_DOC_ROOT_KEYS:
+                    continue
+                if key in ctx_ids or _UUID_RE.match(key):
+                    bad_ctx.append(key)
+                else:
+                    bad_attr.append(key)
+            if not bad_ctx and not bad_attr:
+                continue
+            bits = []
+            if bad_ctx:
+                bits.append("the CONTEXT entry %s is assigned at the document ROOT instead of under "
+                            "`contextDataMap`" % ", ".join(repr(k) for k in sorted(set(bad_ctx))))
+            if bad_attr:
+                shown = sorted(set(bad_attr))
+                bits.append("the GLOBAL attribute(s) %s%s sit at the document ROOT instead of under `attrs`"
+                            % (", ".join(repr(k) for k in shown[:6]),
+                               " (+%d more)" % (len(shown) - 6) if len(shown) > 6 else ""))
+            r.err("rule %r builds the `service.workflow.start` document %r with the WRONG SHAPE - %s. Unknown "
+                  "root keys are DROPPED IN SILENCE: the start still returns a process id, but the case "
+                  "carries no CRUD rows and no GLOBAL attrs, so the worklist columns render EMPTY, a task "
+                  "form's GLOBAL controls come up blank, and an onBeforeUserTaskStart bind rule cannot "
+                  "resolve the subject - the user task then fails to open (500) and is UNCOMPLETABLE. "
+                  "Nest it: doc = ['contextDataMap': [ (ctxId): ['crudDataMap': [<alias>: ['value': row]], "
+                  "'attrs': [:]] ], 'attrs': [<the worklist's GLOBAL columns>]]. "
+                  "(16-groovy-service-api.md 2.12, 27-event-driven-process-start.md)"
+                  % (rule.get("name"), var, "; ".join(bits)))
+
+
+def _check_form_group_landing_plugin(p, root, r):
+    """RENDERS-EMPTY (ERROR). A form group's LANDING page (`contentPageIdentifier`) must carry the
+    **`dynaform.form.groups.landingplugin`** inside its content parsis. That plugin IS the landing: it resolves
+    `?group=` and, when opened with navigation params (`settingsName`+`actionId`, `crudId`/`processIdentifier`),
+    evaluates `predicateFormMapping` and FORWARDS to the matching form page. Without it the URL resolves, the
+    page returns 200, the chrome (header / breadcrumb / left-nav / footer) draws — and the content area is
+    BLANK, so every crud-table Edit action and every **workflow user task** that routes through this landing
+    is a dead end.
+
+    This is the clone trap: the plugin sits in the shared system `Landing` page's parsis and is resolved BY
+    NAME, so a per-entity landing built by cloning that page keeps the Layout and loses the slot child. Every
+    offline gate stays green (the page exists, has a Layout, has a unique alias, has a parsis) and only opening
+    the page — or pressing a workflow task action — reveals it.
+
+    Fix: `node add --parent <landing page's content parsis> --plugin dynaform.form.groups.landingplugin`.
+    The plugin needs no properties; it reads everything from the query string.
+    (06-form-groups-and-mapping.md, 14a-plugin-config-reference.md)"""
+    pages = {}
+    for node, _pp, _pt in core.iter_nodes(root):
+        if node.get("pluginName") == "siteMapPage":
+            pages[node.get("identifier")] = node
+    for fg in p.rep.get("formGroups", []) or []:
+        node = pages.get(fg.get("contentPageIdentifier"))
+        if node is None:
+            continue  # missing page flagged elsewhere
+        if _find_desc(node, "dynaform.form.groups.landingplugin") is None:
+            r.err("form-group %r landing page %r carries NO `dynaform.form.groups.landingplugin` — the page "
+                  "returns 200 and draws its chrome, but the content area is BLANK and every Edit action / "
+                  "workflow user task routed through it is a DEAD END. The plugin is resolved by name inside "
+                  "the shared 'Landing' page's parsis, so a cloned landing silently loses it while every "
+                  "offline gate stays green. Add it to the page's content parsis: `node add --parent "
+                  "<parsis> --plugin dynaform.form.groups.landingplugin` (it needs no properties). "
+                  "(06-form-groups-and-mapping.md)" % (fg.get("name"), node.get("alias")))
 
 
 def _check_page_top_parsis(p, root, r):
@@ -4076,8 +4253,13 @@ def _check_event_mappings(p, r):
                        % (st.get("fieldExpression") or st.get("name") or n.get("name"), ci))
 
 
+# The renderer's plugin map (nct-pdf/.../index.mjs), per 15-pdf-and-mail.md §"authoritative
+# field-type set": the drawing/text/choice types AND the twelve barcode types. The barcodes
+# were missing here, so every qrcode/code128/ean13 field was reported as rendering blank.
 _PDFME_FIELD_TYPES = {"text", "multiVariableText", "image", "svg", "line", "rectangle", "ellipse", "table",
-                      "date", "time", "dateTime", "checkbox", "radioGroup", "select"}
+                      "date", "time", "dateTime", "checkbox", "radioGroup", "select",
+                      "qrcode", "japanpost", "ean13", "ean8", "code39", "code128",
+                      "nw7", "itf14", "upca", "upce", "gs1datamatrix", "pdf417"}
 _AUTO_MAIL_ALIASES = {"userRegistration", "passwordRecover", "companyInvitation", "eventReminder"}
 _PDF_GET_RE = re.compile(r"service\.report\.pdf\.get\.(\w+)")
 _MAIL_ALIAS_RE = re.compile(r"service\.(?:report\.pdf\.email|notification\.mail)\.(\w+)")
@@ -7778,3 +7960,511 @@ def _globalresource_kind_of(name):
     if leaf.endswith(".html") or leaf.endswith(".htm"):
         return "HTML"
     return "OTHER"
+
+
+# ---------------------------------------------------------------------------
+# Authorisation, localisation and picker checks.
+#
+# Added after a delivered multilingual MES passed every gate above while
+# shipping: 87 write buttons with no role predicate, 45 persist rules with no
+# role guard, 13 grids printing raw enum codes in all three languages, 200+
+# monolingual user-facing strings, and pickers listing raw uuids. None of them
+# is visible on a happy-path walkthrough, which is exactly why they survive.
+# ---------------------------------------------------------------------------
+
+_PERSIST_RE = re.compile(r"^(\w+) Persist (Create|Update|Delete)$")
+_ROLE_GUARD_RE = re.compile(r"hasAnyRoleGroup\s*\(([^)]*)\)")
+# an action that only shows a record is not a write and needs no role predicate
+_READ_ONLY_ACTION_NAMES = {
+    "view", "show", "open", "trace", "print", "export", "download", "preview",
+    "\u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440", "\u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c", "\u043f\u0435\u0447\u0430\u0442\u044c", "\u044d\u043a\u0441\u043f\u043e\u0440\u0442",
+}
+
+
+def _table_model(node):
+    raw = ((node.get("properties") or {}).get("model") or {}).get("stringValue")
+    if not raw:
+        return None
+    try:
+        m = json.loads(raw)
+    except ValueError:
+        return None
+    return m if isinstance(m, dict) else None
+
+
+def _persist_role_guards(rep):
+    """alias -> the role groups its persist rules demand (absent when never guarded)."""
+    out = {}
+    for rule in rep.get("rules", []) or []:
+        m = _PERSIST_RE.match(rule.get("name") or "")
+        if not m:
+            continue
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        roles = set()
+        for g in _ROLE_GUARD_RE.finditer(src):
+            roles.update(re.findall(r'"(\w+)"', g.group(1)))
+        if roles:
+            out.setdefault(m.group(1), set()).update(roles)
+    return out
+
+
+def _check_persist_rule_role_guard(p, r):
+    """SECURITY (ERROR). A `<alias> Persist Create|Update|Delete` rule is the last thing between a
+    form and the table. Without a `service.security.hasAnyRoleGroup(...)` check, ANY user who can
+    reach the page can write the entity - a read-only role included, and a user who reached the form
+    by URL rather than through a button you hid.
+
+    Hiding the button is a courtesy, not an authorisation control. The guard belongs in the rule,
+    where no client can skip it. (12-queries-sources-schedulers-and-rest.md)"""
+    for rule in (p.rep.get("rules") or []):
+        m = _PERSIST_RE.match(rule.get("name") or "")
+        if not m:
+            continue
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src or "hasAnyRoleGroup" in src:
+            continue
+        if not re.search(r"service\.crud\.\w+\.(create|update|delete)\s*\(", src):
+            continue
+        r.err("rule %r writes %r but checks NO role group - everyone who can open the form can "
+              "create/update/delete this entity, and a read-only role that reaches the form by URL "
+              "is not stopped either. Guard the write: `if (!service.security.hasAnyRoleGroup("
+              "\"<Role>\", \"Administrator\")) { throw new RuntimeException(<trilingual message>) }`. "
+              "(12-queries-sources-schedulers-and-rest.md)" % (rule.get("name"), m.group(1)))
+
+
+def _check_write_action_predicate(p, r):
+    """SECURITY + UX (ERROR). A `crud.table.plugin` create/edit action with no `predicateIdentifier`
+    is rendered for EVERY user who can see the page. When the entity's persist rule does carry a role
+    guard, that is the worst of both worlds: a read-only user sees Create and Edit, fills the form,
+    presses Save and is told they are not authorised.
+
+    A role matrix is normally written as "the button must be ABSENT, not present and inert", so give
+    every write action a predicate over the SAME role set the persist rule demands. Read-only actions
+    (View / Trace / Print) are exempt. (04-crud-table-plugin.md)"""
+    guards = _persist_role_guards(p.rep)
+    if not guards:
+        return
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "crud.table.plugin":
+            continue
+        model = _table_model(node)
+        if not model:
+            continue
+        alias = model.get("crudAlias")
+        roles = guards.get(alias)
+        if not roles:
+            continue
+        for kind in ("createActions", "editActions"):
+            for act in ((model.get(kind) or {}).get("actions") or []):
+                if act.get("predicateIdentifier"):
+                    continue
+                names = act.get("localizedNames") or {}
+                label = str(names.get("en_US") or names.get("ru_RU") or act.get("id") or "?")
+                if label.strip().lower() in _READ_ONLY_ACTION_NAMES:
+                    continue
+                r.err("crud table %r action %r has NO predicateIdentifier, while %r persist rules "
+                      "demand %s - the button is shown to every role and only fails on Save. Point "
+                      "the action at a PREDICATE rule returning `service.security.hasAnyRoleGroup(%s)`. "
+                      "(04-crud-table-plugin.md)"
+                      % (alias, label, alias, "+".join(sorted(roles)),
+                         ", ".join('"%s"' % x for x in sorted(roles))))
+
+
+def _check_enum_column_shows_code(p, cruds, r):
+    """LOCALISATION (WARN). The crud's SQL already joins `ref_label` for a field and publishes the
+    translation under `localize['<field>Label']`, but the table column still points at the RAW field -
+    so the grid prints WAITING_MATERIALS / CHOCO_DRIED_FRUIT in every language while the translated
+    twin sits unused one key away. Point the column at `<field>Label`. (20-localization.md)"""
+    labelled = {}
+    for crud in (cruds or []):
+        fields = set()
+        for m in (crud.get("methods") or []):
+            src = m.get("script") or ""
+            if "localize" not in src:
+                continue
+            fields.update(re.findall(r"'(\w+)Label'\s*,\s*COALESCE\(\s*\w+\.localize", src))
+        if fields:
+            labelled[crud.get("alias")] = fields
+    if not labelled:
+        return
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "crud.table.plugin":
+            continue
+        model = _table_model(node)
+        if not model:
+            continue
+        have = labelled.get(model.get("crudAlias"))
+        if not have:
+            continue
+        for col in (model.get("columnSettings") or []):
+            fe = col.get("fieldExpression")
+            if fe in have:
+                r.warn("crud table %r column %r shows the RAW enum code, but the crud already "
+                       "publishes a translated %r under localize - the grid reads the same in every "
+                       "locale. Point the column at %r. (20-localization.md)"
+                       % (model.get("crudAlias"), fe, fe + "Label", fe + "Label"))
+
+
+_ARMENIAN_RE = re.compile(r"[\u0530-\u058F]")
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]{3,}")
+# where a rule hands the user a sentence: a thrown message, a returned `message:`, an audit `note:`
+_USER_STRING_HEADS = (
+    re.compile(r"RuntimeException\(\s*"),
+    re.compile(r"(?<![\w.])message\s*:\s*"),
+    re.compile(r"(?<![\w.])note\s*:\s*"),
+)
+_GROOVY_STR_RE = re.compile(r"'((?:[^'\\\n]|\\.)*)'")
+
+
+def _expression_after(src, start):
+    """The whole expression that begins at `start` — a message is usually BUILT, not written:
+
+        'Խմբաքանակ ' + lot.lotCode + ' / Партия ' + lot.lotCode + ' / Lot ' + lot.lotCode
+
+    Looking at one literal of that would call a perfectly trilingual message monolingual, so the
+    scan has to end where the expression does: a `,` or a closing bracket at depth 0."""
+    depth = 0
+    i = start
+    n = len(src)
+    while i < n:
+        ch = src[i]
+        if ch == "'":
+            i += 1
+            while i < n and src[i] != "'":
+                i += 2 if src[i] == "\\" else 1
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif ch == "," and depth == 0:
+            break
+        elif ch == "\n" and depth == 0:
+            # A message is often laid out one language per line. The expression continues when the
+            # line ENDS with an operator *or* when the next non-blank line STARTS with one:
+            #     'hy text'
+            #           + ' / ru text'
+            #           + ' / en text'
+            tail = src[:i].rstrip()
+            nxt = src[i + 1:]
+            nxt = nxt[:200].lstrip()
+            if not (tail.endswith(("+", "?", ":", "(", "&&", "||"))
+                    or nxt.startswith(("+", "?", ":", "&&", "||"))):
+                break
+        i += 1
+    return src[start:i]
+
+
+def _check_rule_strings_multilingual(p, r):
+    """LOCALISATION (WARN). A Groovy rule cannot ask which locale the caller is in, so every sentence
+    a rule hands a user has to carry ALL the project's languages at once — conventionally
+    `hy / ru / en`.
+
+    This flags a user-facing expression whose text is written in only ONE script. It is the most
+    common localisation hole in a multilingual project precisely because the screens look perfect:
+    the monolingual text only appears when something is REFUSED, which no happy-path walkthrough
+    reaches. The whole expression is read, not one literal, so a message assembled by `+` from
+    per-language fragments is correctly seen as multilingual. (20-localization.md)"""
+    locales = set(p.locales() or [])
+    if len(locales) < 2:
+        return
+    seen = set()
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src:
+            continue
+        for head in _USER_STRING_HEADS:
+            for m in head.finditer(src):
+                expr = _expression_after(src, m.end())
+                lits = [g for g in _GROOVY_STR_RE.findall(expr)]
+                text = " ".join(lits).strip()
+                if len(text) < 8:
+                    continue
+                if " / " in text:
+                    continue
+                scripts = (bool(_ARMENIAN_RE.search(text)) + bool(_CYRILLIC_RE.search(text))
+                           + bool(_LATIN_WORD_RE.search(text)))
+                if scripts != 1:
+                    continue
+                if not (_ARMENIAN_RE.search(text) or _CYRILLIC_RE.search(text)):
+                    continue      # a bare Latin token is usually a code, not prose
+                key = (rule.get("name"), text[:60])
+                if key in seen:
+                    continue
+                seen.add(key)
+                r.warn("rule %r hands the user a sentence written in ONE language only: %r. A rule "
+                       "has no locale, so the text must carry every project language at once "
+                       "('hy / ru / en'). (20-localization.md)" % (rule.get("name"), text[:70]))
+
+
+def _check_choices_display_is_identifying(p, r):
+    """UX (WARN). A choices rule that maps its options by `id` puts raw uuids in the picker. Build a
+    readable label in the rule and point the control's `displayName` at that field instead.
+    (02-form-controls-reference.md 4a)"""
+    for rule in (p.rep.get("rules") or []):
+        if not (rule.get("name") or "").startswith("Choices "):
+            continue
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        m = re.search(r'toSelectOptions\w*\(\s*\w+\s*,\s*"(\w+)"\s*,\s*"([\w.]+)"\s*\)', src)
+        if not m or m.group(2) != "id":
+            continue
+        r.warn("choices rule %r maps its options by 'id' - the picker shows raw uuids. Build a "
+               "readable label in the rule and pass that field (and set the control's displayName to "
+               "match). (02-form-controls-reference.md 4a)" % rule.get("name"))
+
+
+# Only a NUMBER is flagged. `skuCode`, `recipeCode`, `routeCode`, `paramCode` are codes a human
+# chooses and should stay typed; `orderNo` / `docNo` / `ncrNo` / `movementNo` are sequential and
+# must not be. A lot code is usually generated too, but its shape varies too much to assume.
+_BUSINESS_KEY_RE = re.compile(r"^(?:[a-z][A-Za-z]*)?(?:No|Number)$")
+
+
+def _check_business_key_is_assigned(p, r):
+    """FUNCTIONAL (WARN). A document's business key — `orderNo`, `docNo`, `lotCode`, `ncrNo` — is
+    mandatory on the form and nothing generates it, so every user types it by hand. That is not a
+    cosmetic gap:
+
+      * two people create the same number and the second save fails (or, with no unique index,
+        succeeds and the register now has a duplicate key);
+      * the format drifts the moment a second person types one;
+      * every requirement of the form "the system assigns a unique number" is unmet while the screens
+        look complete.
+
+    Assign it where it cannot be skipped: a `nextNo`-style SQL method that reads the current maximum
+    for the period, called from the entity's `Persist Create` rule when the field arrives blank — and
+    then take `alwaysMandatory` off the control, since the system, not the user, fills it.
+    (11-business-logic-dynamic-crud.md)"""
+    rep = p.rep
+    # which field each form control binds, per crud alias
+    mandatory = {}
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName") or ""
+        if not pn.startswith("dynaform.form."):
+            continue
+        raw = ((node.get("properties") or {}).get("settings") or {}).get("stringValue")
+        if not raw or not raw.lstrip().startswith("{"):
+            continue
+        try:
+            m = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(m, dict) or not m.get("alwaysMandatory"):
+            continue
+        alias, fe = m.get("crudAlias"), m.get("fieldExpression")
+        if not alias or not fe or "." in fe:
+            continue
+        if not _BUSINESS_KEY_RE.match(fe):
+            continue
+        mandatory.setdefault(alias, set()).add(fe)
+    if not mandatory:
+        return
+    creates = {}
+    for rule in (rep.get("rules") or []):
+        m = _PERSIST_RE.match(rule.get("name") or "")
+        if m and m.group(2) == "Create":
+            creates[m.group(1)] = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+    for alias, fields in sorted(mandatory.items()):
+        src = creates.get(alias)
+        if src is None:
+            continue
+        for fe in sorted(fields):
+            snake = re.sub(r"([A-Z])", lambda mm: "_" + mm.group(1).lower(), fe)
+            if re.search(r"\b(?:payload|row|doc|hdr)\s*\[\s*'(?:%s|%s)'\s*\]\s*=" % (re.escape(fe), re.escape(snake)), src):
+                continue
+            if "nextNo" in src or "nextval" in src or "lpad(" in src.lower():
+                continue
+            r.warn("crud %r: %r is MANDATORY on the form and its Persist Create rule never assigns "
+                   "it — every document number is typed by hand, so two users can produce the same "
+                   "one and the format drifts. Generate it (a `nextNo` SQL method called from the "
+                   "persist rule when the field is blank) and drop alwaysMandatory from the control. "
+                   "Check the entity's LOT/BATCH code the same way — it is generated too, but its "
+                   "shape varies too much for this check to assume. (11-business-logic-dynamic-crud.md)"
+                   % (alias, fe))
+
+
+# the generator scaffolds these; nothing has to call them by name
+_SCAFFOLD_METHODS = {
+    "find", "findAll", "count", "get", "create", "update", "delete",
+    "createHeader", "updateHeader", "insertLine", "deleteLines", "findLines", "_deleteHeader",
+}
+
+
+def _check_crud_method_is_called(p, cruds, r):
+    """WIRING (WARN). A hand-written crud method that no rule, form or table references is not
+    "spare capacity" — nine times out of ten it is a step somebody meant to wire and did not, and the
+    feature it belongs to is quietly absent while every screen looks complete.
+
+    The one that cost a delivered MES: `qcInspection.buildLinesFromTemplate` existed, was correct,
+    and was called by nothing — so every inspection saved with an EMPTY checklist, the certificate
+    PDF had no indicators, and the "any failed checkpoint?" branch downstream always answered no.
+
+    Either call it or delete it. (11-business-logic-dynamic-crud.md)"""
+    if not cruds:
+        return
+    haystack = json.dumps(p.rep, ensure_ascii=False)
+    try:
+        haystack += json.dumps(p.branches_file.data, ensure_ascii=False)
+    except Exception:
+        pass
+    for crud in cruds:
+        alias = crud.get("alias")
+        for m in (crud.get("methods") or []):
+            name = m.get("methodName")
+            if not name or name in _SCAFFOLD_METHODS:
+                continue
+            if ("service.crud.%s.%s" % (alias, name)) in haystack:
+                continue
+            if re.search(r'"%s"' % re.escape(name), haystack):
+                continue            # referenced by name from a model/settings blob
+            r.warn("crud %r method %r is called by NOTHING — no rule, no form, no table. A method "
+                   "nobody invokes is usually a step that was written and never wired, and the "
+                   "feature it belongs to is missing while the screens look complete. Call it or "
+                   "delete it. (11-business-logic-dynamic-crud.md)" % (alias, name))
+
+
+_GROOVY_NAME_RE = re.compile(r"[A-Za-z_]\w*")
+_GROOVY_DEF_AT_RE = re.compile(r"\bdef\s+([A-Za-z_]\w*)")
+_GROOVY_KEYWORDS = {
+    "def", "if", "else", "for", "while", "return", "new", "try", "catch", "finally", "throw",
+    "instanceof", "as", "in", "null", "true", "false", "this", "it", "switch", "case", "break",
+    "continue", "class", "import", "assert", "each", "String", "Map", "List", "Integer", "Long",
+    "BigDecimal", "Object", "Boolean", "Throwable", "RuntimeException", "LinkedHashMap",
+}
+
+
+def _groovy_top_level_scan(src):
+    """(top-level `def` positions, top-level bare-name uses) with comments, strings and everything
+    inside braces removed. Only depth-0 matters: a name used inside a closure body is evaluated when
+    the closure RUNS, so it may legally sit above the `def`."""
+    defs, uses = {}, []
+    i, n, depth = 0, len(src), 0
+    while i < n:
+        ch = src[i]
+        if ch == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if ch == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i)
+            i = n if j < 0 else j + 2
+            continue
+        if ch in "'\"":
+            q = ch
+            triple = src[i:i + 3] == q * 3
+            i += 3 if triple else 1
+            while i < n:
+                if src[i] == "\\":
+                    i += 2
+                    continue
+                if triple and src[i:i + 3] == q * 3:
+                    i += 3
+                    break
+                if not triple and src[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch in "{(":
+            depth += 1
+            i += 1
+            continue
+        if ch in "})":
+            depth -= 1
+            i += 1
+            continue
+        if ch.isalpha() or ch == "_":
+            m = _GROOVY_NAME_RE.match(src, i)
+            word = m.group(0)
+            if depth == 0:
+                if word == "def":
+                    d = _GROOVY_DEF_AT_RE.match(src, i)
+                    if d:
+                        defs.setdefault(d.group(1), d.start(1))
+                        i = d.end(1)
+                        continue
+                elif word not in _GROOVY_KEYWORDS:
+                    before = src[i - 1] if i else " "
+                    after = src[m.end():m.end() + 1]
+                    if before != "." and after not in (".", ":"):
+                        uses.append((word, i))
+            i = m.end()
+            continue
+        i += 1
+    return defs, uses
+
+
+def _check_groovy_var_used_before_def(p, r):
+    """RUNTIME-THROW (ERROR). Groovy resolves a bare identifier that has no `def` *yet* against the
+    rule's CONTEXT, not against a local - so reading a variable above the line that declares it does
+    not give null, it throws:
+
+        Failed to execute rule '<name>': Context 'before' not found. Available contexts must be
+        attached to the rule via contextIdentifiers.
+
+    which reads like a context-wiring problem and is not one. The action simply never runs.
+
+    It is produced by an ordinary edit - inserting a status guard above the line that computes the
+    status - and it is invisible to every offline gate. Measured on a delivered MES: **68 action
+    rules**, i.e. every state transition in the project, dead from the first day; the screens looked
+    finished because the buttons were there and the confirm dialog appeared.
+
+    Fix: move the `def` above its first use. (08-groovy-rules-and-context.md)"""
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src or "def " not in src:
+            continue
+        try:
+            defs, uses = _groovy_top_level_scan(src)
+        except Exception:
+            continue
+        for word, pos in uses:
+            at = defs.get(word)
+            if at is None or at <= pos:
+                continue
+            r.err("rule %r reads %r at line %d but declares it with `def` at line %d. Groovy looks a "
+                  "not-yet-declared name up in the rule's CONTEXT, so this throws \"Context '%s' not "
+                  "found\" and the whole action never runs - an error that points at context wiring "
+                  "and has nothing to do with it. Move the `def` above its first use. "
+                  "(08-groovy-rules-and-context.md)"
+                  % (rule.get("name"), word, src[:pos].count("\n") + 1,
+                     src[:at].count("\n") + 1, word))
+            break
+
+
+def _check_user_task_action_has_complete_rule(p, r):
+    """SILENT-NO-OP (ERROR). A user-task action with no `onBeforeUserTaskCompleteRuleIdentifier`
+    completes the BPMN task and does **nothing else**. The token moves, the row leaves the worklist,
+    the user sees no error — and the record the case is about is untouched: not approved, not closed,
+    not rejected.
+
+    That is the most expensive shape of bug in a workflow project, because the happy path *looks*
+    like it worked. Measured on a delivered MES: **9 of 17 task actions**, which made four whole
+    flows decorative — a recipe could be submitted for approval and never approved.
+
+    Every action that decides something needs a rule that writes that decision.
+    (07-workflows-and-tasks.md)"""
+    for w in (p.rep.get("workflows") or []):
+        for e in (w.get("elements") or []):
+            st = e.get("settings") or {}
+            if st.get("type") != "bpmn:UserTask":
+                continue
+            props = {x.get("name"): x.get("value") for x in (st.get("properties") or [])}
+            raw = props.get("userActions")
+            if not raw:
+                continue
+            try:
+                actions = (json.loads(raw) or {}).get("actions") or []
+            except ValueError:
+                continue
+            for a in actions:
+                if a.get("onBeforeUserTaskCompleteRuleIdentifier"):
+                    continue
+                names = a.get("localizedNames") or {}
+                label = names.get("en_US") or names.get("ru_RU") or a.get("id") or "?"
+                r.err("workflow %r task %r action %r has NO onBeforeUserTaskCompleteRule — pressing "
+                      "it completes the task and changes NOTHING about the record: no approval, no "
+                      "status, no audit. The case leaves the worklist and the happy path looks "
+                      "finished. Wire the rule that writes the decision. (07-workflows-and-tasks.md)"
+                      % ((w.get("name") or "?"), props.get("name") or props.get("id"), label))

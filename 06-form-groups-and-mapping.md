@@ -331,6 +331,31 @@ and `validators` on the handful of forms that actually need them. Populated shap
 
 ### Landing node in the content tree (branches.json)
 
+⛔ **The clone trap — a landing that lost its plugin renders BLANK.** Because the plugin carries no settings,
+it is easy to treat the landing page as "just the Layout" and build a per-entity landing by CLONING the shared
+`Landing` page. The clone keeps the chrome (header / breadcrumb / left-nav / footer) and the content
+`nct.parsis.plugin` — and **drops the `dynaform.form.groups.landingplugin` that lived inside that parsis**,
+because nothing references it by id: the page resolves it by position, exactly like the `siteMapPageParsis`
+anchor.
+
+Every offline gate stays green afterwards — the page exists, has a unique top-level alias, has a Layout, has a
+parsis — and the failure only shows at runtime:
+
+* the URL returns **200** and the chrome draws, with an **empty content area**;
+* every crud-table **Edit** action that routes through the landing is a dead end;
+* every **workflow user task** whose `userActions[].formGroupIdentifier` points at this group cannot be
+  opened, so the process is UNCOMPLETABLE even though it started correctly.
+
+Fix — the plugin needs no properties, it reads `?group=` from the URL:
+
+```
+mrjun.py node add --project <dir> --parent <landing page's content parsis> \
+                  --plugin dynaform.form.groups.landingplugin
+```
+
+`validate` flags it offline (`_check_form_group_landing_plugin`), per form group.
+
+
 The landing plugin **stores no group settings** — all configuration is in `formGroups[]`. The
 `dynaform.form.groups.landingplugin` node has only generic CMS slots (`className`/`styleName`/`tagProperties`,
 all empty — there is no `formGroupIdentifier` property), and the binding to the group goes **via
