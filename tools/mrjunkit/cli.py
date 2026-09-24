@@ -214,6 +214,13 @@ def build_parser():
     sp.add_argument("--by", help="who to record as the author")
     sp.set_defaults(func=globalresource_cmds.cmd_globalresource_add)
 
+    sp = wa.add_parser("refresh", help="re-hash a registered file after editing its bytes in place")
+    _add_project(sp)
+    sp.add_argument("file", nargs="?", default="*",
+                    help="file name or path in the tree; omit for every registered file")
+    sp.add_argument("--branch", help="only this branch (default: every branch)")
+    sp.set_defaults(func=globalresource_cmds.cmd_globalresource_refresh)
+
     sp = wa.add_parser("mkdir", help="create an empty folder in the tree")
     _add_project(sp)
     sp.add_argument("path", help="folder path, e.g. 'vendor/charts'")

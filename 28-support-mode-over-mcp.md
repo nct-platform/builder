@@ -665,9 +665,11 @@ deleted and rebuilt from the archive, and every UI-side change since the export 
 
 Before doing it: take a snapshot first if the platform offers one; confirm the target project's type is the one
 the archive expects (a mismatched type does not fail — it replaces every page and branch while importing none
-of the rules and queries those pages reference); state the three business-logic choices explicitly rather than
-accepting a default; and after it finishes, read the per-object report and then check the things §6 says the
-report cannot see.
+of the rules and queries those pages reference); **set the dialog's switches explicitly rather than accepting
+their defaults** — the four of them, their labels and what each one costs are in
+[00](00-export-format-and-import.md) §The four switches, and the one that decides whether a SCHEMA change
+arrives at all defaults to OFF; and after it finishes, read the per-object report, deploy every workflow again
+(they all come back undeployed), and then check the things §6 says the report cannot see.
 
 ---
 
@@ -729,6 +731,56 @@ Propose it, say what it will do, and wait for a yes:
 > *"I can test this live: I'll drive the running project in a browser, work through the scenarios, and fix
 > what I find over MCP. It will create test records — and test roles if the scenarios need them — in the
 > real project. Want me to?"*
+
+### 8.0 ⛔ The order of the first three questions — ask, then connect, then restart
+
+Everything below costs the user something: real records in a running tenant, a token pasted, a session
+restarted. So the session does not begin by wiring anything. It begins by asking, and it asks in this
+order, one step at a time — never all three at once, and never the second before the first is answered.
+
+**1. Does the user want a live test at all?** One question, with the cost in it:
+
+> *"Before I change anything else — do you want me to test this live? I would drive the running project
+> in a browser, work through the scenarios end to end, and fix what I find. It creates real records in
+> the real tenant (documents, and test roles if the scenarios need them). Yes or no — if no, I stay
+> offline and you get the findings from the export alone."*
+
+A **no** is a complete answer. Offline work still has `validate`, `crud verify --db` and `coverage`, and
+the hand-over then says plainly which claims were never opened in a browser. Do not re-ask later in the
+session, and do not smuggle the test in as "just checking one page".
+
+**2. Only after a yes — ask for the credentials.** Ask for exactly what §2.2 needs and nothing more:
+
+> *"Then I need the MCP block for this tenant: Settings → Developer → MCP tokens → copy the block.
+> Paste it here and I'll wire it into this folder's own config."*
+
+Then wire it yourself — the user pastes, you configure:
+
+```
+<the pasted block> | python3 ./builder/tools/mrjun.py handoff mcp --project ./work
+python3 ./builder/tools/mrjun.py handoff browser --project ./work      # the browser driver
+```
+
+⛔ **The token belongs in the CLIENT's per-folder config, never in a file you commit.** `handoff mcp`
+writes `./.mcp.json`, which is git-ignored for exactly this reason — check that it is, and if the project
+keeps its config elsewhere (`claude mcp add --scope local`), use that instead. A token pasted into a note,
+a case file, a commit message or a reply is a leak, and it is a leak even in a private repo. If the user
+pastes a token into the chat, use it, wire it, and do not repeat it back.
+
+**3. Then tell the user to restart — and say why.** MCP servers connect at session start, so the session
+that writes the config can never use it. The sentence has to be unambiguous, because an unrestarted
+session looks exactly like a broken token:
+
+> *"Configured. Now quit Claude (Ctrl-C twice, or `/exit`) and start it again in this same folder — MCP
+> servers only connect at startup, so this session cannot see the one it just created. When you're back,
+> say «continue» and I'll start the live test."*
+
+Pre-approve the servers first (§2.2) so the restart asks nothing. Then **stop**. Do not keep working in
+the dead session: anything you do there has to be re-verified after the restart anyway.
+
+⛔ **Skip all three steps when the folder is already connected.** §2.2 says it and it bears repeating here:
+if `./.mcp.json` already names a working server, the session's job is to CALL it. Asking a connected user
+for a token is the single clearest signal that the session did not read its own configuration.
 
 ### 8.1 The second server, and installing what is missing
 
@@ -933,6 +985,238 @@ service logs, read them; if it does not, say what you would have looked for. ⛔
 the rendered page alone and then fix on that inference. A guess that happens to fix the symptom leaves the
 cause in place, and it comes back in the next scenario as something that looks unrelated.
 
+### 8.8 The automated test project — built after the live test, not instead of it
+
+A live test finds bugs. It cannot stop them coming back. The drive is manual, it is slow, and the next
+session repeats it from memory — so the session that drove it leaves behind a project that re-drives it
+**by command**, and every scenario it proved becomes a test that fails the day someone breaks it again.
+
+⛔ **Order matters and is not negotiable: live test and bug-fixing FIRST, the automated project after.**
+Writing tests against a broken build encodes the breakage — you spend the effort teaching the suite that
+`total = 0,00` is the expected value. Drive the scenarios by hand, fix what they surface, re-drive them,
+and only then automate what you have already watched pass.
+
+**Ask before building it**, the same way §8.0 asks about the live test:
+
+> *"The live test is done and the findings are fixed. I can also leave you an automated test project —
+> one command re-runs every scenario we just went through, so a regression shows up the same day. It
+> lives in `test/`, needs no token of its own beyond the login, and takes me a while to write. Want it?"*
+
+**A yes means ALL the scenarios, not a smoke test.** The value of the suite is that it covers what the
+scenario file covers: every calculation with its expected number, every refusal that must stay a refusal,
+every localisation that must stay translated, every report that must keep rendering. A suite that checks
+the login and two pages is worse than none — it is green while the system is broken, and people trust it.
+
+#### ⛔ What "ALL the scenarios" means — the coverage map, and the gate that enforces it
+
+"All" is the whole point of the offer, and it is the promise an AI quietly breaks: writing eight
+easy files feels like finishing. So the suite starts from a **map**, not from a blank `tests/`
+folder. Read the scenario file, list every numbered section, and write the map down before the
+first test — in the suite's own README, as a table:
+
+| Scenario § | What it proves | Test file | Watched pass live |
+|---|---|---|---|
+| §4.1 | the inbound document posts and its total recalculates | `tests/test_05_inbound.py` | yes |
+| §6.1 | the bill of materials scales by order quantity — every number | `tests/test_12_full_cycle.py` | yes |
+| … | … | … | … |
+| §9.2 | the rework order carries its loss cost component | `tests/test_14_…py` | **no — never opened** |
+
+A row with no test file is not an omission to discover later; it is a line in the hand-over. A
+row whose "watched pass live" is *no* is the honest version of §8.8's closing rule.
+
+**The ten families every map must account for**, because each one hides a different class of
+regression and skipping any of them makes the suite green on a broken system:
+
+1. **the front door** — the app is up, the session signs in, the home page is not blank;
+2. **navigation and access** — every section in the menu opens; every page a role group can reach
+   renders; the pages it must NOT reach refuse;
+3. **every register** — each list paints rows, its filter narrows, its paging advances. A register
+   that renders its header and zero rows is the single most common silent break;
+4. **every calculation, by its number** — the scenario file's arithmetic, compared exactly, with
+   the formula written into the assertion message so a red run explains itself;
+5. **every business process end to end, in ONE test per chain** — the steps only lie at the joins,
+   and eight green step-tests hide a chain that never completes (this is what §6's chain test is);
+6. **every refusal** — each state guard, each validation, each role denial: the action is refused
+   AND the message names the reason. A refusal that stops naming the missing item is a regression;
+7. **every localisation** — each locale the tenant declares: the nav, the register captions, the
+   joined entity names, the enumeration labels, the refusal messages. Assert no leak of one
+   language into another, and exempt proper nouns explicitly;
+8. **every report and dashboard** — it returns rows, its filters narrow, it shows no raw
+   enumeration codes, and its numbers agree with the register they come from;
+9. **the deliberate gaps** — what the project knowingly does not do gets a test that asserts the
+   CURRENT behaviour and says so in its docstring. Otherwise the next session "fixes" it by
+   accident and nobody notices which promise changed;
+10. **the regressions you just fixed** — one test per bug found in the live drive, named after the
+    bug's id, asserting the exact thing that was broken. This is the only part of the suite whose
+    value is already proven.
+
+**What the map is worth, measured once.** On a delivered project whose suite already had 120 green
+tests, writing the map took twenty minutes and named **four scenario sections with no test at all**.
+One of them was not a missing test but a **missing capability**: the scenario said "register a
+transfer" and the register that was supposed to do it had no create action — nothing in the system
+could perform a Must requirement, and the suite had been green for days. Another section turned out
+to describe a path the product never had, so the SCENARIO was wrong, not the build. Neither would
+have surfaced from running the tests that existed: a suite can only fail at what it looks at.
+
+⛔ **And when the map and the product disagree, find out which one is wrong before you fix either.**
+"The scenario file says X and the product cannot do X" has two possible culprits, exactly like a
+mismatched number (see the four causes below). Read the requirement the scenario cites; if the
+requirement demands it, the product owes you the feature; if only the scenario demands it, the
+scenario owes you a correction — and either way say so in the hand-over.
+
+Then make the map machine-checkable: the runner's last line prints how many scenario sections have
+at least one test and names the ones that do not. A number the user can read beats a claim they
+cannot check — and a suite that knows its own holes is trusted where an unlabelled one is not.
+
+**Shape**, whatever the language:
+
+```
+test/
+  start.sh          # THE entry point — one command, no arguments needed
+  .env.example      # BASE_URL, AUTH_USER, AUTH_PASSWORD — and .env git-ignored
+  pages/            # page objects: one per screen, so a moved button is one edit
+  tests/            # one file per scenario section, named after the section it covers
+  tools/            # reset helpers (re-import the archive, redeploy the workflows)
+  test-results/     # screenshots of failures — git-ignored
+```
+
+`start.sh` carries the whole ceremony so the user never has to know it: create the virtualenv, install the
+dependencies, download the browser, check that `.env` is filled (⛔ **without printing the password**),
+then run. It ends with a plain-language summary and, on failure, the likely innocent causes — a dropped
+session, an import that never landed — so that a red run is diagnosable by someone who did not write it.
+
+Give it modes, and make the safe one the default:
+
+```
+./start.sh              # everything that does not write to the tenant
+./start.sh all          # including the scenarios that create records
+./start.sh smoke        # "is it up and am I logged in"
+./start.sh reset        # re-import the archive, redeploy the workflows, seed back to a known state
+./start.sh -k lot_code  # any argument passes straight through to the runner
+```
+
+**What the tests must assert** — the same three things the live drive checked, in the same order:
+
+1. **the number**, not the page: read the value the scenario file predicts and compare it exactly
+   (`3.2960`, `92.16 %`, `7.38 %`). A test that only asserts "the page rendered" cannot fail usefully;
+2. **the refusal**, by its text: a negative scenario passes when the action is refused AND the message
+   names the reason. Assert the reason, not the exception — a refusal that stops naming the missing item
+   is a regression the user will feel;
+3. **the trace in the data**: after an action, read the row the action was supposed to write. The UI can
+   report success over a swallowed exception; the database cannot.
+
+**Then run it, and run it against the project it tests.** The suite is not delivered until you have
+watched it go green on the live tenant — and a test that fails on its first honest run has found either a
+bug you missed or a wrong expectation you wrote. Both matter; both get recorded and fixed before hand-over.
+
+**A red run is a suspicion about the TEST first, and about the product second.** The first
+full run of a freshly written suite reported 24 failures on a delivered project, and not one
+of them was a defect. Every one looked like a serious finding — "the filter does not narrow
+the register", "the calculation is wrong", "the page does not respond" — and every one was the
+suite's own fault. Budget for this: the first honest run of a new suite costs a debugging
+session, and the value is in what it teaches about the application.
+
+The four causes are worth naming, because they recur:
+
+* **State that lives on the SERVER, not in the browser.** The interface language was a user
+  preference: switching it in one test — or by a human in another window — held for every test
+  that followed, and they searched an English page for a Russian label. Anything the product
+  stores per user (locale, author mode, a saved filter, a default warehouse) must be SET by the
+  suite at the start of each file, never inherited. Declare it in the file and assert nothing
+  about what came before.
+* **A page object that encodes a fact which has since been fixed.** A helper looked for the
+  filter button by a caption that used to be untranslated, with a comment explaining why. The
+  caption got localised; the fallback selector then clicked a neighbouring button. The test
+  failed with "the filter does not narrow the register" — a sentence that reads exactly like a
+  product defect. When a helper carries a "this build behaves oddly" comment, re-verify the
+  oddity before trusting the failure it produces.
+* **Hidden siblings in the DOM.** Every row of a 15-row register carries its own hidden action
+  menu. `…locator("button, a").last` and `get_by_role("link", name=…).first` both resolve to an
+  invisible element in some other row, and the framework then waits out its full timeout. On a
+  list, always scope to the row AND require visibility.
+* **The expectation itself was wrong.** Three rows of the scenario document were mis-rounded;
+  the system's arithmetic was right. ⛔ **Check the arithmetic before reporting a calculation
+  defect** — the number a test asserts is only as good as the document it was copied from, and
+  "the system disagrees with the spec" has two possible culprits.
+
+The discipline that keeps this cheap: when a test goes red, reproduce the step BY HAND in the
+browser first. It takes a minute, and it tells you which of the two things is broken before you
+spend an hour fixing the wrong one.
+
+**Seven ways a UI assertion lies, all found on one delivered project.** They are not
+about this platform's quirks — they are about how a page reports itself, and they recur:
+
+* **A substring is not a signal.** A helper reported "server error" whenever the page contained
+  `500`. Every register contains money: `1 500,00`. The working page was declared down. Match an
+  error by its *signature* — the tab title, `Internal Server Error`, the framework's own error
+  page — never by digits or words that legitimately appear in data.
+* **`innerText` returns TRANSFORMED text.** A page that styles names with `text-transform:
+  uppercase` yields `DIRECTOR` from `innerText`, not `Director`. A case-sensitive membership test
+  then reports every single name as missing — which reads like "the page is empty", not like "the
+  comparison is wrong". Compare case-insensitively unless the case itself is the thing under test.
+* **A character's Unicode block is not its meaning.** The Armenian dram sign `֏` (U+058F) sits in
+  the Armenian block, so a "does this page leak Armenian text?" check written as
+  `[԰-֏]` flags every money column in every locale. Restrict such a check to LETTERS
+  (`Ա-և`), and exempt the columns that hold proper nouns — a person's name and a
+  company's name are not translated in any system.
+* **A numeric input silently discards what it cannot parse.** `el.value = '33,5'` on an
+  `<input type="number">` in an English session leaves the field **empty** — no error, no
+  event, nothing in the log. The test then saved a reading with no value, the tolerance gate
+  had nothing to refuse, and the run reported "the gate did not fire" about a gate that works.
+  The decimal separator the field accepts follows the SESSION's locale, so a suite that runs
+  in more than one language cannot hard-code either form. ⛔ **After writing a value, read it
+  back**: if the field came back empty while you wrote something, retry with the other
+  separator — and treat "the field is empty after I filled it" as a failure of the FILL, never
+  as data.
+* **A refusal message is asynchronous and transient.** The platform draws its refusal after
+  the action round-trips and removes it seconds later. A test that waits a fixed four seconds
+  and then reads the page reports "the refusal did not name the parameter" about a refusal that
+  named it perfectly. ⛔ **Poll for the message** (short interval, generous deadline), and
+  assert BOTH halves separately: the OBSERVABLE EFFECT (the step is still open, the document is
+  still a draft) and the TEXT (it names the parameter that blocks it). When the effect holds
+  and the text never arrives, that is a different defect — a refusal nobody can read — and it
+  deserves its own sentence, not a failed assertion about the gate.
+
+* **A business code is a number to a regular expression.** A grid check that took "the first
+  number in the row" as the quantity read the item code `RM-A12-003` as **−3.0** — the pattern
+  `-?\d[\d ]*[.,]?\d*` finds `-003` inside it — and reported "planned requirement −3.0, expected
+  3.296" about a row the database stored correctly. The failure named a calculation defect in the
+  product; the defect was in the reading. ⛔ **Never locate a value by its SHAPE when the grid
+  gives you a header.** Find the column by its caption (case-insensitively, with the caption in
+  every locale the suite runs), then read that cell — and where the cell renders an `<input>`,
+  read the field's `value`, because `innerText` of an editable cell is empty. The same trap hides
+  in codes that end in digits, dates, phone numbers and lot keys: anything whose text a numeric
+  pattern will happily match.
+
+* **A synthetic click is not a click.** `element.click()` from injected JavaScript left a header
+  dropdown closed: its handler wants real user input. The automation reported "the toggle is not
+  there" while the toggle was plainly there. Drive through the automation framework's own click
+  (it sends input through the browser protocol), and when a control still will not respond, assert
+  on the OBSERVABLE EFFECT instead of the control — for an author-mode toggle, that is whether the
+  admin links appeared, which is what the test cared about anyway.
+
+The shared shape: each check asked a question the page could answer only by accident. Before
+trusting a red assertion, ask what ELSE could produce exactly this output.
+
+* **The server's clock is not your clock.** A document number stamped `PO-<yyyymmdd>-NNN` is
+  built from the SERVER's date. Run the suite at 03:30 local against a UTC server and the number
+  carries YESTERDAY's date — the test that derives the expected prefix from `time.strftime` on the
+  test machine then reports "the order was not created" about an order that exists. Never
+  reconstruct a server-generated identifier from client-side state: read it back, or accept the
+  neighbouring days explicitly and say why.
+
+**And one that is not about the page at all: a run that was KILLED is not a run that FAILED.** A
+browser suite holds a real browser open for the length of the run; on a developer machine that is
+competing with an IDE, a VM and a container runtime. When the system reclaims memory it kills the
+process, and the output ends with no summary line at all — which looks exactly like a crash in the
+last test. Make the runner say so before it starts: check free memory, warn under a threshold, and
+in the failure epilogue name "the run was killed, not failed" as one of the innocent explanations.
+The alternative is someone re-running a 25-minute suite three times to chase a defect that does not
+exist.
+
+
+⛔ **The suite is the second proof, never the first.** If a scenario passed only in the suite and you never
+watched it in the browser, say so. Automation inherits every blind spot of the person who wrote it.
 ---
 
 ## 9. Finishing a support session
@@ -960,3 +1244,6 @@ person cannot reconstruct from the diff:
   is safe to delete. A test identity nobody knows about is a permission hole nobody is looking for;
 * **findings you did NOT fix**, each with its evidence and why — no live channel (§6), out of scope, or
   needing a decision that is not yours.
+* **the automated suite, if one was built** (§8.8) — the one command that re-runs it, what a red run means,
+  and which scenarios it does NOT cover. ⛔ Hand it over green or not at all: a suite the user first sees
+  failing is a suite the user never runs again.

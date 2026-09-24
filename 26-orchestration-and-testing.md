@@ -15,9 +15,18 @@ imported project shows wrong-language menus, empty charts, a bare-`<div>` email,
 > `test-scenarios.md` you ship beside the export — you are not given a platform and do not ask for one
 > (`system_prompt.txt` OP 0/1).
 
+> 🤖 **An automated suite is a SUPPORT-mode deliverable, not a build gate.** The ladder in this document
+> (`validate` → `show`/`tree`/`db show` → `crud verify --db` → post-import `livediff`) proves the ARTEFACTS.
+> It cannot prove that a person can complete a task. That proof comes from driving the running project
+> ([28](28-support-mode-over-mcp.md) §8) — and the suite that re-drives it by command is built **after**
+> that live pass and its bug-fixes, never before: see [28](28-support-mode-over-mcp.md) §8.8 for what it
+> must cover — the **coverage map** and the ten scenario families a yes commits you to — the
+> `test/start.sh` shape, and why a partial suite is worse than none.
+
 ---
 
 ## 1. Why fast-and-shallow happens (and the antidotes)
+
 
 | Symptom the user sees | Root cause | Antidote (this doc) |
 |---|---|---|

@@ -53,6 +53,27 @@ described in §4 prevents COLLISIONS, not capability.
 
 ---
 
+### ⛔ Editing an asset's bytes in place invalidates its URL
+
+The registry stores each file's `size` and **`sha256`**, and the served URL carries that hash: the
+endpoint refuses bytes that do not match it. So editing a registered file inside `tenant-files/` —
+regenerating a lookup table, rebuilding a bundle, fixing a typo in a stylesheet — leaves the tree
+listing the file while every page 404s on it. Nothing in the UI says so.
+
+```
+python3 mrjun.py globalresource refresh --project <dir>          # every registered file
+python3 mrjun.py globalresource refresh app.js --project <dir>   # just this one
+```
+
+`refresh` re-hashes from the bytes on disk and keeps the file's order, its on/off switch and its
+skins — which `rm` + `add` would all discard. `validate` reports the mismatch either way:
+
+```
+x branch 'master' asset 'app.js': sha256 does not match tenant-files/webassets/…/app.js.
+  The served URL carries that hash and the endpoint refuses bytes that do not match,
+  so this file would 404 on every page
+```
+
 ## 2 · One tree, and what a file's kind actually decides
 
 **There is ONE tree.** Scripts, stylesheets, HTML fragments, fonts and images live in it together, in folders

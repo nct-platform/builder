@@ -368,6 +368,48 @@ def cmd_globalresource_add(args):
                  % (display, len(added), display))
 
 
+def cmd_globalresource_refresh(args):
+    """Re-hash a registered file from the bytes on disk.
+
+    The registry stores each asset's `size` and `sha256`, and the served URL carries that
+    hash — the endpoint refuses bytes that do not match it, so a file edited in place
+    inside `tenant-files/` 404s on every page while the tree still lists it. Editing the
+    bytes is a normal thing to do (a generated lookup table, a rebuilt bundle); this is
+    how the registry is told about it, without `rm` + `add` losing the file's order,
+    its on/off switch and its skins.
+    """
+    project = core.Project(args.project)
+    touched, missing = [], []
+    for branch in _target_branches(project, args.branch):
+        reg = _registry(branch)
+        assets = reg["assets"] if args.file in (None, "", "*") else [_find(reg, args.file)]
+        for asset in assets:
+            if asset is None:
+                continue
+            abs_path = os.path.join(project.root, "tenant-files", asset["path"])
+            if not os.path.isfile(abs_path):
+                missing.append((branch.get("name"), _display(asset)))
+                continue
+            with open(abs_path, "rb") as fh:
+                data = fh.read()
+            new_sha, new_size = sha256_of(data), len(data)
+            if asset.get("sha256") == new_sha and asset.get("size") == new_size:
+                continue
+            old_size = asset.get("size")
+            asset["sha256"], asset["size"] = new_sha, new_size
+            touched.append((branch.get("name"), _display(asset), old_size, new_size))
+
+    if touched:
+        project.mark(core.F_BRANCHES)
+        project.save()
+    for name, disp, old, new in touched:
+        core.out("  %-10s %-40s %8s -> %-8s re-hashed" % (name, disp, old, new))
+    for name, disp in missing:
+        core.out("  %-10s %-40s bytes missing from the bundle" % (name, disp))
+    if not touched and not missing:
+        core.out("nothing to do — every registered file already matches its bytes.")
+
+
 def cmd_globalresource_mkdir(args):
     """Create an empty folder. Folders exist so a whole kit can be switched off in one move."""
     project = core.Project(args.project)

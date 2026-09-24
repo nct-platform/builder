@@ -538,6 +538,30 @@ Fields of a single `ActionDto` (backing — `UserTaskActionsDto.ActionDto`, `Use
 > instead of navigating back. Nothing else opens the task's form in a dialog: a user task reached any other
 > way still uses its form page.
 
+> ⛔⛔ **A gateway in the BPMN and a row action in the register are TWO copies of the same
+> decision — and they drift.** The diagram branches on "is it a destruction?"; the register
+> offers the extra approval step to whoever the action's `predicateIdentifier` lets in. Both
+> are correct in isolation and they disagree in production, because the person never touches
+> the diagram: seeded records, records created before the workflow was deployed, and every
+> record whose case has already ended are driven entirely by the register's actions.
+>
+> Measured on a delivered project: the gateway condition was exactly right, and the register's
+> approval action tested only `status == 'APPROVED'` plus the approver's role. Result — an
+> ordinary unit-of-measure correction queued for the accountant, who had no reason to look at
+> it, and the warehouse manager could not post it at all, because the POST action had been
+> given the **same predicate** as the accounting step.
+>
+> Two rules follow:
+>
+> 1. **Every condition the gateway tests, the row action's predicate must test too.** Write
+>    them together, from the same sentence of the requirement, and put that sentence in both.
+> 2. **One predicate per action.** Sharing a predicate between "approve" and "post" couples two
+>    unrelated permissions: narrowing one silently narrows the other, and the second effect is
+>    the one nobody tests. The duplication is three lines; the coupling is a support ticket.
+>
+> Neither is visible to any offline gate: both objects are well-formed, both predicates compile,
+> and the drift shows only when a record of the OTHER branch reaches the register.
+
 **Semantics of `direct` / `submitForm` / `completeUserTask`:**
 - `direct:"on"` — a "quick" action (typical in the process table): on click `onBeforeUserTaskCompleteRuleIdentifier`
   runs immediately and (if `completeUserTask:"on"`) the task completes, **without a form**.
@@ -1494,11 +1518,11 @@ completes a task and then goes looking in the database.
 
 ### 1. The form opens blank — the case knows the subject, the form does not
 
-The case carries the record (`contextDataMap[ctx].crudDataMap['<alias>']`), and the bind rule wired to
-`onBeforeUserTaskStart` republishes its identifying attributes for the worklist. But if the task's form
-edits a **different** entity — a case about a *stock lot* whose task records a *QC inspection* — then
-nothing seeds that second alias, and the inspector is handed an empty form and asked to pick, from a
-list of every lot in the system, the one the case is already about.
+The case carries the record (`contextDataMap[ctx].crudDataMap['<subject>']`), and the bind rule wired
+to `onBeforeUserTaskStart` republishes its identifying attributes for the worklist. But when the task's
+form edits a **different** entity — a case about record A whose task writes document B *about* A —
+nothing seeds that second alias. The user is handed an empty form and asked to pick, out of every A in
+the system, the one the case is already about.
 
 That is a correctness risk, not a convenience: the wrong pick attaches the decision to the wrong
 record and nothing detects it.
@@ -1507,52 +1531,50 @@ Seed it in the same bind rule, guarded so a re-entered task keeps what the user 
 
 ```groovy
 try {
-    def seed = context.choco_context.qcInspection.data.get()
-    if (!(seed instanceof Map) || !(seed['stockLotId'])) {
-        context.choco_context.qcInspection.data.put([
-            'stockLotId'    : sid,
-            'stockLot'      : ['id': sid],     // BOTH forms: a control bound as `stockLot.id`
-            'objectType'    : 'STOCK_LOT',     //             reads the nested one
-            'stage'         : 'INCOMING',
-            'inspectorEmail': ((service.security.user()?.email ?: '') as String),
-            'status'        : 'DRAFT'
+    def seed = context.<ctx>.<formAlias>.data.get()
+    if (!(seed instanceof Map) || !(seed['<subject>Id'])) {
+        context.<ctx>.<formAlias>.data.put([
+            '<subject>Id' : sid,
+            '<subject>'   : ['id': sid],   // BOTH forms: a control generated as `<subject>.id`
+            'status'      : 'DRAFT',       //             reads the nested one
+            'authorEmail' : ((service.security.user()?.email ?: '') as String)
         ])
     }
 } catch (Throwable ignored) { }
 ```
 
 ⚠️ Seed a dropdown **both ways** — `'<alias>Id': id` *and* `'<alias>': ['id': id]`. A control generated
-as `stockLot.id` reads the nested shape and ignores the flat one; scalar controls read the flat one.
-A seed that sets only `stockLotId` silently leaves the picker empty, which looks exactly like no seed
+as `<alias>.id` reads the nested shape and ignores the flat one; scalar controls read the flat one.
+A seed that sets only `<alias>Id` silently leaves the picker empty, which looks exactly like no seed
 at all.
 
 ### 2. The form is filled and then thrown away
 
 A task's `onBeforeUserTaskComplete` rule typically does the state change the branch is named after —
-release the lot, approve the deviation, close the NCR. If that is *all* it does, then everything the
-user typed into the form is discarded when the task completes: no inspection document, no checklist,
-nothing for the certificate PDF to render and nothing for the quality report to count. The lot status
-changes, so the screen looks right, and the missing document is only found later.
+approve, reject, release, close. If that is *all* it does, everything the user typed into the form is
+discarded when the task completes: no document, no child rows, nothing for a printout to render and
+nothing for a report to count. The subject's status changes, so the screen looks right, and the
+missing document is found much later.
 
 Persist the form's entity in the complete rule, after the state change succeeds:
 
 ```groovy
-def insp = null
-try { insp = context.choco_context.qcInspection.data.get() } catch (Throwable ignored) { }
-if (insp instanceof Map && !(insp['id'])) {
-    def doc = new LinkedHashMap(insp)
-    doc['result'] = (((doc['result'] ?: '') as String).trim() ?: 'PASS')   // per branch
-    doc['status'] = 'COMPLETED'
+def form = null
+try { form = context.<ctx>.<formAlias>.data.get() } catch (Throwable ignored) { }
+if (form instanceof Map && !(form['id'])) {
+    def doc = new LinkedHashMap(form)
+    doc['outcome'] = (((doc['outcome'] ?: '') as String).trim() ?: '<per-branch default>')
+    doc['status']  = 'COMPLETED'
     // …assign the document number here too (11-business-logic-dynamic-crud.md)
-    def made = service.crud.qcInspection.create(doc)
+    def made = service.crud.<formAlias>.create(doc)
     …
 }
 ```
 
-And check the **child rows**: a checklist copied from a template needs the copy method to be *called*.
-A `buildLinesFromTemplate`-style method that exists but no rule invokes is a very quiet failure — the
-inspection saves, the lines table is empty, and the "failed checkpoints" branch downstream always sees
-zero. `mrjun.py validate` reports a crud method nothing references.
+And check the **child rows**: lines copied from a template need the copy method to be *called*. A
+`buildLinesFrom…`-style method that exists and no rule invokes is a very quiet failure — the document
+saves, its lines table is empty, and any downstream branch that counts those lines always sees zero.
+`mrjun.py validate` reports a crud method nothing references.
 
 ---
 

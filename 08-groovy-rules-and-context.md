@@ -52,6 +52,34 @@ a CRUD method is the context-independent `service.crud.<crudAlias>.<method>(args
 
 ---
 
+### ⛔ "Context 'x' not found" is almost never a context problem
+
+Groovy resolves a bare identifier that the script has not declared **against the rule's CONTEXT**.
+So a name that is missing or not yet declared does not evaluate to null — it throws
+
+```
+Failed to execute rule '<alias> Action Suspend': Context 'before' not found
+```
+
+which reads exactly like broken `contextIdentifiers` wiring and has nothing to do with it. The rule
+dies on that line and the action silently never happens.
+
+It comes in two shapes, and both are ordinary edits:
+
+| Shape | How it gets written | What it looks like |
+|---|---|---|
+| **Used above its own `def`** | a guard is inserted above the line that computes the value it guards on | `if (before in [...])` … three lines later `def before = row.status` |
+| **Never declared at all** | a block is copied from another rule, where that name existed | `doc?.someId` pasted into a rule whose row variable is called something else |
+
+Measured on one delivery: the first shape killed **every** state-transition rule in the project — each
+one dead from the first day, with the buttons and the confirm dialog all present, because the throw
+happens after the click. The second shape was introduced *while fixing the first*.
+
+`mrjun.py validate` checks both (`_check_groovy_var_used_before_def`, `_check_groovy_undefined_identifier`).
+Its scanner has to be careful about what really hides a name: a closure body does (it runs later), but
+an `if`/`try`/`for` body does **not**, and neither do parentheses — `((po?.x ?: '') as String)`
+evaluates `po` right there. A checker that skips everything inside brackets sees none of this.
+
 ## Export shape — the `rule` rep-object
 
 Rules live in `rep-objects.json` under the `rules` key (an array). Schema of one element:

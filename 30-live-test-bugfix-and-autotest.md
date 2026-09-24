@@ -137,7 +137,7 @@ Name every identity you create so a human scanning the project later knows what 
 
 ---
 
-## 2.5 ⭐ What to actually look for — the eight defect classes a walkthrough misses
+## 2.5 ⭐ What to actually look for — the defect classes a walkthrough misses
 
 Driving happy paths finds blank pages and broken saves. It does **not** find these, and every one of
 them shipped in a delivered project that had already been walked through in all three languages:
@@ -152,6 +152,11 @@ them shipped in a delivered project that had already been walked through in all 
 | 6 | **Documents with no number** | open a Create form: if the business key is an empty mandatory field, nothing generates it. |
 | 7 | **Task forms** | complete one task, then look in the DATABASE for the record the form was editing. A status that changed is not evidence the document was saved. |
 | 8 | **Form layout** | open every form group at full window width. A line form in particular ships with no columns at all ([03](03-generate-fields-from-crud.md)). |
+
+| 9 | **A value computed and never used** | grep each rule for a local that appears exactly once — at its own `def`. A half-written guard compiles, renders and passes every offline gate: the value is computed, then the comparison uses the wrong operand, or no operand at all. One delivery carried three of these at once, each one a limit that silently never applied. |
+| 10 | **A guard whose input nobody writes** | the mirror image: a condition reads a column that no rule ever sets, so it is NULL everywhere and the branch is dead. Take every field a guard READS and grep the rules and crud methods for a WRITER of it; a read with no writer is a guard that has never fired. |
+| 11 | **A template nobody calls** | mail and PDF templates ride in the export and look finished in the admin list, because nothing there says whether any rule invokes them. Grep the rules for each template `alias`. Delivered projects have shipped with the majority of both kinds unreferenced — every notification silent, every printout unobtainable. |
+| 12 | **A uuid where a person must read or type** | scan register columns and form fields for a `fieldExpression` ending in `Id`, and filter-bar fields for a `filterKey` of the same shape. Each one is a box that asks a human for a uuid, or a column that prints one. The fix is a join in the crud SELECT plus a dropdown control — not a wider column. |
 
 Two cheap techniques that find more than clicking:
 
@@ -251,6 +256,15 @@ test/
   tests/    one file per scenario section, numbered in run order
 ```
 
+### ⛔ First the coverage map, then the tests
+
+The table below is the FLOOR, not the definition of done. What "all the scenarios" means —
+the map from every numbered section of the scenario file to the test file that covers it, the
+ten families the map must account for, and the runner line that prints the holes — is in
+[28](28-support-mode-over-mcp.md) §8.8. Write the map BEFORE the first test: on a delivered
+project it took twenty minutes and found four sections with no test at all, one of which was
+a Must requirement the product could not perform.
+
 ### What the suite must contain, at minimum
 
 | area | assertions |
@@ -278,5 +292,11 @@ test/
 * **Regression guards are named after the defect they caught**, with the root cause in
   the docstring. A test whose failure message explains the mechanism is worth ten that
   just say `assert False`.
+* **A red run is a suspicion about the TEST first.** The first honest run of a new suite
+  costs a debugging session, and most of what it reports is the suite's own fault — the
+  seven ways a UI assertion lies are enumerated in [28](28-support-mode-over-mcp.md) §8.8,
+  including the two that look most like product defects: a numeric field that silently
+  discards a value it cannot parse, and a refusal message that is gone by the time you read
+  the page. Reproduce the step BY HAND before filing anything.
 * **Say what is NOT covered and why** in the README — created users cannot sign in (no
   password field), "Edit site" is author tooling, schedulers stay off by design.

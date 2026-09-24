@@ -660,6 +660,36 @@ legitimate deployment and keeps importing exactly as before. Idempotent.
 
 ---
 
+## ⛔ The four switches on the import dialog — and why an automated import must SET them
+
+Uploading the archive opens a dialog whose switches decide which of the legs below actually
+run. Read live, in this order, with these labels:
+
+| # | Label (en) | Default | Effect |
+|---|---|---|---|
+| 0 | `Import pages, forms and rules` | **on, DISABLED** | the content tree and the rep-objects; always happens |
+| 1 | `Replace the business logic and its database` | **on** | dynamic CRUDs, queries, and the data from `project-db.dump` |
+| 2 | `Rebuild the table structure from the file` | **off** | DDL: creates/recreates the tables from the dump's `ddl` |
+| 3 | `Recreate the integration` | **off** | tears down and re-creates `integrations.json` |
+
+Two consequences, both of which have cost a real debugging session:
+
+* **A schema change needs #2, and nothing tells you so.** Ship a new column in
+  `project-db.dump` (and the SQL that selects it) with #2 off and the import reports
+  **success**: the new SQL arrives, the old table stays, and the first page that reads it
+  fails with `column t.<new> does not exist`. The failure surfaces in the UI, minutes later,
+  looking like a code defect. So: **changed the schema → tick #2; did not → leave it off**,
+  because it recreates the tables and the tenant's data goes back to the dump.
+* **An automated importer must set the switches explicitly, not inherit the defaults.** They
+  are defaults of a dialog, not a contract — and a script that only clicks *Import* silently
+  imports whatever the build happens to default to. Read each checkbox WITH ITS LABEL (match
+  the label, never the index — the order changes), set what the change requires, log what you
+  set, and abort when a switch you need is disabled instead of importing half the change.
+
+⚠️ After ANY full import every workflow comes back `deployed: false` — deploy them again
+(`nct_workflow_deploy` per workflow, or the BPMN editor) or every worklist is empty and every
+`service.workflow.start` throws `workflow_is_not_deployed`.
+
 ## How import restores it (operation order and id remapping)
 
 The full import pipeline (after unpacking the ZIP):
@@ -1092,6 +1122,31 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     | **Override** business logic + database | the full import described in [§How import restores it](#how-import-restores-it-operation-order-and-id-remapping): the existing integration is torn down and recreated, `project-db.dump` replaces the ROWS of every business schema it carries, `dynamic-cruds.json` is replayed. Table **structure is preserved** — tables the dump carries are emptied and reloaded, and a column the archive adds is added, but a column whose type changed, or one the archive dropped, stays as the project has it |
     | **Rebuild** business logic + database | the same replacement, done by **dropping each business schema and rebuilding it from the archive**, with the project's integration left running the whole time. Structure comes from the archive, not the project. Refuses the import — changing nothing — if a schema holds something the archive cannot put back (see below) |
     | **Cancel** | nothing is imported |
+
+    ⛔ **Ignore does not merely skip the database — it skips your SQL.** A dynamic CRUD's SQL method runs the
+    `script` stored on the METHOD (`dynamic-cruds.json` → the `bl` integration), **not** the `queries[]` entry in
+    `rep-objects.json` that carries the same statement. Proven live: saving a new statement onto the query row
+    (its id, its identifier, accepted and echoed back by the API) changed nothing — the method kept returning
+    what the old text selected. The `queries[]` copy is what the import writes and what an offline validator can
+    diff; the method's own script is what executes. Two consequences. First, an Ignore import leaves every SELECT
+    exactly as it was while the pages, forms and rules become the new ones — and it reports success either way.
+    Second, the only live channel for a SQL change is the method itself (`updateMethod` in the business-logic
+    API), so a query-level write is not a shortcut around a full import. The failure is silent
+    and the screen cannot show it — a register looks identical whether or not the join you added took effect.
+    **Check a SQL change by calling the method** (execute it over MCP, or open a row and read the field the
+    change was supposed to add), never by reloading the page. When the delta touches any SQL, the import has
+    to be Override or Rebuild — which also means it will replace the rows, so plan the live test data you
+    will have to re-enter afterwards.
+
+    ⚠️ **A full import is not free, and a series of them can exhaust the server.** Each one restores the
+    dump and replays the business logic inside the same JVM; after roughly a dozen in one working day an
+    environment answered `Import failed — Java heap space`, then stopped answering database queries for
+    several minutes while the pool drained, and logged the browser session out. The failure landed at the
+    TAIL of the pipeline — content, rules, cruds, queries, the dump and the workflows had all been applied,
+    only roles and deployment had not — so the project was left running but undeployed rather than broken,
+    and the "Retry" button failed the same way. Two practical consequences: **batch your edits** so one
+    import carries many of them instead of one each, and after such a failure **check what actually landed**
+    (call a changed method, list the workflows) before assuming the import did nothing.
 
     **Which one to ask for.** **Override** whenever your delta touched `project-db.dump`, `project-db-meta.json`
     or `dynamic-cruds.json` — i.e. always for a build from the empty baseline, and for any change that adds a

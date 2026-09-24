@@ -434,6 +434,21 @@ Canonical **rule-based** example (a plant reference on a stock document, with an
 }
 ```
 
+⛔ **`fieldExpression` must name the SCALAR key, not the joined object** — `plant.id`, never `plant`
+(and `dataClass` `java.lang.String`, never `ObjectNode`). The rendered `<select>` carries POSITIONS as its
+option values (`0`,`1`,`2`…) and the control decides what is selected by comparing the field's current value
+with each option's `key`. A field bound to the object holds whatever partial map the SELECT's join built
+(`{id, code}`), which equals no option at all, so the control falls back to showing entry **#0** — with no
+error, no log line, and a perfectly plausible-looking screen.
+
+The second half is what makes it a data defect rather than a display one: **a `<select>` submits what it
+displays.** Open a record, change one unrelated field, press Save, and the foreign key is silently re-pointed
+to the first row of the list. In a LINE form it is worse still — the parent's save rewrites every line, so a
+single edit can re-point every reference in the document. The symptom the user reports is never "the picker is
+wrong"; it is "the data changed by itself".
+
+`validate` ERRORs on this shape (`_check_dropdown_model_binding`).
+
 Delta fields:
 
 | Field | Type | Meaning | Required | Default | Backing |

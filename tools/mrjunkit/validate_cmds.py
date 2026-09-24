@@ -270,6 +270,7 @@ def cmd_validate(args):
         _check_dynamic_cruds(p, cruds, r)
         _check_groovy_method_params(cruds, r)
         _check_enum_dropdowns(p, r)
+        _check_dropdown_model_binding(p, r)
     _check_choices_rules(p, r)
     _check_choices_pair_keys(p, r)
     _check_crud_method_refs(p, r)
@@ -283,6 +284,8 @@ def cmd_validate(args):
     _check_chartjs_option_mutation(p, r)
     # -- Groovy numeric traps: every one of them reaches the user as the bare word "null" --
     _check_groovy_numeric_traps(p, r)
+    # -- `?:` over a payload key: every Jackson node is falsy, so the FK lands NULL --
+    _check_groovy_jsonnode_truth(p, r)
     # -- a pdfme template naming a font the renderer does not have → 422, no PDF at all --
     _check_pdf_template_fonts(p, r)
     # -- a `--` comment in a saved query eats the paging wrapper the platform appends --
@@ -353,6 +356,8 @@ def cmd_validate(args):
     _check_crud_method_is_called(p, cruds, r)
     # -- a Groovy name read above its own `def` -> "Context 'x' not found", the action never runs --
     _check_groovy_var_used_before_def(p, r)
+    # -- a Groovy name never declared at all -> the same "Context 'x' not found", on the first run --
+    _check_groovy_undefined_identifier(p, r)
     # -- a user-task action with no complete rule -> the task closes and the record is untouched --
     _check_user_task_action_has_complete_rule(p, r)
     # -- a SCHEDULER's own rule forwarding the null `contextDataMap` binding -> an EMPTY process, silently --
@@ -1784,6 +1789,49 @@ def _check_enum_dropdowns(p, r):
                % (st.get("fieldExpression") or node.get("name"), dc.split(".")[-1]))
 
 
+
+def _check_dropdown_model_binding(p, r):
+    """A rule-backed dropdown must be bound to the SCALAR key, not to the joined object.
+
+    The control renders a plain ``<select>`` whose option values are the POSITION of each
+    choice, and it decides which one is selected by matching the field's current value
+    against the option's `key`. Bind `fieldExpression` to the object (`customer`, dataClass
+    ObjectNode) and there is nothing to match: the row's value is a partial object built by
+    the SELECT's join, never equal to a full choice row. Nothing is reported — the browser
+    simply shows option #0.
+
+    That is the whole defect, and it is not cosmetic: the control submits whatever it
+    displays. Re-saving a record the user only meant to look at silently re-points the
+    foreign key to the FIRST entry of the list. It bites hardest in LINE forms, where a
+    parent save rewrites every line, so one careless edit can re-point a whole document.
+
+    Bind to `<field>.id` (dataClass java.lang.String) — the same shape the platform's own
+    field generator writes for header controls — and the value is the scalar the option key
+    is compared with. See 02-form-controls-reference.md §7.
+    """
+    OBJECT_CLASSES = ("com.fasterxml.jackson.databind.node.ObjectNode",)
+    for node, _pp, _pt in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "dynaform.form.rimm.drop.down.field.plugin":
+            continue
+        try:
+            st = core.get_inner_json(node, "settings")
+        except core.ToolError:
+            continue
+        fe = st.get("fieldExpression") or ""
+        key = st.get("key") or ""
+        if not fe or not key:
+            continue
+        if (st.get("dataClass") or "") not in OBJECT_CLASSES:
+            continue
+        if fe.endswith("." + key):
+            continue
+        r.err("dropdown %r is bound to the OBJECT %r (dataClass ObjectNode) while it keys its "
+              "options on %r — the control cannot match the row's value to an option, so it "
+              "renders the FIRST entry and saving re-points the foreign key to it. Bind it to "
+              "%r. (02-form-controls-reference.md \u00a77)"
+              % (node.get("name") or fe, fe, key, fe + "." + key))
+
+
 _SERVICE_CRUD_RE = re.compile(r"service\.crud\.(\w+)\.")
 _CHOICES_CONVERTER_RE = re.compile(r"\bto(?:SelectOptions|AutoCompleteOptions)(?:Localized)?\s*\(")
 # A choices rule is VALID when it produces option pairs by ANY of: the toSelectOptions*/
@@ -3187,6 +3235,104 @@ def _check_groovy_numeric_traps(p, r):
 _SOFT_DELETE_RE = re.compile(
     r"\bUPDATE\b[\s\S]{0,200}?\bSET\b[\s\S]{0,120}?\b(?:deleted|is_deleted|archived|deleted_at)\b\s*=",
     re.I)
+
+
+# A key that names a REFERENCE — the only kind whose value can be a Jackson object
+# node, and therefore the only kind an Elvis chain silently discards.
+_REF_KEY_RE = re.compile(r"(?:^|[a-z])(?:[Ii]d|__id|[Rr]ef)$")
+
+
+def _check_groovy_jsonnode_truth(p, r):
+    """`?:` over a payload key — the chain that silently throws a good FK away.
+
+    Groovy decides the truth of an object by calling its own `asBoolean()`, and Jackson's
+    `JsonNode.asBoolean()` answers **false** for every node that is not a boolean node. So a
+    `TextNode` holding a uuid, an `ObjectNode` holding `{"id": "..."}` and an `ArrayNode`
+    holding ten rows are ALL falsy. Measured on a live tenant:
+
+        def n = new ObjectMapper().readTree('{"id":"abc"}')
+        (n ? 'T' : 'F')        // F
+        (n ?: 'FELLTHROUGH')   // FELLTHROUGH
+        n.get('id').asText()   // abc
+
+    Therefore `_id(row['item'] ?: row['item__id'] ?: row['itemId'])` discards the value that IS
+    there, walks on to two absent keys and yields null — and the INSERT writes NULL into the FK.
+    Inside the try/catch that wraps a line loop the user sees a green "saved", the header lands,
+    and every line is gone with no message anywhere.
+
+    It bites NESTED rows first: the executor converts top-level textual/number/boolean parameters
+    to plain Java values, so header fields arrive as String and behave, while elements of a
+    `lines` array arrive as raw nodes. A document whose header saves while its lines vanish is
+    this bug, every time.
+
+    ERROR on a same-variable candidate chain (`x['a'] ?: x['b']`) — that shape has no innocent
+    reading. WARN on a lone `<payload var>['k'] ?: <default>`, the same trap wherever the key can
+    carry an object or a reference.
+
+    Fix — walk the candidates without asking a node for its truth:
+
+        def _pick = { m, List ks ->
+            for (k in ks) { if (m.containsKey(k)) { def v = _id(m[k]); if (v != null) { return v } } }
+            return null }
+
+    (11-business-logic-dynamic-crud.md, "Document CRUD variant")
+    """
+    PAYLOAD_VARS = ("param", "params", "src", "row", "ln", "line", "payload", "attrs", "hdr", "dto")
+    chain = re.compile(r"(\w+)\[\s*'([^']+)'\s*\]\s*\?:\s*\1\[\s*'([^']+)'\s*\]")
+    lone = re.compile(r"\b(%s)\[\s*'([^']+)'\s*\]\s*\?:" % "|".join(PAYLOAD_VARS))
+
+    def _code_only(src):
+        src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+        src = re.sub(r"//[^\n]*", " ", src)
+        return src
+
+    bodies = []
+    for rule in p.rep.get("rules", []) or []:
+        rr = rule.get("rule")
+        if isinstance(rr, dict) and rr.get("ruleScriptStr"):
+            bodies.append(("rule %r" % rule.get("name"), rr["ruleScriptStr"]))
+    _by_alias, _cruds = _dynamic_crud_methods(p)
+    for crud in _cruds:
+        for m in crud.get("methods", []) or []:
+            if m.get("methodType") == "GROOVY" and m.get("script"):
+                bodies.append(("crud %r method %r" % (crud.get("alias"), m.get("methodName")),
+                               m["script"]))
+
+    for where, body in bodies:
+        code = _code_only(body)
+        # Only a CRUD delegate body sees raw Jackson nodes: `param` is bound by
+        # GroovyExecutionRule, and it converts ONLY top-level textual/number/boolean values.
+        # A map that came back from `service.crud.*` — or a form's context data — holds plain
+        # Java values, and Elvis over it is harmless. So the ERROR is scoped to delegate
+        # bodies; everywhere else the same shape is worth a look, not a failed gate.
+        is_delegate = re.search(r"\bparam\b", code) is not None
+        seen = set()
+        for var, a, b in chain.findall(code):
+            if (var, a, b) in seen:
+                continue
+            seen.add((var, a, b))
+            if is_delegate and var in PAYLOAD_VARS:
+                r.err("%s chains payload keys with Elvis: `%s['%s'] ?: %s['%s']`. Every Jackson "
+                      "node is FALSY in Groovy (JsonNode.asBoolean() answers for it), so a "
+                      "present {id: ...} is thrown away and the FK lands NULL — the header saves "
+                      "and the lines vanish with no message. Walk the candidates instead: "
+                      "`_pick(%s, ['%s', '%s'])`. (11)" % (where, var, a, var, b, var, a, b))
+            elif _REF_KEY_RE.search(a) or _REF_KEY_RE.search(b):
+                r.warn("%s chains keys with Elvis: `%s['%s'] ?: %s['%s']`. Harmless while %r holds "
+                       "plain Java values; fatal the moment it holds a Jackson node, because every "
+                       "node is falsy in Groovy. Test `!= null` if it can. (11)"
+                       % (where, var, a, var, b, var))
+        if is_delegate:
+            for var, key in sorted(set(lone.findall(code))):
+                if (var, key) in {(v, a) for v, a, _b in seen}:
+                    continue
+                # Only REFERENCE keys are worth a line: a scalar column (lineNumber, status,
+                # docNo) arrives as a plain Java value and Elvis over it behaves.
+                if not _REF_KEY_RE.search(key):
+                    continue
+                r.warn("%s writes `%s['%s'] ?: ...` — that key names a reference, and a Jackson "
+                       "node is falsy in Groovy, so the default ALWAYS wins. Test `!= null`. (11)"
+                       % (where, var, key))
 
 
 def _check_crud_method_refs(p, r):
@@ -7397,6 +7543,17 @@ def _check_dynamic_cruds(p, cruds, r):
                 or re.search(r"\bFROM\s+([a-z_][a-z0-9_]*)", fa_sql, re.I)
             tcols = [c["name"] for c in tables.get(tbl_m.group(1), [])] if tbl_m else None
             roots, leaves, list_keys = dyncheck.surfaced_fields(fa_sql, tcols)
+            # A LINE grid is filled from the record the FORM opened — the `get` method — not
+            # from the register query. Embedding the whole lines aggregate in `findAll` as well
+            # makes every register page carry the lines of every row it lists, which is what
+            # turns a 15-row page into megabytes and, on a loaded server, into a timeout and an
+            # empty grid. So look for the line keys in `get` too, and only warn when NEITHER
+            # method surfaces them.
+            get_m = next((m for m in methods if m.get("methodName") == "get"), None)
+            if get_m:
+                _, _, get_list_keys = dyncheck.surfaced_fields(get_m.get("script", "") or "", tcols)
+                for k, v in (get_list_keys or {}).items():
+                    list_keys.setdefault(k, set()).update(v)
             seen = set()
             for expr, kind in cons:
                 if (expr, kind) in seen:
@@ -8215,7 +8372,7 @@ def _check_choices_display_is_identifying(p, r):
                "match). (02-form-controls-reference.md 4a)" % rule.get("name"))
 
 
-# Only a NUMBER is flagged. `skuCode`, `recipeCode`, `routeCode`, `paramCode` are codes a human
+# Only a NUMBER is flagged. A catalogue code (`*Code`) is a value a human
 # chooses and should stay typed; `orderNo` / `docNo` / `ncrNo` / `movementNo` are sequential and
 # must not be. A lot code is usually generated too, but its shape varies too much to assume.
 _BUSINESS_KEY_RE = re.compile(r"^(?:[a-z][A-Za-z]*)?(?:No|Number)$")
@@ -8296,7 +8453,7 @@ def _check_crud_method_is_called(p, cruds, r):
     "spare capacity" — nine times out of ten it is a step somebody meant to wire and did not, and the
     feature it belongs to is quietly absent while every screen looks complete.
 
-    The one that cost a delivered MES: `qcInspection.buildLinesFromTemplate` existed, was correct,
+    The one that cost a delivery: a `buildLinesFromTemplate`-style method existed, was correct,
     and was called by nothing — so every inspection saved with an EMPTY checklist, the certificate
     PDF had no indicators, and the "any failed checkpoint?" branch downstream always answered no.
 
@@ -8331,14 +8488,85 @@ _GROOVY_KEYWORDS = {
     "instanceof", "as", "in", "null", "true", "false", "this", "it", "switch", "case", "break",
     "continue", "class", "import", "assert", "each", "String", "Map", "List", "Integer", "Long",
     "BigDecimal", "Object", "Boolean", "Throwable", "RuntimeException", "LinkedHashMap",
+    "long", "int", "double", "float", "boolean", "byte", "short", "char", "void", "var",
 }
+
+# a declaration the simple scanner does not see as one: `def a = 1, b = 2` (only `a` is matched by
+# the `def <name>` pattern) and `long n = ...` / `BigDecimal x = ...` (a TYPE, not `def`). Both
+# declare a local; missing them turns a correct rule into a false "never declared" report.
+_GROOVY_DECL_LINE_RE = re.compile(
+    r"^\s*(?:def|var|long|int|double|float|boolean|byte|short|char|String|Map|List|Integer|"
+    r"Long|BigDecimal|Object|Boolean)\s")
+_GROOVY_ASSIGN_RE = re.compile(r"\b([A-Za-z_]\w*)\s*=(?!=)")
+
+
+_GROOVY_CATCH_PARAM_RE = re.compile(r"\bcatch\s*\(\s*[\w.]+(?:\s*\|\s*[\w.]+)*\s+(\w+)\s*\)")
+_GROOVY_FOR_PARAM_RE = re.compile(r"\bfor\s*\(\s*(?:def\s+|final\s+|[\w.<>\[\]]+\s+)?(\w+)\s*(?::|=|\bin\b)")
+_GROOVY_CLOSURE_PARAM_RE = re.compile(r"\{\s*([A-Za-z_][\w,\s]*?)\s*->")
+
+
+def _groovy_extra_decls(src):
+    """Every name a simple `def <name>` pattern does not reach but Groovy still declares:
+    the second half of `def a = 1, b = 2`, a typed local (`long n = …`), a `catch (Throwable e)`
+    parameter, a `for (x : xs)` variable and a closure's own parameters."""
+    out = {}
+    for m in _GROOVY_CATCH_PARAM_RE.finditer(src):
+        out.setdefault(m.group(1), m.start(1))
+    for m in _GROOVY_FOR_PARAM_RE.finditer(src):
+        out.setdefault(m.group(1), m.start(1))
+    for m in _GROOVY_CLOSURE_PARAM_RE.finditer(src):
+        for nm in m.group(1).split(","):
+            nm = nm.strip().split(" ")[-1]
+            if nm:
+                out.setdefault(nm, m.start(1))
+    pos = 0
+    for line in src.splitlines(keepends=True):
+        if _GROOVY_DECL_LINE_RE.match(line):
+            for m in _GROOVY_ASSIGN_RE.finditer(line):
+                out.setdefault(m.group(1), pos + m.start(1))
+        pos += len(line)
+    return out
+
+
+_GROOVY_CTRL_OPENERS = ("if", "for", "while", "switch", "catch", "try", "else", "finally", "do", "synchronized")
+
+
+def _groovy_block_is_control(src, brace_pos):
+    """True when the `{` at brace_pos opens an if/for/while/try/catch/else body rather than a
+    closure. A control body runs INLINE, in the enclosing scope - so a name used inside it resolves
+    exactly like one written at top level, and a missing declaration throws there just the same.
+    A closure body is different: it runs later, so a name in it may legally sit above its `def`."""
+    j = brace_pos - 1
+    while j >= 0 and src[j] in " \t\r\n":
+        j -= 1
+    if j < 0:
+        return False
+    if src[j] == ")":
+        # walk back over the balanced (...) and look at the keyword in front of it
+        depth = 0
+        while j >= 0:
+            if src[j] == ")":
+                depth += 1
+            elif src[j] == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+            j -= 1
+        j -= 1
+        while j >= 0 and src[j] in " \t\r\n":
+            j -= 1
+    end = j + 1
+    while j >= 0 and (src[j].isalnum() or src[j] == "_"):
+        j -= 1
+    return src[j + 1:end] in _GROOVY_CTRL_OPENERS
 
 
 def _groovy_top_level_scan(src):
-    """(top-level `def` positions, top-level bare-name uses) with comments, strings and everything
-    inside braces removed. Only depth-0 matters: a name used inside a closure body is evaluated when
-    the closure RUNS, so it may legally sit above the `def`."""
+    """(top-level `def` positions, top-level bare-name uses) with comments, strings and closure
+    bodies removed. An if/try/for body is NOT removed: it runs inline in the same scope, which is
+    where a copied-in block hides an undeclared name."""
     defs, uses = {}, []
+    ctrl_stack = []
     i, n, depth = 0, len(src), 0
     while i < n:
         ch = src[i]
@@ -8350,6 +8578,23 @@ def _groovy_top_level_scan(src):
             j = src.find("*/", i)
             i = n if j < 0 else j + 2
             continue
+        if ch == "/":
+            # a slashy regex literal: /^[A-Z]+-\d{2}$/ — its \d would otherwise read as a name
+            k = i - 1
+            while k >= 0 and src[k] in " \t":
+                k -= 1
+            if k < 0 or src[k] in "=~(,[:?{;&|!+":
+                j = i + 1
+                while j < n and src[j] not in "\n":
+                    if src[j] == "\\":
+                        j += 2
+                        continue
+                    if src[j] == "/":
+                        j += 1
+                        break
+                    j += 1
+                i = j
+                continue
         if ch in "'\"":
             q = ch
             triple = src[i:i + 3] == q * 3
@@ -8366,14 +8611,23 @@ def _groovy_top_level_scan(src):
                     break
                 i += 1
             continue
-        if ch in "{(":
-            depth += 1
+        if ch == "{":
+            # a control body keeps the enclosing scope; a closure body is skipped
+            depth += 0 if _groovy_block_is_control(src, i) else 1
+            ctrl_stack.append(_groovy_block_is_control(src, i))
             i += 1
             continue
-        if ch in "})":
-            depth -= 1
+        if ch == "}":
+            if ctrl_stack:
+                if not ctrl_stack.pop():
+                    depth -= 1
+            else:
+                depth -= 1
             i += 1
             continue
+        # ⛔ parentheses do NOT hide a name: `foo(bar)` and `((x ?: y) as String)` evaluate
+        # bar/x/y right here, in this scope. Counting them as depth was what let an undeclared
+        # name inside a call or a cast slip past every offline gate.
         if ch.isalpha() or ch == "_":
             m = _GROOVY_NAME_RE.match(src, i)
             word = m.group(0)
@@ -8430,6 +8684,59 @@ def _check_groovy_var_used_before_def(p, r):
                   "(08-groovy-rules-and-context.md)"
                   % (rule.get("name"), word, src[:pos].count("\n") + 1,
                      src[:at].count("\n") + 1, word))
+            break
+
+
+_GROOVY_SCRIPT_GLOBALS = {
+    "service", "context", "param", "params", "binding", "out", "log", "args", "result",
+    # bound by the platform in a generated fetch / row-scope rule (the filter-bar payload)
+    "attrs",
+}
+
+
+def _check_groovy_undefined_identifier(p, r):
+    """RUNTIME-THROW (ERROR). The sibling of the used-above-its-`def` bug, and the one that is
+    easier to write: a top-level name that is **never declared in the rule at all**.
+
+    Groovy resolves it exactly the same way — against the rule's CONTEXT — so it throws
+
+        Failed to execute rule '<name>': Context 'po' not found
+
+    and the action dies on its first line of real work. It happens when a block is copied between
+    rules (`po` exists in the engine you copied FROM and not in the one you pasted INTO), or when a
+    variable is renamed in one place. Nothing offline sees it: the script compiles, `validate` is
+    green, the button renders, and the failure shows up only when a user presses it.
+
+    Conservative by construction — it reports a bare name only when ALL of these hold: it is used at
+    depth 0, it is not a method call (`foo(`), it is not capitalised (class names), it is not a
+    Groovy keyword, and it is not one of the script globals the platform binds (`service`,
+    `context`, `param`, …). Fix: declare it, or read it from where it actually lives.
+    (08-groovy-rules-and-context.md)"""
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src:
+            continue
+        try:
+            defs, uses = _groovy_top_level_scan(src)
+        except Exception:
+            continue
+        extra = _groovy_extra_decls(src)
+        seen = set()
+        for word, pos in uses:
+            if word in defs or word in extra or word in seen:
+                continue
+            if word in _GROOVY_SCRIPT_GLOBALS or word[:1].isupper() or word[:1] == "_":
+                continue
+            after = src[pos + len(word):pos + len(word) + 2].lstrip()
+            if after[:1] == "(":
+                continue
+            seen.add(word)
+            r.err("rule %r reads %r at line %d and never declares it. Groovy looks an undeclared "
+                  "name up in the rule's CONTEXT, so this throws \"Context '%s' not found\" the "
+                  "moment the action runs - the script compiles, the button renders, and the work "
+                  "never happens. Declare it (or read the value from where it really lives). "
+                  "(08-groovy-rules-and-context.md)"
+                  % (rule.get("name"), word, src[:pos].count("\n") + 1, word))
             break
 
 

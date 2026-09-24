@@ -545,6 +545,36 @@ model. But for a self-contained export, set `processGroupIdentifier` and add the
 > decision, and note that a `direct:"on"` start action starts the process with **no context data at all**.
 > `validate` WARNs when both are empty and ERRORs when nothing in the whole project starts the workflow.
 >
+> ⛔⛔ **A `userStartProcessActions` action opens a BLANK form — so its rule must be able to
+> CREATE the subject, not just find it.** The start button on a process table is "open a new
+> case", and with `direct: "off"` the platform first shows the action's form group with nothing
+> in it. The rule then runs against a record that does not exist yet.
+>
+> The failure is silent and total. A start rule written for an existing document begins
+>
+> ```groovy
+> def id = SUBJECT()                       // reads the form's `id`
+> if (id == null) { throw new RuntimeException('The record could not be identified') }
+> ```
+>
+> and on a blank form `id` is null on every press. Measured live: the user fills the whole form,
+> presses the button, and **nothing happens at all** — no document, no case, no message. The
+> same rule works perfectly from the register's row action, where the draft already exists, so
+> the defect survives every test that drives the happy path.
+>
+> Decide which one the button is, and make the objects say so:
+>
+> * **"submit THIS document"** — it belongs on the register as a row action, gated on the
+>   document's status. Do not also put it on the process table: the queue's start button then
+>   promises something it cannot do.
+> * **"open a case for a NEW document"** — the rule must persist the form first (create the
+>   record, take its id) and only then claim and start. `submitForm` (null → true) makes the
+>   platform persist the form group before the complete-rule runs, so the rule can read the
+>   fresh row — but only if the form group is bound to a crud that the acting role may create.
+>
+> `validate` cannot see this: the action is well-formed, the rule compiles, the form group
+> exists. Only pressing the button on an empty form does.
+
 > **The THREE action origins on a process table** — the row action menu is assembled from three sources, but
 > only **two** live in this node (`ProcessTablePlugin.fetchBulkActions`):
 > 1. **`userStartProcessActions`** — "start a new process" breadcrumb buttons.

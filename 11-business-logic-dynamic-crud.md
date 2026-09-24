@@ -1011,6 +1011,48 @@ The shape:
 >     def s = v.toString().trim(); return s.isEmpty() ? null : s }
 > def _fk = { k -> def v = param[k + '__id']; return _id(v != null ? v : param[k]) }
 >
+> ⛔⛔ **`v != null ? v : …` above is not stylistic — `?:` here is a data-loss bug.**
+> In Groovy the truth of an object is decided by its own `asBoolean()`, and
+> `JsonNode.asBoolean()` answers **false** for every node that is not a boolean node.
+> So **every Jackson node is falsy**: an `ObjectNode` holding `{"id":"…"}`, a `TextNode`
+> holding a uuid, an `ArrayNode` holding ten rows — all of them. Measured live:
+>
+> ```groovy
+> def n = new ObjectMapper().readTree('{"id":"abc"}')
+> (n ? 'T' : 'F')            // → F
+> (n ?: 'FELLTHROUGH')       // → FELLTHROUGH      ← the good value is gone
+> n.get('id').asText()       // → abc              ← it was there all along
+> ```
+>
+> Write `_id(row['item'] ?: row['item__id'] ?: row['itemId'])` and the chain throws away a
+> perfectly good `{"id":…}`, walks on to two absent keys and yields **null**. The INSERT then
+> writes NULL into the FK column. On a NOT NULL column it raises *null value in column
+> "item_id" … violates not-null constraint* — **inside the `try` that wraps the line loop**, so
+> the user sees a green "saved", the header is in the register, and every line is gone. Nothing
+> is logged where the author looks. This is the single most expensive defect in this document:
+> it hit 114 call sites across 24 rules of one delivered project, and it looks like working code.
+>
+> **Rule: never chain candidate keys with `?:` when any candidate can be a JsonNode.** Walk
+> them and keep the first that actually resolves:
+>
+> ```groovy
+> def _pick = { m, List ks ->
+>     for (k in ks) { if (m.containsKey(k)) { def r = _id(m[k]); if (r != null) { return r } } }
+>     return null }
+> ...
+> def itemId = _pick(row, ['item', 'item__id', 'itemId'])
+> ```
+>
+> The same trap applies to `if (node)`, `while (node)`, `node ? a : b`, `assert node` and
+> `list.findAll { it }`. Test a node with `!= null` (plus `.isNull()` for Jackson's NullNode),
+> never with truth. ⚠️ It bites **nested rows first**: the executor converts the top-level
+> textual/number/boolean parameters to plain Java values, so header fields arrive as `String`
+> and behave; elements of a `lines` array arrive as raw nodes. A document whose HEADER saves
+> correctly while its LINES vanish is this bug, every time.
+>
+> `mrjun.py validate` ERRORs on `?:` chains over payload keys inside a CRUD method's Groovy.
+
+>
 > def hdr = new LinkedHashMap(param)
 > hdr['purchaseOrder__id'] = _fk('purchaseOrder')
 > hdr['supplier__id']      = _fk('supplier')
@@ -1181,13 +1223,13 @@ export/import (`CmsProjectServiceImpl`):
 
 ## ⛔ A document number is the system's job — generate it, never make a user type one
 
-A register entity has a business key on its form — `orderNo`, `docNo`, `ncrNo`, `movementNo` — and
-the generator leaves it as an ordinary mandatory text field. Nothing fills it, so every user types
+A register entity has a business key on its form — `docNo`, `orderNo`, `refNo`, whatever the domain
+calls it — and the generator leaves it as an ordinary mandatory text field. Nothing fills it, so every user types
 one. That looks harmless in a walkthrough and is not:
 
 * two people create a document in the same minute and pick the same number — the second save fails,
   or, with no unique index, succeeds and the register now has a duplicate key;
-* the format drifts the moment a second person types one (`PO-20260923-001`, `PO 20260923 1`, `po-1`);
+* the format drifts the moment a second person types one (`DOC-20260923-001`, `DOC 20260923 1`, `doc-1`);
 * any requirement of the form *"the system assigns the document a unique number"* is unmet while the
   screens look finished.
 
@@ -1197,21 +1239,21 @@ the next value, plus three lines in the entity's `Persist Create` rule.
 ```sql
 -- crud_<alias>_nextNo — the prefix and width follow the numbers already in the data,
 -- so a generated key sorts and reads exactly like a seeded one
-SELECT 'PO-' || to_char(now(), 'YYYYMMDD') || '-' ||
-       lpad((COALESCE(MAX((regexp_match(order_no, '-(\d+)$'))[1]::bigint), 0) + 1)::text, 3, '0')
+SELECT '<PFX>-' || to_char(now(), 'YYYYMMDD') || '-' ||
+       lpad((COALESCE(MAX((regexp_match(<key_col>, '-(\d+)$'))[1]::bigint), 0) + 1)::text, 3, '0')
        AS next_no
-FROM production_order
-WHERE order_no LIKE 'PO-' || to_char(now(), 'YYYYMMDD') || '-%'
+FROM <table>
+WHERE <key_col> LIKE '<PFX>-' || to_char(now(), 'YYYYMMDD') || '-%'
 ```
 
 ```groovy
 // <alias> Persist Create, before the write
-if (!((payload['orderNo'] ?: payload['order_no'] ?: '') as String).trim()) {
-    def res = service.crud.productionOrder.nextNo([:])
+if (!((payload['docNo'] ?: payload['doc_no'] ?: '') as String).trim()) {
+    def res = service.crud.<alias>.nextNo([:])
     if (res instanceof List) { res = res.isEmpty() ? null : res[0] }
     def next = (res instanceof Map) ? (res['nextNo'] ?: res['next_no']) : null
-    if (next == null) { throw new RuntimeException('<hy> / <ru> / <en>') }
-    payload['orderNo'] = (next as String); payload['order_no'] = (next as String)
+    if (next == null) { throw new RuntimeException('<locale 1> / <locale 2> / <locale 3>') }
+    payload['docNo'] = (next as String); payload['doc_no'] = (next as String)
 }
 ```
 
@@ -1222,11 +1264,11 @@ read before the write.
 
 Three more things the pattern needs:
 
-* **Derived keys come after it.** A planned lot code built from the order number (`PO-20260912-014`
-  on `FG-PCH-230-01` → `260912-PCH-14`) must be generated in the same rule, *after* the number is
-  assigned — not from the form, which has neither.
-* **A code a human chooses stays typed.** `skuCode`, `recipeCode`, `routeCode`, `paramCode` carry
-  meaning the system cannot invent. Only *numbers* are generated.
+* **Derived keys come after it.** A second key composed from the first one (a child code built out of
+  the document number and a product code, say) must be generated in the same rule, *after* the number
+  is assigned — not from the form, which has neither value yet.
+* **A code a human chooses stays typed.** A catalogue code carries meaning the system cannot invent.
+  Only *numbers* are generated.
 * **This is a read-then-write, not an atomic sequence.** Two simultaneous creates can still collide;
   a unique index on the column turns that into a clean failure instead of a duplicate. Add one.
 
