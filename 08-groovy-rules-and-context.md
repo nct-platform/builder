@@ -80,6 +80,32 @@ Its scanner has to be careful about what really hides a name: a closure body doe
 an `if`/`try`/`for` body does **not**, and neither do parentheses — `((po?.x ?: '') as String)`
 evaluates `po` right there. A checker that skips everything inside brackets sees none of this.
 
+### ⛔ Two `def` of the same name in one block do not shadow — they stop the script COMPILING
+
+Groovy is not JavaScript here. A second `def x` in the SAME block is a compile error, and a rule
+that does not compile does not half-run: it does nothing, and says so from a line number inside a
+generated script the author has never seen.
+
+```
+Failed to compile Groovy script: startup failed:
+RULE_Script_a211c2b4806174f9902210af79990d8a: 338: The current scope already contains a
+variable of the name __cySeq @ line 338, column 5.   def __cySeq = '01'
+```
+
+Why this is a REAL risk rather than a beginner's slip: the two declarations are normally written
+months apart, by two correct fixes, hundreds of lines apart in the same long engine. On a delivered
+project the order-closing engine died exactly this way — one fix had added a numbering closure named
+`__cySeq` to six engines, another had long used `__cySeq` as a local lot sequence in one of them.
+Each paragraph reads perfectly on its own; nothing but a compile notices.
+
+* **Prefix helpers you fan out across several rules**, and treat that prefix as reserved
+  (`__cySeq`, `__cyNext…`): a shared helper is the one name you must NOT rename later.
+* **Name locals for what they hold**, not for the mechanism (`__cyLotSeq`, not `__cySeq`).
+* `validate` now refuses a project with such a pair (`_check_groovy_duplicate_def`). It compares the
+  BLOCK PATH, not the nesting depth — `list.each { def x = … }` twice is legal, two different blocks.
+* And when it bites you anyway: **rename the narrower one**. The shared helper has five other callers
+  that are all still right.
+
 ## Export shape — the `rule` rep-object
 
 Rules live in `rep-objects.json` under the `rules` key (an array). Schema of one element:

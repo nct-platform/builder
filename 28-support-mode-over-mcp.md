@@ -1143,7 +1143,7 @@ The discipline that keeps this cheap: when a test goes red, reproduce the step B
 browser first. It takes a minute, and it tells you which of the two things is broken before you
 spend an hour fixing the wrong one.
 
-**Seven ways a UI assertion lies, all found on one delivered project.** They are not
+**Twenty-one ways a UI assertion lies, all found on one delivered project.** They are not
 about this platform's quirks — they are about how a page reports itself, and they recur:
 
 * **A substring is not a signal.** A helper reported "server error" whenever the page contained
@@ -1177,6 +1177,30 @@ about this platform's quirks — they are about how a page reports itself, and t
   and the text never arrives, that is a different defect — a refusal nobody can read — and it
   deserves its own sentence, not a failed assertion about the gate.
 
+* **The biggest table on the page is not necessarily yours.** A page that hosts two
+  registers — lots and reservations, counts and adjustments — has two tables, and
+  "sort by innerText length and take the first" picks whichever has more rows. The test
+  then reports "the lots register has no ON HAND column" and helpfully prints the
+  RESERVATIONS columns. ⛔ **Choose a table by what must be IN it** (`grid("LOT CODE",
+  "ON HAND")`), never by size, and say which columns you required in the failure message.
+* **A tab is server-side state, exactly like the locale.** Which tab of a two-register page
+  is open belongs to the USER on the server, so a tab another test selected is still
+  selected in yours — and `Create` then opens the neighbouring register's form. Measured:
+  a count test filled an ADJUSTMENT form and reported "System quantity: НЕ НАЙДЕНО" about a
+  field that form never had. ⛔ **Select the tab explicitly at the start of every test that
+  reads a register**, the same way you set the locale.
+* **A label comparison is case-sensitive; the theme is not.** The project names a control
+  `Source Lot`, the page prints `Source lot`, and a theme with `text-transform: uppercase`
+  prints `SOURCE LOT`. An exact match then declares a present field absent. ⛔ Compare
+  labels case-insensitively, trimming trailing `:` and `*`.
+* **A field's TAG is a guess.** «Description» is a `textarea`, not an `input`; a picker may
+  be a `select` on one form and a lookup on another. A filler that requires the tag reports
+  "field not found" for a field that is right there. ⛔ Fall back between the text-ish tags
+  and fail only when the LABEL is missing.
+* **`goto` losing a race is not the page failing to open.** `net::ERR_ABORTED` means the
+  previous page's redraw or redirect cancelled the navigation. Retry it (two or three times)
+  — and when you finally report it, say it was the navigation, not the page.
+
 * **A business code is a number to a regular expression.** A grid check that took "the first
   number in the row" as the quantity read the item code `RM-A12-003` as **−3.0** — the pattern
   `-?\d[\d ]*[.,]?\d*` finds `-003` inside it — and reported "planned requirement −3.0, expected
@@ -1205,6 +1229,85 @@ trusting a red assertion, ask what ELSE could produce exactly this output.
   reconstruct a server-generated identifier from client-side state: read it back, or accept the
   neighbouring days explicitly and say why.
 
+* **«The newest record with today's prefix» is not «the record this test created».** Two test
+  files in one suite create the same kind of document on the same day; a third creates it as a
+  side effect. A test that identifies its own record as *the highest number carrying today's
+  prefix* silently adopts a NEIGHBOUR's record and then measures the scenario's numbers against
+  it: the chain test read 5.2736 where the scenario says 3.296, because the order it picked up
+  was someone else's 40 units instead of its own 25. The run reported a calculation defect in a
+  calculation that was correct. ⛔ **Identify a server-numbered record by DIFFERENCE, not by
+  maximum** — collect the numbers before the save, collect them after, take what is new; and when
+  the register pages, take the difference THROUGH the register's own filter rather than off the
+  first page. Then assert one field you typed yourself (the quantity you entered), so that
+  adopting a foreign record fails loudly instead of quietly producing wrong numbers.
+
+* **An INVENTED page address reads as missing data.** Four checks pointed at
+  `/qc-inspections`, `/warehouses`, `/equipment`, `/reason-codes` — none of which the project
+  declares (three of those registers are TABS of another page). Each opened a 404, found no
+  rows, and skipped itself with "has no rows to judge": a sentence about the DATA, produced by
+  a wrong URL. ⛔ **Take every path from the project's own page list**, and make the "no rows"
+  skip fire only after you have proved the page exists (a title check is enough).
+* **A column the register does not have makes a check disappear.** A weight-check test asked
+  for four columns; the register has three (there is no "deviation, g" column at all), so the
+  reader returned nothing and the test skipped with "the grid does not expose its numbers" —
+  over a full register. ⛔ Read the column list from the table model, assert on what is there,
+  and fail — not skip — when a column you need is genuinely absent.
+* **The FIRST row is not a representative row.** Opening row #1 and finding its line grid empty
+  is not "no record has lines". Two checks skipped on that, past 537 candidates. ⛔ When a check
+  needs a record in a particular shape, LOOK for one (a bounded scan of the first page), and
+  say how many you looked at when you give up.
+
+* **A page object's `open()` returns before the register is drawn.** The helper waits for the
+  document, the framework then fetches the rows; a check that reads the grid (or a row's menu)
+  on the next line finds nothing and skips itself with "no suitable row in the current data" —
+  while the table holds 537 of them. ⛔ **Wait for the ROWS, not for the page**, and write the
+  skip message so it cannot be confused with a data statement.
+* **A form that opens in 4 seconds is not a form that failed to open.** The same helper
+  concluded "the form does not open in this build" 1.5 s after the click. On a live stand the
+  dialog arrives by AJAX in 3–6 s. ⛔ Poll for the dialog; never assert its absence on one look.
+
+* **An EMPTY action menu is not «this row has no actions».** The row's menu is rendered by
+  the framework AFTER the table; a check that reads it immediately after the rows appear finds
+  zero items on a row whose menu, a second later, holds ten. The test then says "the order has
+  no «Request reopen» action" — a sentence about the product, produced by reading too early.
+  ⛔ **Re-ask an empty enumeration** (a menu, an option list, a grid) before concluding it is
+  empty; a genuinely empty one costs a few seconds, a wrongly empty one costs a bug report.
+
+* **The button you press must live in the form you filled.** «The last button with this caption
+  on the page» reaches the register under the dialog; «the last dialog in the DOM» reaches a
+  dialog that was CLOSED three steps ago and is still in the markup with a visible layout box.
+  Both press something, both return success, and the form you filled is never submitted — after
+  which the test works with whatever record the register happens to show. ⛔ **Mark the dialog you
+  filled and press inside that mark.** And read the refusal from inside it too: a form's own
+  validation prints its message in the form and raises no toast, so a rejected save and a
+  successful one look identical from outside.
+
+**A waiter that greps for the process it waits on never fires.** Queuing a long run behind
+another (`until ! ps aux | grep -q pytest; do sleep 20; done; pytest …`) blocks forever: `ps`
+prints the waiter's OWN command line, and that line contains the pattern. The bracket trick
+(`[p]ytest`) only excludes the grep process itself, not the shell that holds the same text. Match
+on something the waiter cannot contain — the interpreter path, a pid file, a lock — or check the
+run's own output file instead. Worth knowing because the failure mode is silence: the queued run
+simply never starts, and the session waits on nothing.
+
+**And when ten checks fail at once, read the message before you read the product.** Ten
+assertions that all say `NameError: name 'Driver' is not defined` are one missing import, not
+ten defects; ten that all say "no rows" are one register that did not render. A batch of
+identical failures is a property of the HARNESS with near-certainty — triage by grouping the
+messages first, and only then open the application. The reverse order costs an hour and can
+produce a bug report about a feature that works.
+
+**A visible browser is a shared resource, and a long run must not use one.** Running the suite
+with a window on screen (`headless=false`) is right for watching one scenario and wrong for a
+25-minute sweep: a screen lock, a sleeping display, another application stealing focus, or one
+stray Cmd-W ends the run with `TargetClosedError: Target page, context or browser has been
+closed` — a message that reads like the application crashed. ⛔ **Default the runner to
+headless** and make watching an explicit, per-command override (`HEADLESS=0 ./start.sh -k
+one_test`). The tell is the SHAPE of the error, not the place: `TargetClosedError` on a
+plain wait — a step that asserts nothing — is the window going away, while a product defect
+fails an assertion and says what it expected. Re-run headless before you diagnose anything
+else; it costs one run and removes a whole class of ghost.
+
 **And one that is not about the page at all: a run that was KILLED is not a run that FAILED.** A
 browser suite holds a real browser open for the length of the run; on a developer machine that is
 competing with an IDE, a VM and a container runtime. When the system reclaims memory it kills the
@@ -1214,6 +1317,27 @@ in the failure epilogue name "the run was killed, not failed" as one of the inno
 The alternative is someone re-running a 25-minute suite three times to chase a defect that does not
 exist.
 
+
+### ⛔ A test that "passes" without doing anything is worse than a red one
+
+The most expensive defect a suite can carry is not a false failure — it is a green test that
+performed no action. Two shapes of it were found on one delivered project, both in tests that
+had been green for days:
+
+* **The action with a FORM was never submitted.** A row action that opens a form is confirmed
+  by a button carrying THE ACTION'S OWN NAME — `Submit for approval`, `Post`, `Close` — not by
+  `Save` and not by a `Yes` dialog. A test that presses the menu item and then looks for `Yes`
+  does nothing at all: no case is opened, no document is posted. Its assertion («the queue did
+  not grow by more than one») then holds trivially, and the suite reports success over an
+  untouched system. ⛔ **After every action that opens a form, assert that the form was
+  submitted** — press the button by the action's name and fail when it is not there.
+* **The refusal that was never provoked.** A prohibition test that fills only two of four
+  mandatory fields gets the platform's own field validation, not the business guard it means to
+  check — and if it asserts merely "some feedback appeared", it passes while proving nothing.
+  ⛔ Fill every mandatory field, then assert the guard's OWN words.
+
+The general rule: for each test ask *what would fail if the feature were deleted?* If the
+answer is "nothing", the test is decoration. That question found both of these in one reading.
 
 ⛔ **The suite is the second proof, never the first.** If a scenario passed only in the suite and you never
 watched it in the browser, say so. Automation inherits every blind spot of the person who wrote it.

@@ -102,6 +102,48 @@ only when `bl` is deployed. A **static** project — one whose CRUDs are compile
 such file at all, no matter how rich its domain is. So the presence of `dynamic-cruds.json` in the archive, not
 the size or subject of the project, is what tells you which kind of project you are holding.
 
+## ⛔ An INSERT method must be given every NOT NULL column — the caller cannot see the schema
+
+A dynamic CRUD's `create`/`insertLine` is a hand-written INSERT, and the Groovy that calls it
+passes a map. Nothing checks that the map covers the table's NOT NULL columns: the mismatch
+surfaces at runtime, from PostgreSQL, inside a rule the author is not reading:
+
+```
+SQL execution failed: ERROR: null value in column "uom_id" of relation
+"stock_movement" violates not-null constraint
+```
+
+Measured on a delivered project: the engine that posts a stock count wrote its ledger movement
+without `uom_id` — because the count LINE has no unit of measure (the unit belongs to the LOT,
+correctly). Posting therefore failed for every count ever taken: the document stayed
+"completed", balances never moved, no movement row was written. The seeded "posted" counts in
+the demo data had been produced by the generator's SQL, so the button had never been pressed.
+
+Two habits prevent the whole class:
+
+* **Derive from the parent row what the parent row knows.** Item, unit of measure, unit cost
+  belong to the lot; a line that omits them should not be rejected, it should inherit them —
+  `COALESCE(CAST(NULLIF(:param…)), (SELECT sl.<col> FROM stock_lot sl WHERE sl.id = :lot))`.
+  That turns a required field into an optional one and removes the retyping that invites
+  mismatched ids.
+* **When you write a movement/ledger row from a rule, list its NOT NULL columns first** and
+  check the call against them. A grep across the project's rules for
+  `stockMovement.create` without `uom__id` took a minute and proved the remaining calls clean.
+
+`validate` now does that grep for you, from both ends:
+
+* the INSERT end — **every** SQL method's INSERT, not just the ones named `create`/`insertLine`
+  (the interesting omissions live inside engines) — reports a NOT NULL column with no default
+  that the column list leaves out;
+* the CALLER end — a rule that passes a literal map to `create`/`insert*` and omits the key that
+  feeds a NOT NULL column. It accepts either spelling of a reference (`uom_id`, `uom__id`,
+  `uomId`) and stays silent where it cannot read the call exactly: a map assembled in a variable,
+  a spread (`*:other`), or a column the SQL `COALESCE`s from the parent row.
+
+The second half is the one that would have caught the count-posting blocker: the INSERT listed
+`uom_id` and was perfectly correct — the column was bound to a parameter, and the engine simply
+never passed it. Nothing in between reads the two together, which is why this pairing exists.
+
 ## Export shape
 
 `dynamic-cruds.json` (root is an **object**, not an array; exactly 2 keys):

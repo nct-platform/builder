@@ -357,6 +357,9 @@ def cmd_validate(args):
     # -- a Groovy name read above its own `def` -> "Context 'x' not found", the action never runs --
     _check_groovy_var_used_before_def(p, r)
     # -- a Groovy name never declared at all -> the same "Context 'x' not found", on the first run --
+    _check_groovy_duplicate_def(p, r)
+    # -- a create call that omits a NOT NULL column's parameter: throws on EVERY call --
+    _check_crud_create_call_not_null(p, r)
     _check_groovy_undefined_identifier(p, r)
     # -- a user-task action with no complete rule -> the task closes and the record is untouched --
     _check_user_task_action_has_complete_rule(p, r)
@@ -1745,6 +1748,20 @@ def _parse_insert(sql):
         return None, set()
     cols = {c.strip() for c in m.group(2).split(",") if c.strip()}
     return m.group(1), cols
+
+
+def _parse_inserts(sql):
+    """EVERY `INSERT INTO t (cols…)` in one script, as (table, {cols}).
+
+    One method writes more than one table: a posting engine inserts the movement AND
+    the balance row, and the column list of the second one is where the omission hides.
+    `_parse_insert` sees only the first statement, which is why the NOT NULL check that
+    used it missed a column that made posting fail on every single call.
+    """
+    out = []
+    for m in _INSERT_TBL_RE.finditer(sql or ""):
+        out.append((m.group(1), {c.strip() for c in m.group(2).split(",") if c.strip()}))
+    return out
 
 
 def _expr_resolves(expr, kind, roots, leaves, list_keys):
@@ -7465,18 +7482,28 @@ def _check_dynamic_cruds(p, cruds, r):
                               "constraint allows only {%s}"
                               % (alias, m.get("methodName"), col, lit, tbl,
                                  ", ".join(sorted(allowed))))
-        # (2) create INSERT omitting a NOT NULL column with no default/COALESCE -> WARN.
+        # (2) ANY INSERT omitting a NOT NULL column with no default -> WARN.
+        #
+        # ⛔ This used to look at three method NAMES (`create`, `createHeader`,
+        # `insertLine`) and therefore missed every INSERT written inside an engine —
+        # which is where the interesting ones live. Measured on a delivered project:
+        # the inventory-count posting engine inserted a stock movement without
+        # `uom_id`, a NOT NULL column, so posting a count failed for every count
+        # ever made; the register rendered, the action offered itself, and the only
+        # trace was a PostgreSQL message inside a rule nobody reads. The caller is
+        # Groovy and cannot see the schema, so nothing but this check looks.
         for m in methods:
-            if m.get("methodName") in ("create", "createHeader", "insertLine") \
-                    and m.get("methodType") == "SQL":
-                tbl, ins_cols = _parse_insert(m.get("script", ""))
-                sql = m.get("script", "") or ""
+            if m.get("methodType") != "SQL":
+                continue
+            for tbl, ins_cols in _parse_inserts(m.get("script", "")):
                 for c in tables.get(tbl, []) or []:
                     if c["name"] == "id" or c["default"] or not c["notnull"]:
                         continue
                     if c["name"] not in ins_cols:
                         r.warn("crud %r %s: NOT NULL column %r of %s is not in the INSERT "
-                               "(needs a value/COALESCE default)"
+                               "(needs a value/COALESCE default) — the caller is Groovy and "
+                               "does not see the schema, so this fails at runtime with a "
+                               "PostgreSQL message from inside a rule"
                                % (alias, m.get("methodName"), c["name"], tbl))
         # (2b) a document CRUD (has insertLine/deleteLines) whose delete does not
         #      clear child lines first will FK-fail on any doc that has lines -> WARN.
@@ -8692,6 +8719,206 @@ _GROOVY_SCRIPT_GLOBALS = {
     # bound by the platform in a generated fetch / row-scope rule (the filter-bar payload)
     "attrs",
 }
+
+
+_GROOVY_DEF_RE = re.compile(r"\bdef\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+_CRUD_CREATE_CALL_RE = re.compile(
+    r"service\.crud\.([A-Za-z_]\w*)\.(create|insert|insertLine|createHeader|createLine)\s*\(\s*\[")
+
+
+def _map_literal_keys(src, open_idx):
+    """TOP-LEVEL keys of the Groovy map literal that starts at `open_idx` (the '[').
+
+    Returns (keys, ok). `ok` is False when the literal cannot be read honestly — an
+    unbalanced tail, or a spread (`*:other`) that adds keys this reader cannot see.
+    A check that guesses in those cases produces noise, and noise is what makes people
+    stop reading `validate`.
+    """
+    depth, i, n = 0, open_idx, len(src)
+    body_start = open_idx + 1
+    while i < n:
+        c = src[i]
+        if c in "[(":
+            depth += 1
+        elif c in "])":
+            depth -= 1
+            if depth == 0:
+                body = src[body_start:i]
+                if "*:" in body:
+                    return set(), False
+                keys, d = set(), 0
+                for m in re.finditer(r"[\[\](){}]|([A-Za-z_]\w*)\s*:", body):
+                    tok = m.group(0)
+                    if tok in "[({":
+                        d += 1
+                    elif tok in "])}":
+                        d -= 1
+                    elif m.group(1) and d == 0:
+                        keys.add(m.group(1))
+                return keys, True
+        elif c in "'\"":
+            q = c
+            i += 1
+            while i < n and src[i] != q:
+                i += 2 if src[i] == "\\" else 1
+        i += 1
+    return set(), False
+
+
+def _check_crud_create_call_not_null(p, r):
+    """RUNTIME-THROW (WARNING). The caller of a create method cannot see the schema.
+
+    An INSERT can list every NOT NULL column and still fail on every call: the column is
+    bound to a PARAMETER, and the Groovy that calls the method decides whether that
+    parameter gets a value. Nothing in between looks at the two together — the SQL is
+    valid, the rule compiles, `validate` is green, the button renders — and the failure
+    arrives as a PostgreSQL message from inside a rule:
+
+        ERROR: null value in column "uom_id" of relation "stock_movement"
+        violates not-null constraint
+
+    Measured on a delivered project: posting an inventory count had never once worked.
+    The unit of measure belongs to the LOT, the engine did not read it, and
+    `stock_movement.uom_id` is NOT NULL — so the count completed, the register showed it
+    as posted, and the balance never moved. The previous version of this check looked at
+    the INSERT alone and saw nothing wrong, because nothing IS wrong with the INSERT.
+
+    The check reads the create method's own INSERT to learn which parameter feeds which
+    column, then looks at every literal map a rule passes to that method. It accepts both
+    spellings of a reference key — `uom_id` and the platform's paired form `uom__id`
+    (11-business-logic-dynamic-crud.md) — and stays quiet on anything it cannot read
+    exactly: a map built in a variable, a spread, a value that is `COALESCE`d in the SQL.
+
+    Fix: give the caller the value (read it from the row that owns it, and refuse with a
+    human message when it is missing) — never make the column nullable to silence this.
+    (11-business-logic-dynamic-crud.md)"""
+    crud_file = p.cruds_file
+    cruds = (crud_file.data.get("cruds", []) if crud_file else []) or []
+    if not cruds:
+        return
+    try:
+        idx = dyncheck.build_schema_index(p.db)
+    except Exception:
+        return
+
+    # alias -> method -> {column: parameter}
+    need = {}
+    for crud in cruds:
+        sidx = idx.get(crud.get("sourceSchema")) or {}
+        tables = sidx.get("tables", {})
+        for m in crud.get("methods", []) or []:
+            if m.get("methodType") != "SQL":
+                continue
+            sql = m.get("script", "") or ""
+            for tbl, cols in _parse_inserts(sql):
+                cols_l = [c.lower() for c in cols]
+                for c in tables.get(tbl, []) or []:
+                    if c["name"] == "id" or c["default"] or not c["notnull"]:
+                        continue
+                    if c["name"].lower() not in cols_l:
+                        continue        # reported by the INSERT check itself
+                    # a column whose VALUE is a literal or COALESCE needs no caller key
+                    val = re.search(
+                        r"[(,]\s*%s\s*(?=[,)])" % re.escape(c["name"]), sql, re.I)
+                    need.setdefault(crud.get("alias"), {}).setdefault(
+                        m.get("methodName"), {})[c["name"]] = tbl
+
+    if not need:
+        return
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if "service.crud." not in src:
+            continue
+        for call in _CRUD_CREATE_CALL_RE.finditer(src):
+            alias, method = call.group(1), call.group(2)
+            cols = (need.get(alias) or {}).get(method)
+            if not cols:
+                continue
+            keys, ok = _map_literal_keys(src, src.index("[", call.end() - 1))
+            if not ok:
+                continue
+            for col, tbl in sorted(cols.items()):
+                alts = {col, col.lower()}
+                if col.endswith("_id"):
+                    alts.add(col[:-3] + "__id")
+                    alts.add(_snake_to_camel(col[:-3]) + "__id")
+                alts.add(_snake_to_camel(col))
+                if not (alts & keys):
+                    r.warn("rule %r calls %s.%s without %r — %s.%s is NOT NULL with no "
+                           "default, so this call throws \"null value in column\" from "
+                           "PostgreSQL at runtime. The caller cannot see the schema; only "
+                           "this pairing can. (11-business-logic-dynamic-crud.md)"
+                           % (rule.get("name"), alias, method, col, tbl, col))
+
+
+def _snake_to_camel(name):
+    head, *rest = name.split("_")
+    return head + "".join(w[:1].upper() + w[1:] for w in rest)
+
+
+def _check_groovy_duplicate_def(p, r):
+    """COMPILE-FAIL (ERROR). Two `def` of the SAME name in the SAME block do not shadow one
+    another in Groovy — they stop the script from compiling at all:
+
+        Failed to compile Groovy script: startup failed:
+        RULE_Script_…: 338: The current scope already contains a variable of the name __cySeq
+        @ line 338, column 5.   def __cySeq = '01'
+
+    The rule then never runs — not the second half, the WHOLE rule — and the message points at a
+    line number inside a generated script nobody has open. Measured on a delivered project: the
+    close engine of the production order, i.e. the one action the whole month of work leads up to,
+    dead because two independent fixes each introduced a helper named `__cySeq` — one a numbering
+    closure shared by six engines, the other a local lot sequence. Both authors were right; the
+    collision belonged to neither.
+
+    This is what makes it worth a check rather than a review: the two `def`s are usually hundreds of
+    lines apart, each looks correct in its own paragraph, and no offline gate reads scope. The check
+    compares the BLOCK PATH, not the nesting depth — `list.each { def x = … }` twice is legal,
+    because those are two different blocks at the same depth.
+
+    Fix: rename the one whose meaning is narrower (`__cyLotSeq`), never the one that is shared.
+    (08-groovy-rules-and-context.md)"""
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if not src or "def " not in src:
+            continue
+        try:
+            body = _strip_groovy_noise(src)
+        except Exception:
+            continue
+        seen, stack, counter, reported = {}, [0], [0], set()
+        i, n = 0, len(body)
+        while i < n:
+            c = body[i]
+            if c == "{":
+                counter[0] += 1
+                stack.append(counter[0])
+                i += 1
+                continue
+            if c == "}":
+                if len(stack) > 1:
+                    stack.pop()
+                i += 1
+                continue
+            m = _GROOVY_DEF_RE.match(body, i)
+            if m:
+                key = (tuple(stack), m.group(1))
+                if key in seen and m.group(1) not in reported:
+                    reported.add(m.group(1))
+                    r.err("rule %r declares `def %s` twice in the SAME block (line %d and line %d). "
+                          "Groovy refuses to compile that — \"The current scope already contains a "
+                          "variable of the name %s\" — and the rule does not run AT ALL, not just "
+                          "its second half. Rename the narrower one. "
+                          "(08-groovy-rules-and-context.md)"
+                          % (rule.get("name"), m.group(1),
+                             body[:seen[key]].count("\n") + 1, body[:m.start()].count("\n") + 1,
+                             m.group(1)))
+                seen.setdefault(key, m.start())
+                i = m.end()
+                continue
+            i += 1
 
 
 def _check_groovy_undefined_identifier(p, r):
