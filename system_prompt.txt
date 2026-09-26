@@ -356,6 +356,32 @@ Reference library — doc/builder/ :
                                         default); one load order, and how an archive is ordered; the dependency
                                         suggestions; environment PUBLISH does not carry these.
                                         Toolkit: globalresource add / add-zip / mkdir / ls / set / rm.
+  31-email-integration-and-mailbox.md . EMAIL - the project sending AS ITSELF, and a mailbox on a page.
+                                        Read it when a PRD says "from our domain", "the support inbox", or
+                                        "when a customer emails us, open a case".
+                                        FIRST FACT, and it decides the plan: the mail ACCOUNTS, their
+                                        credentials and the on/off switch are NOT in the .mrjun - they are
+                                        configured live after import. What you author is the
+                                        nct.mailbox.plugin node, the Groovy rules and the templates; what you
+                                        deliver alongside is a handover step (section 8).
+                                        THE MODEL: a message has TWO independent read states - one for
+                                        PEOPLE (the plugin's unread badge) and one for RULES
+                                        (service.mailbox.unread). Neither silences the other, on purpose.
+                                        A rule that reads a message and does not markRead() reprocesses it on
+                                        every tick, forever - the same idempotency duty as 27.
+                                        SENDING: templates and service.notification.mail.<alias> are
+                                        unchanged; only the account changes, and every failure falls back to
+                                        the platform account. One switch decides whether it changes at all -
+                                        off, the integration is RECEIVE-ONLY and outgoing keeps leaving
+                                        through the platform. The outbox retries transient failures and
+                                        records permanent ones. Transports: SMTP, ten shipped provider APIs,
+                                        and a CUSTOM HTTP API the customer describes themselves.
+                                        READING: IMAP or POP3, named folders, no history by default, stored
+                                        once however often it is re-polled, retention in days.
+                                        Groovy: service.mailbox.* - read in every rule type, change only in
+                                        an EXECUTION rule (16 section 2.16). With more than one mailbox, name
+                                        it ONCE with service.mailbox.account("Support") instead of repeating
+                                        account: in every call - the call that forgets reads the wrong one.
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).

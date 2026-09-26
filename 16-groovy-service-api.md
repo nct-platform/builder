@@ -1361,6 +1361,90 @@ return true
 
 ---
 
+### 2.16 `service.mailbox.*` — reading and answering the project's own mail
+
+Full picture, including everything that is configured LIVE rather than authored, in
+[31](31-email-integration-and-mailbox.md). This is the member list.
+
+```
+service.mailbox
+    .account(String name)          // the same mailbox, narrowed to ONE account - see below
+    .unread()                      // messages NO RULE has handled yet, newest first, limit 50
+    .unread(Map options)           // the same, narrowed
+    .find(Map options)             // any search across the project's mail
+    .get(String id)
+    .unreadCount()  .unreadCount(Map options)
+    .accounts()                    // [[name:…, address:…, active:…, canSend:…, canReceive:…, isDefault:…], …]
+    .markRead(x)   .markUnread(x)  // x = a message, an id, or a list of either
+    .flag(x)       .unflag(x)
+    .archive(x)    .trash(x)       .move(x, "FOLDER")
+    .send(Map options)
+```
+
+**Say WHICH mailbox once, not in every call.** A project with two accounts can pass `account:` to each
+call, and then the one call that forgets reads — or answers from — the wrong mailbox:
+
+```groovy
+def support = service.mailbox.account("Support")          // the name from Settings
+support.unread(limit: 20).each { message ->
+    // … turn it into a record …
+    message.markRead()
+}
+support.send(to: message.from, subject: "Re: " + message.subject, text: "Got it.")
+```
+
+Everything after `account(...)` is about that account unless a call names another one — it sets a default,
+it does not forbid anything. Two more reasons to prefer it: the editor completes the name from the
+project's real accounts as soon as you type the opening quote (a key inside an options map cannot be
+completed at all), and `accounts()` is the list if you want to loop over all of them.
+
+**Options for `unread` / `find`:** `account` (the account's NAME), `folder`, `limit` (default 50), `page`,
+`from`, `to`, `subject`, `search`, `sinceDays`, `since`, `until`, `flagged`, `hasAttachments`,
+`oldestFirst`, `includeBody`. The text options match with `%` as the wildcard: `from: "%@acme.com"`.
+
+**Options for `send`:** `to` (required), `cc`, `bcc`, `subject`, `html`, `text`, `account`, `replyTo`,
+`attachments` (`[[fileName:…, content: bytes, contentType:…], …]`), `storeInSent`, and `inReplyTo` — the id
+of a message in THIS project, which puts the outgoing mail in that conversation and marks the original
+answered. An id belonging to another project is refused at the door. `message.reply(html)` does all of that
+for you; pass `inReplyTo` only when you are composing the answer yourself.
+
+**Each message** carries `id subject from fromName to cc replyTo text html snippet receivedAt sentAt folder
+account messageId userRead ruleRead flagged hasAttachments attachments`, and answers
+`markRead() markUnread() flag() unflag() archive() trash() reply(html) replyAll(html) forward(to, html)`
+and `attachment("name.pdf")`. An attachment answers `fileName contentType size inline skipped` for free and
+`bytes()` as a fetch.
+
+All of that is in the editor's completion, not only here: `service.mailbox.get(id).` lists the members, and
+so does `unread()[0].`. Inside `each { message -> … }` the completion stops, because the editor cannot know
+what a closure's parameter is — index into the list while exploring, then write the loop.
+
+> **⛔ The two read flags are independent, and this namespace only ever touches one of them.**
+> `unread()` means *no rule has handled this* and `markRead()` records *a rule has*. What a PERSON has
+> opened in the Mailbox plugin is a separate flag that nothing here reads or writes — and vice versa. That
+> is the point: a colleague glancing at a message must not make an importer skip it, and an overnight
+> importer must not empty somebody's unread count. See [31 §2](31-email-integration-and-mailbox.md).
+
+> **⛔ Marking is the rule's own job.** A rule that reads a message and does not mark it processes that same
+> message again on the next tick, forever. Mark it in the same iteration that consumed it — the same
+> discipline [27](27-event-driven-process-start.md) states for case creation, and for the same reason.
+
+**Where it works.** Reading is available in **every** rule type; the members with side effects
+(`markRead`, `markUnread`, `flag`, `unflag`, `archive`, `trash`, `move`, `send`, `reply`, `forward`) work
+only in an **EXECUTION rule** and refuse elsewhere with an explanation. A predicate is evaluated for an
+answer, possibly once per row; a validation rule runs on every submit attempt. Consuming an inbox as a side
+effect of deciding whether to draw a button is not a thing anybody meant to write.
+
+**`send` vs `service.notification.mail.<alias>` (§2.5)** — a real decision: the template call is for
+anything a designer should own (a branded notification, a statement), because the project can restyle it
+without a rule being touched; `service.mailbox.send` is for text a rule composed, where there is nothing
+for a designer to own.
+
+**With nothing configured** the namespace still exists and answers empty: `unread()` returns `[]`,
+`accounts()` returns `[]`, and `send` reaches the platform's own account the way it always did. A rule
+written against it is therefore safe to ship before the customer has connected a mailbox.
+
+---
+
 ## Part 3 — `validation.*` (VALIDATION_RULE only)
 
 In a validation rule, the `ValidationRuleTemplate.groovy` template places the `validation` collector and provides 4
@@ -1438,6 +1522,9 @@ resolution are done by the runtime. Step by step:
    - **remember something between rules:** `service.store.session.put("selectedBranchId", id)` (this browser
      session) or `service.store.user.put("rowsPerPage", 50)` (this person, forever) — §2.14. Reading always
      takes a default: `service.store.user.get("rowsPerPage", 25)`.
+   - **turn an inbox into records:** `service.mailbox.unread(account:"Support", limit:50).each { m -> … ;
+     m.markRead() }` — §2.16, EXECUTION rules only for the marking, and the `markRead()` is what stops the
+     next tick processing the same message again.
 5. **Return correctly.** PREDICATE **must** `return <boolean>` (a bare `true` in the template is discarded — see
    [08](08-groovy-rules-and-context.md), §"Templates and return semantics"). EXECUTION may return
    anything (map, list, scalar) or nothing. VALIDATION returns nothing.
@@ -1533,6 +1620,10 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   exist. There is exactly ONE way to move a browser and it is `service.redirectPage("alias/page")` (§2.15),
   EXECUTION rules only, taking an in-app path and never a URL. There is no `service.redirectUrl` and no way to
   open an external site from a rule.
+- **`service.mailbox.inbox` / `service.mailbox.folders` / `service.mail.read`** — none of these. The mailbox
+  namespace is flat: `unread`, `find`, `get`, `unreadCount`, `accounts` and the mutating members listed in
+  §2.16, with the folder given as an OPTION (`folder: "INBOX"`) rather than as a sub-namespace. There is
+  also no way to ask whether a queued message was ultimately delivered — a send is queued, not performed.
 - **`service.session` / `service.cache` / `service.prefs` / `service.state` / `service.storage`** — none of these
   exist. There is exactly ONE key/value namespace and it is `service.store`, with exactly two members:
   `service.store.session` and `service.store.user` (§2.14). `service.store.global` and `service.store.project`

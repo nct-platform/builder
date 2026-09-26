@@ -3,7 +3,7 @@
 > 📐 **Field evidence — which plugins are actually used, and how often:** [09-studio-components.md](references/09-studio-components.md) · [10-visual-design.md](references/10-visual-design.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
 > 📕 **Field-level config reference:** [14a-plugin-config-reference.md](14a-plugin-config-reference.md) documents
-> **63 of nct-ui's 64 plugin names** at chart-doc depth (`calendar.plugin` is covered in THIS doc only) — each one's
+> **Every plugin name except `calendar.plugin` and `nct.mailbox.plugin`** at chart-doc depth (those two are covered in THIS doc and in [31](31-email-integration-and-mailbox.md)) — each one's
 > **settings panel + editor + JSON config slot + field-by-field
 > table**, source-grounded from the plugin class + editor + config DTO. Use THIS doc (14) as the catalog/overview;
 > use **14a** when you need the exact JSON and what every field does to hand-author a node.
@@ -35,9 +35,10 @@ For plugins documented in detail in other docs, this file gives one line + a lin
 
 > **Convention for the source of `pluginName`.** Each plugin class declares the string once, in its
 > `@PluginConfig(pluginName = "…")` annotation. Two classes — `SiteMapPage` and `SiteMapPageRaven` — share the one
-> name `siteMapPage`, so **nct-ui's 64 distinct plugin names** — the ones you author — come from 65 annotated
-> classes (the CMS and admin layers under it declare more — catalogued here only so you recognise them); add the 2 base
-> plugins that also appear in tenant exports (`html.plugin`, `parsis.plugin`) → the **66 = 64 + 2** in the README.
+> name `siteMapPage`, so the distinct plugin names you author come from slightly fewer annotated classes than there are annotations. *(This paragraph used to give exact totals; a census of plugin names drifts between platform builds, and a stale number reads as a promise. Count them in your own build if you need one:
+> every one is a `@PluginConfig(pluginName = "…")` in nct-ui, and the CMS and admin layers under it declare
+> more — catalogued here only so you recognise them. Two base plugins also appear in tenant exports:
+> `html.plugin` and `parsis.plugin`.)*
 > The generic content plugins (`nct.html/label/image/…`, `parsis.plugin`, `html.plugin`, `grid.plugin`,
 > `tabs.plugin`, …) come from the CMS layer; the business plugins come from the application layer. You never write
 > these names by hand except in `properties.pluginName` — copy them from the catalog below.
@@ -70,6 +71,7 @@ platform/admin-level and never written into a project export.
 | `crud.table.plugin` | 1 per list page (0 in the baseline) | `properties.model` | [04](04-crud-table-plugin.md) |
 | `crud.tree.plugin` | 1 per hierarchy page (rare) | `properties.model` | [05](05-crud-tree-and-process-table.md) |
 | `calendar.plugin` | 1 per scheduling/booking page (0 in the baseline) | `properties.model` | see the note below — not yet covered in depth |
+| `nct.mailbox.plugin` | 1 per mail page (0 in the baseline) | `properties.model` | [31](31-email-integration-and-mailbox.md) |
 | `process.table.pluin` *(yes, with the typo)* | 1–2 (console + your process lists) | `properties.model` | [05](05-crud-tree-and-process-table.md) |
 | `dynaform.form.plugin` | 1 per form | `properties.formModeIdentifier` (STRING → FormDto rep-object; no settings/model blob) | [02](02-form-controls-reference.md),[06](06-form-groups-and-mapping.md) |
 | `dynaform.form.text.field.plugin` | 1 per text field — the most numerous control | `properties.settings` | [02](02-form-controls-reference.md) |
@@ -126,6 +128,14 @@ platform/admin-level and never written into a project export.
 > table ([04](04-crud-table-plugin.md)). Presentation: `initialView`, `firstDay`, `slotMinTime`/`slotMaxTime`,
 > `showWeekends`. If a PRD asks for appointments/bookings/shifts, evaluate this before hand-building a table or
 > an HTML component; check the field names against your platform build before you rely on them.
+
+> **`nct.mailbox.plugin` — a mail client on a page.** Config slot `properties.model`, field-by-field in
+> [31 §6](31-email-integration-and-mailbox.md). Three panes (accounts and folders, the list, the reading
+> pane) over the mailboxes the project has connected. It renders correctly with an **empty** config — every
+> setting takes something away rather than being the price of a first render — so a page can be authored
+> before anybody has connected an account. ⛔ The accounts themselves are **not** in the export; they are
+> configured live after import, which also means `accountIds` can only be narrowed once ids exist. One per
+> page: it is a workplace, not a widget.
 
 **Plugins that exist in the `nct-ui`/`mrjun` code but do NOT appear in any project export**
 (these are platform/admin-application nodes; you do **not** author them by hand):

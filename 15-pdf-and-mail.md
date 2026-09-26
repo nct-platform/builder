@@ -19,6 +19,14 @@ The subsystem consists of **three layers**:
 | **Mail templates** | `messaging.mail.templates.plugin` (editor page, GrapesJS) + object `rep-objects.mailTemplates[]` | **nct-messaging** DB `mail_templates`, **and exported** to `rep-objects.mailTemplates[]` | **YES** — mail templates are reconstructible |
 | **Groovy API** | `service.report.pdf.*`, `service.notification.mail.*`, `service.notification.push.*` | proxy classes in **nct-executor** | — (this is runtime, not data) |
 
+> 📮 **Which ACCOUNT a message leaves through is a separate question, answered live.** Everything in this
+> doc is about composing the message, and none of it changes when a project connects its own mail: the same
+> templates, the same `service.notification.mail.<alias>` calls. What changes is the sender — a project with
+> the **Email integration** switched on sends from its own address over its own SMTP or its provider's HTTP
+> API, and the platform's daily e-mail quota stops applying to it. That integration, its accounts and their
+> credentials are **not in the export** and are configured once after import. Reading mail, the Mailbox
+> plugin and `service.mailbox.*` are all in [31](31-email-integration-and-mailbox.md).
+
 > ✅ **Key fact for building an export.** **PDF templates ARE part of `.mrjun`** — carried in `rep-objects.json` under a `pdfTemplates[]` list (of `PdfTemplateDto`), **exactly like mail templates** in `mailTemplates[]`. nct-ui (`CmsProjectServiceImpl`) exports them from the `nct-pdf` service DB (`pdf_templates`, `PdfTemplateEntity.java`) and, on import, saves each one back into nct-pdf via `PdfTemplateClient.save` under the target realm/client. So a PDF template **is** reconstructible from the export — add one with `mrjun.py pdftemplate add --alias <a> --name <s> --template @file.json` (it appends to `rep-objects.pdfTemplates[]`, created in nct-pdf on the next import). The template body itself is authored as a real **pdfme** JSON (`basePdf` + `schemas` with labels/values/tables); a bare scaffold renders blank. *(Older exports predating this feature have no `pdfTemplates` key — that's fine, it deserializes as an empty list.)* You can still create one manually via the browser authoring page or a REST POST, but that path is not portable.
 
 ---

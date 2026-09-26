@@ -1143,7 +1143,7 @@ The discipline that keeps this cheap: when a test goes red, reproduce the step B
 browser first. It takes a minute, and it tells you which of the two things is broken before you
 spend an hour fixing the wrong one.
 
-**Twenty-one ways a UI assertion lies, all found on one delivered project.** They are not
+**Twenty-five ways a UI assertion lies, all found on one delivered project.** They are not
 about this platform's quirks — they are about how a page reports itself, and they recur:
 
 * **A substring is not a signal.** A helper reported "server error" whenever the page contained
@@ -1229,6 +1229,15 @@ trusting a red assertion, ask what ELSE could produce exactly this output.
   reconstruct a server-generated identifier from client-side state: read it back, or accept the
   neighbouring days explicitly and say why.
 
+* **A record that MATCHES is not a record you CREATED — and a scenario repeats its numbers.**
+  The check "a finished-goods lot exists whose code matches YYMMDD-SKU-NN and whose balance is
+  23.041" passed on the lot the PREVIOUS run had produced: the scenario releases the same
+  quantity every time, so the previous result is indistinguishable from this one by value. The
+  product was right (the new lot was numbered -02), but the assertion proved nothing about it.
+  ⛔ Take a snapshot before the action and diff it after — for every record the system numbers
+  itself. On one delivered project this same correction was needed three times in one day: the
+  production order, the rework order, and the finished lot.
+
 * **«The newest record with today's prefix» is not «the record this test created».** Two test
   files in one suite create the same kind of document on the same day; a third creates it as a
   side effect. A test that identifies its own record as *the highest number carrying today's
@@ -1256,6 +1265,22 @@ trusting a red assertion, ask what ELSE could produce exactly this output.
   is not "no record has lines". Two checks skipped on that, past 537 candidates. ⛔ When a check
   needs a record in a particular shape, LOOK for one (a bounded scan of the first page), and
   say how many you looked at when you give up.
+
+* **The FIRST page of a sorted register is a biased sample.** A shop-floor register sorted by
+  STAGE NUMBER shows only stage 1 on page one — and stage 1 is the incoming check, which by
+  design has no measurements. Four checks concluded "no operation with readings exists in the
+  current data" over 365 of 537 that have them. ⛔ Ask what the sort puts first, and go where
+  the rows you need actually are (the last page, or a filter); when you give up, say how far
+  you looked.
+* **A pager's `li` is not its link.** Clicking the `li.page-item` whose text is `»` does
+  nothing at all — the handler is on the `a.page-link` inside it. The page silently stays on
+  page one, so the check reports "no such row" while looking at the wrong 15 rows. ⛔ Click the
+  anchor, and verify the page actually changed before reading.
+* **A grid's rows arrive after its dialog.** The dialog is drawn, its line grid fetched
+  separately — and "zero rows" is ALSO a legitimate state, so the only way to tell "not yet"
+  from "none" is to wait. A check that read the grid on the first look found a measurement grid
+  empty on an operation that has three of them. ⛔ Poll for the rows; treat a single empty read
+  as no information.
 
 * **A page object's `open()` returns before the register is drawn.** The helper waits for the
   document, the framework then fetches the rows; a check that reads the grid (or a row's menu)
@@ -1317,6 +1342,29 @@ in the failure epilogue name "the run was killed, not failed" as one of the inno
 The alternative is someone re-running a 25-minute suite three times to chase a defect that does not
 exist.
 
+
+### ⛔ When the data a check needs does not exist, CREATE it — or say exactly what is missing
+
+A prohibition test can only prove a guard if the forbidden situation exists. On a delivered
+project four such tests skipped themselves for weeks with "no suitable record in the current
+data", and the most important one — the gate that refuses to close a production stage over a
+measurement nobody approved — had therefore never run. The data was not missing by accident:
+the previous run had APPROVED its own deviation, which is what a correct run does.
+
+So a prohibition test does one of two things, and never a third:
+
+* **it creates the situation itself**, exactly as the user would — open the measurement that has
+  limits, type a value above the maximum, save, then press the action that must be refused. Then
+  the guard is exercised on every run, on any tenant, from any starting state;
+* **or it skips with the missing precondition SPELLED OUT** — which record, in which state, and
+  which other test does create it. "No suitable data" is not a finding; "no order awaiting QC
+  with issued-but-unconsumed materials, a state that exists only between two steps of the full
+  cycle" is.
+
+⛔ And the order matters: do the creating FIRST. A long reconnaissance loop that opens and closes
+a dozen forms leaves the register in a state where the next read no longer works — the helper
+that looked for an existing deviation before creating one made the creation fail, and the test
+skipped over data it had just been shown.
 
 ### ⛔ A test that "passes" without doing anything is worse than a red one
 
