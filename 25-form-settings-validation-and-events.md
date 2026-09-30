@@ -351,6 +351,12 @@ IRefreshable nodes: **any field control**, and the layout nodes **`nct.parsis.pl
 usual way to cascade a dependent dropdown: point the trigger field's mapping at the *slot* (`gen_slot_*`) of the
 dependent field, not at the dependent field control itself.
 
+> 🛑 **A control inside a List's LINE form gets no events at all** — that sub-form is a
+> `ListItemFormPlugin`, so `formType()` is not `FORM` and the behaviour is never attached. The
+> mapping exports, validates and displays; on change nothing happens. A cascading dropdown therefore
+> cannot live in a line form — see [02 §eventComponentMappings](02-form-controls-reference.md) for
+> the two ways out.
+
 **Runtime** (`BaseFormControl.setupEventComponentMappings`; only when `formType()==FORM` — a **filter form
 ignores mappings**): for each mapping it binds `AjaxFormComponentUpdatingBehavior(eventName)` on the trigger's form
 component (only if both `eventName` and `componentIdentifier` are non-blank); on fire it locates the target, runs

@@ -1238,6 +1238,33 @@ in effect, when there is no group, auto-creation always happens and the dialog i
    this trap, live in [19 Phase 9](19-build-decision-procedure.md) and
    [04 §Standalone Filter Form](04-crud-table-plugin.md).
 
+0c. **⛔ Test a queue filter with a PAIR — a hit AND a deliberate miss — or you have tested nothing.**
+   `ProcessFilterSpecification.visitIgnoreNull` returns `cb.conjunction()` (TRUE) when the value does not
+   resolve, and `fromExpression` returns `Specification.allOf()` for an empty value map. A filter that is
+   **silently not applied** therefore returns the WHOLE table — indistinguishable from "it matched
+   everything" if the value you tested with happens to match every row. Measured twice on a live project: a
+   fix was announced, and announced again, on a filter that was dead both times.
+   * a value taken from a visible row → that row must still be there;
+   * a value that matches **nothing** → zero rows. For a dropdown the miss must still be a VALID option —
+     feeding a select a value that is not in its list selects nothing, the clause drops, the whole table
+     comes back, and the test blames the product for its own mistake.
+
+0d. **⛔ If the column and the filter disagree, believe the COLUMN — and look at WHEN the index is written.**
+   A queue row rendering «POSTED» while filtering by POSTED returns nothing, and filtering by the PREVIOUS
+   status returns it, is not a filter bug: the index describes the state the case was in one leg ago. The
+   columns render from the document `ProcessContextArchive.archiveFromFlowable` stores **after** the engine
+   has run; an index written from an action's own snapshot is taken **before** the user task completes — and
+   completing that task is exactly what lets the engine walk on to the service task that posts the document.
+   When two views of one fact disagree, the one that is right names the source the other should have used.
+   (Fixed in the platform on 2026-09-29 by writing the index from that same archived document; on an older
+   build, expect the lag.)
+
+0e. **Cases started BEFORE the index existed stay unfilterable forever — that needs a repair path, not a
+   note.** Every writer of `paramsToFilter` hangs off an event in a case's life, and a case already sitting
+   in a queue has no event left. Either re-index them from the archived document with a one-off pass over
+   `flowable_process`, or give the author a button that does it (the Process Table settings panel is where it
+   belongs). "Add indexSettings before anyone starts processes" is true, and useless the day after.
+
 1. **The process `pluginName` is `process.table.pluin`** (a typo, not `process.table.plugin`).
    `crud.tree.plugin` has no typos. (`ProcessTablePlugin.java`, `CrudTreePlugin.java`.)
 

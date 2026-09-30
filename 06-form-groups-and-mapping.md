@@ -1049,6 +1049,13 @@ canonical convention (group `<entity>-forms`, landing `<Entity> Forms`/alias `<e
 
 ## List control sub-forms (editable Create/Edit item forms)
 
+> 🛑 **Before you build one: a List whose grid shows a column like `material.code` needs a
+> before-complete rule, or every line the user adds renders BLANK until the document is saved and
+> reopened.** The picker writes `{"id": …}` and nothing fetches the code or the name. The one hook
+> for it is `onBeforeUserTaskCompleteRuleIdentifier`, per action — full recipe, rule body and the
+> two traps that come with it: [02-form-controls-reference.md §7.0b](02-form-controls-reference.md).
+> On one live project all 12 List controls shipped without it and every offline gate stayed green.
+
 A **List** form control (`dynaform.form.list.field.plugin` — see
 [02-form-controls-reference.md](02-form-controls-reference.md) §7) renders a nested table with its own
 Create/Edit actions. Those actions do **not** go through a form group / landing / `predicateFormMapping` — the

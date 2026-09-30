@@ -896,6 +896,14 @@ The second dialog call — from a list-item sub-form (`ListItemFormPlugin`, "Aut
 See [§A LINE form gets NO row and NO columns at all](#-a-line-form-gets-no-row-and-no-columns-at-all--lay-it-out-yourself)
 at the top of this doc for the two fixes; skipping it ships a ladder of stretched inputs.
 
+⛔⛔ **Generating the nested form is only half the job — the GRID beside it needs a rule.** The
+picker you just generated stores `{"id": …}` into the temp item, and the List's grid columns read
+`<ref>.code` / `<ref>.name`, which live in another table. So the line the user adds renders with
+BLANK reference columns and only fills after the document is saved and reopened. One `EXECUTION`
+rule per line table (look the reference up by id, write `code`/`name` into the temp item) wired into
+`onBeforeUserTaskCompleteRuleIdentifier` of the List's create AND edit actions fixes it — full
+recipe and the matching label trap: [02 §7.0b](02-form-controls-reference.md).
+
 The concept of nested forms and `context.currentData` — see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)
 (older platform documentation on form fields is stale on other points but correct on the nested mechanics).
 

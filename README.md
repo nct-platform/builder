@@ -277,6 +277,26 @@ learn them once here; each one has an owning doc that goes deeper.
 
 ---
 
+## ⛔ The defects that pass every offline gate
+
+`validate`, `crud verify --db` and `coverage` read the export against itself. These five are correct
+**as JSON** and wrong **on screen** — each one shipped in a delivered project, and each was found by a
+human clicking, not by a gate. Read them before you build, not after the owner calls.
+
+| What the user sees | Why nothing caught it | Where |
+|---|---|---|
+| A line added to a document shows BLANK reference columns until the document is saved and reopened | the picker stores `{"id": …}`; the grid column reads another table, which `json_agg` fills only on READ — so a test against a SAVED document is green either way | [02 §7.0b](02-form-controls-reference.md) |
+| A dependent dropdown inside a LINE form never populates | events attach only when `formType()==FORM`; a line form is a `ListItemFormPlugin`, so its controls get no behaviour at all — the mapping exports, validates, displays, and nothing fires | [02 §eventComponentMappings](02-form-controls-reference.md), [25](25-form-settings-validation-and-events.md) |
+| A queue filter "works" but returns the whole table | `ignoreNull` evaluates TRUE when the value does not resolve, so a filter that was never applied looks exactly like one that matched everything — testing with a value that matches every row proves nothing | [05 §0c](05-crud-tree-and-process-table.md) |
+| The queue COLUMN shows the new status while the FILTER still finds the old one | the index is written from a snapshot taken before the user task completes; the column renders from the document archived after the engine ran | [05 §0d](05-crud-tree-and-process-table.md) |
+| A header total disagrees with its own lines — but only on some documents | the invariant was written as `(header, line, amount)` while the recompute method carries a CONDITION (`CASE WHEN qty_returned > 0 THEN …`); the wrong invariant reads green until that condition first fires, and hides the real defect meanwhile | [19 Phase 1b](19-build-decision-procedure.md) |
+
+Two of them have a mechanical check you can run over your own export ([02 §7.0b](02-form-controls-reference.md)
+carries the script); the rest need one scenario each in `test-scenarios.md`
+([26 §5](26-orchestration-and-testing.md), [30 §2.5](30-live-test-bugfix-and-autotest.md)).
+
+---
+
 ## Provenance
 
 Every statement in this library was cross-checked against the platform source (the Dokie application, the mrjun

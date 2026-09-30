@@ -281,6 +281,17 @@ Per entity:
   that table's `contextIdentifier` + `crudAlias`, whatever `scope` you persist — while a workflow user task or a
   `process.table` start/global action opens it with no row at all. That one answer decides how Phase 7 authors
   the controls and how the Phase-5 rule reads them back ([02](02-form-controls-reference.md) §Where the value LANDS).
+- **Money: write down the FORMULA that recomputes each total, not the list of columns that hold it.**
+  A header total is not "the sum of its lines" — it is whatever the recompute method actually sums, and that
+  method usually carries a condition. Live example: a receipt's goods value is
+  `SUM(CASE WHEN qty_returned > 0 THEN amount_net ELSE line_amount END)`, because after a supplier return the
+  receipt is worth its NET. A gate written as the pair `(header.goods_amount, line.line_amount)` — the obvious
+  summary — reads GREEN for as long as no return has been posted, and then reports six perfectly correct
+  documents as broken. Two consequences: state the invariant **as the method states it**, conditions included;
+  and remember that a wrong invariant does not merely annoy — **it hides the real defect behind a false pass**.
+  On the same project the corrected invariant immediately failed on the SEED, which had written the lines'
+  `amount_net` and left the header at its gross value: a fresh import shipped six receipts with an inflated
+  goods total, and the stand looked clean only because its returns had been posted through the app.
 - **What the user should not have to retype.** Anything the system can already identify (an existing record, the
   current date, the logged-in actor, a value derivable from another field) is a default/prefill, not a mandatory
   input. Mandatory + then discarded is a defect.

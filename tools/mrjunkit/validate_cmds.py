@@ -7434,9 +7434,25 @@ def _check_method_rule_delegates(p, r):
                 continue
             rule = rules.get(ident)
             if rule is None:
+                # ⛔ A GROOVY method that carries its own `script` and a `ruleIdentifier` is the
+                # HIDDEN-DELEGATE shape this very toolkit writes — see `crud_cmds.cmd_crud_apply`:
+                # "Hidden rules are filtered out of the export, so rep-objects.json carries none of
+                # them — and the importer knows this: `CmsProjectServiceImpl` re-creates each one
+                # from the method's own `script` (`ensureHiddenGroovyRule`) … there is deliberately
+                # no rule in rep-objects.json."
+                #
+                # So the reference is not dangling: the platform creates the rule on import from the
+                # identifier plus the script. Flagging it made `validate` contradict `crud_apply` and
+                # cost 36 of 62 errors on a delivered project where creating those very records
+                # demonstrably works. Without a `script` there is genuinely nothing to re-create
+                # from — that stays an error.
+                if (m.get("script") or "").strip():
+                    continue
                 r.err("crud %r method %r delegates to rule %s, which is NOT in rep-objects.rules[] "
-                      "— the method imports with a dangling reference and fails at runtime. Export "
-                      "the rule (it is usually hidden, so list it with includeHidden)."
+                      "and the method carries NO `script` to re-create it from — the method imports "
+                      "with a dangling reference and fails at runtime. Export the rule (it is "
+                      "usually hidden, so list it with includeHidden), or give the method its "
+                      "script so `ensureHiddenGroovyRule` can rebuild the delegate on import."
                       % (crud.get("alias"), m.get("methodName"), ident))
                 continue
             body = ((rule.get("rule") or {}).get("ruleScriptStr") or "").strip()
@@ -8954,8 +8970,27 @@ def _check_groovy_undefined_identifier(p, r):
                 continue
             if word in _GROOVY_SCRIPT_GLOBALS or word[:1].isupper() or word[:1] == "_":
                 continue
-            after = src[pos + len(word):pos + len(word) + 2].lstrip()
-            if after[:1] == "(":
+            # ⛔ The FIRST NON-SPACE character after the name, however far away it is. A fixed
+            # two-character window silently gave up on aligned code: `roleGroups     : [...]` left
+            # the window holding two spaces, so neither the call test below nor the map-key test
+            # ever saw anything. Scan instead of peeking.
+            after = src[pos + len(word):].lstrip()[:1]
+            if after == "(":
+                continue
+            # A KEY of a map literal is not a read: `[roleGroups: [...], entity_id : x]` names the
+            # slot, it does not look anything up in the context. The check missed this only when the
+            # author ALIGNED the colons — in ONE literal `entity_table: 'x'` was skipped and
+            # `entity_id   : y` was flagged — because the two-character window after the word held
+            # `  ` and never reached the colon. The `.lstrip()` above already tolerates the spaces;
+            # what was missing is the colon itself in the accept list.
+            #
+            # A ternary (`cond ? foo : bar`) is the one shape this now lets through, and that is the
+            # cheap direction to be wrong in: the check is conservative by construction (it already
+            # skips every capitalised name and every call), a false POSITIVE fails a release gate on
+            # correct code, and a false negative costs one runtime error in a script its author is
+            # writing at that moment. Measured on a real project: 19 of 62 `validate` errors were
+            # this one shape.
+            if after == ":":
                 continue
             seen.add(word)
             r.err("rule %r reads %r at line %d and never declares it. Groovy looks an undeclared "
@@ -8978,9 +9013,43 @@ def _check_user_task_action_has_complete_rule(p, r):
     flows decorative — a recipe could be submitted for approval and never approved.
 
     Every action that decides something needs a rule that writes that decision.
+
+    ⛔ …but the rule does not have to hang on the ACTION. A flow may legitimately let the button do
+    nothing but complete the task, and write the decision in a **ServiceTask downstream**, with the
+    gateway telling the branches apart by the status the *other* branch changed («still SUBMITTED ==
+    approved»). That design is symmetric on purpose: the refusing branch carries the rule, the
+    approving one is the fall-through. Flagging it cost 7 of 62 errors on a delivered project where
+    all seven approving branches had a writing ServiceTask below them. So the ERROR now stands only
+    when NOTHING downstream of the task can write: no reachable ServiceTask with rules.
     (07-workflows-and-tasks.md)"""
     for w in (p.rep.get("workflows") or []):
-        for e in (w.get("elements") or []):
+        elements = w.get("elements") or []
+        # graph over sequence flows + which ids are ServiceTasks that actually carry rules
+        edges, writers = {}, set()
+        for e in elements:
+            st = e.get("settings") or {}
+            props = {x.get("name"): x.get("value") for x in (st.get("properties") or [])}
+            if st.get("type") == "bpmn:SequenceFlow":
+                src, dst = props.get("sourceRef"), props.get("targetRef")
+                if src and dst:
+                    edges.setdefault(src, []).append(dst)
+            elif st.get("type") == "bpmn:ServiceTask" and (props.get("rule") or "").strip():
+                if props.get("id"):
+                    writers.add(props["id"])
+
+        def _writes_downstream(start):
+            seen_ids, queue = set(), list(edges.get(start, []))
+            while queue:
+                node = queue.pop()
+                if node in seen_ids:
+                    continue
+                seen_ids.add(node)
+                if node in writers:
+                    return True
+                queue.extend(edges.get(node, []))
+            return False
+
+        for e in elements:
             st = e.get("settings") or {}
             if st.get("type") != "bpmn:UserTask":
                 continue
@@ -8992,13 +9061,22 @@ def _check_user_task_action_has_complete_rule(p, r):
                 actions = (json.loads(raw) or {}).get("actions") or []
             except ValueError:
                 continue
+            downstream = _writes_downstream(props.get("id")) if props.get("id") else False
             for a in actions:
                 if a.get("onBeforeUserTaskCompleteRuleIdentifier"):
                     continue
                 names = a.get("localizedNames") or {}
                 label = names.get("en_US") or names.get("ru_RU") or a.get("id") or "?"
-                r.err("workflow %r task %r action %r has NO onBeforeUserTaskCompleteRule — pressing "
-                      "it completes the task and changes NOTHING about the record: no approval, no "
-                      "status, no audit. The case leaves the worklist and the happy path looks "
-                      "finished. Wire the rule that writes the decision. (07-workflows-and-tasks.md)"
+                if downstream:
+                    r.warn("workflow %r task %r action %r has no onBeforeUserTaskCompleteRule. A "
+                           "ServiceTask downstream does carry rules, so the decision can be written "
+                           "there — check that it is, and that the gateway tells the branches apart "
+                           "by something this action changes. (07-workflows-and-tasks.md)"
+                           % ((w.get("name") or "?"), props.get("name") or props.get("id"), label))
+                    continue
+                r.err("workflow %r task %r action %r has NO onBeforeUserTaskCompleteRule and NO "
+                      "rule-carrying ServiceTask downstream — pressing it completes the task and "
+                      "changes NOTHING about the record: no approval, no status, no audit. The case "
+                      "leaves the worklist and the happy path looks finished. Wire the rule that "
+                      "writes the decision. (07-workflows-and-tasks.md)"
                       % ((w.get("name") or "?"), props.get("name") or props.get("id"), label))

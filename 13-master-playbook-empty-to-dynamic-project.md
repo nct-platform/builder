@@ -336,6 +336,18 @@ first, then the row (the `FORM` helper in [08](08-groovy-rules-and-context.md)).
 > controls keep their own `__temp_item__` binding. Detail → [02](02-form-controls-reference.md) §Where the value
 > LANDS.
 
+> ⛔⛔ **A document with LINES: the sub-grid goes blank on every line the user adds, unless you wire
+> the before-complete rule.** The List control's picker stores `{"id": …}`; a grid column on
+> `material.code` / `roll.code` / `orderLine.name` reads a field of ANOTHER table that nobody
+> fetched. The line therefore renders empty until the document is saved and reopened (then
+> `json_agg` fills it on read — which is exactly why the defect survives every offline check and
+> every test written against saved documents). Wire ONE `EXECUTION` rule per line table that looks
+> each reference up by its id and writes `<ref>.code` / `<ref>.name` into the temp item, and put its
+> identifier in `onBeforeUserTaskCompleteRuleIdentifier` of **both** the create and the edit action
+> of that List. Recipe, rule body, the label trap that rides along, and how to test it:
+> [02 §7.0b](02-form-controls-reference.md). Found on a live project with all 12 List controls
+> unwired and 400 green tests.
+
 - **Config accordion + Form Settings** — the "Create Validation from Template" flow (51 templates →
   `GroovyPredicate` bodies + regex presets + ERROR/WARNING), field **events** (event → Execute-Rules-Before-Refresh
   → refresh fragment; several targets = several mappings), and the form-level **Hidden Content Configuration**,
@@ -477,6 +489,18 @@ Consignments — the chain is identical):
       form that action opens carries the CRUD quartet** (`scope:"CRUD"` + the table's `contextIdentifier` +
       `crudAlias` + `fieldExpression`), including input-only fields with no column. `validate` ERRORs on the
       first and WARNs on the second (`_check_crud_action_form_values`).
+- [ ] **Every List control whose grid has a column with a DOT in `fieldExpression` carries
+      `onBeforeUserTaskCompleteRuleIdentifier` on its create AND edit actions**, and that rule is in
+      `rep-objects.rules[]`. Without it the line the user just added shows blank reference columns and
+      fills only after save-and-reopen. `validate` cannot see this (the settings parse, the column
+      resolves, the rule compiles) — so check it mechanically:
+      `every columnSettings[].fieldExpression containing "." ⇒ hook present`. Then open one such form,
+      add a line, and read the grid BEFORE saving; a saved document shows those columns correctly with
+      or without the hook, so testing the saved state proves nothing ([02 §7.0b](02-form-controls-reference.md)).
+- [ ] **No two grid columns share a heading.** Nested columns take their label from the TARGET column
+      (`material.material_code` → "Material code"), not from the FK (`material_id` → "Material"), or
+      `material.code` and `material.name` both come out as "Material". Two references to one table
+      (`suggested_roll_id` / `chosen_roll_id`) are labelled by their ROLE, not by the table.
 - [ ] Form controls are in `properties.settings`; tables are in `properties.model`.
 - [ ] **Every business page (crud.table/crud.tree/process.table/chart.js/landing) carries the baked Layout chrome**
       and its plugin sits inside the content `nct.parsis.plugin("parsis")` — `validate` enforces this ONLY for FORM
@@ -540,6 +564,11 @@ Consignments — the chain is identical):
 9. **Every auth predicate** `hasAnyRoleGroup("X")` requires roleGroup `X` + an assignment.
 10. **Component names, not line numbers** — every claim here is stated as behaviour you can observe; class
     names are given only so you can ask the platform team a precise question.
+11. **A List control without a before-complete rule** — the grid of a document's lines renders BLANK
+    reference columns for every line the user adds, and fills only after save-and-reopen. The single
+    most invisible defect in this library: it passes `validate`, passes every test written against
+    saved documents, and is visible only by adding a line and looking at the grid before saving.
+    [02 §7.0b](02-form-controls-reference.md).
 
 ---
 

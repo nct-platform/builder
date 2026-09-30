@@ -343,6 +343,16 @@ pass from fail ([23](23-distribution-and-known-gaps.md) §2 is the reference for
    ⛔ For a form opened from a table/tree row action, "saves" means **re-open the row and read the value back** —
    a rule that reads its own form field with `getAttr` instead of `context.<ctx>.<alias>.data.get()` redirects,
    toasts success and changes nothing ([02](02-form-controls-reference.md) §Where the value LANDS).
+4a. **Every form that has LINES — add a line and READ THE GRID BEFORE SAVING.** This is its own
+   scenario, not part of scenario 4, because it is the one state no offline gate and no saved-document
+   test can reach. Pick the material/roll/order-line in the line form, save the LINE (not the
+   document), and look: the reference columns must show the code and the name immediately. Blank
+   columns that fill after save-and-reopen = the List control has no
+   `onBeforeUserTaskCompleteRuleIdentifier` ([02 §7.0b](02-form-controls-reference.md)). Check the
+   headings in the same glance: two adjacent columns with the same title mean the nested columns took
+   their label from the FK instead of the target column. Found live with 12 of 12 List controls
+   unwired and 400 green tests — the suite tested the create form and the saved registers, and the
+   defect lives exactly between them.
 5. **Every workflow** — start an instance; user-task actions and service-task rules fire; the process table lists it.
    A workflow with **no start form** is started by running its EXECUTION rule by hand instead, and must be run
    **twice**: still exactly ONE case, and it must be visible to someone who is not an admin/author
@@ -351,7 +361,7 @@ pass from fail ([23](23-distribution-and-known-gaps.md) §2 is the reference for
 7. **`log/ui.log`** — scan for the scattered import-aborts (Jackson `MismatchedInputException`/`InvalidFormatException`)
    that show as "No source selected" / empty context / "data gone" rather than a clean error.
 
-Every one of the seven is a scenario in `test-scenarios.md`, with its expected result written down. Your own
+Every one of the eight is a scenario in `test-scenarios.md`, with its expected result written down. Your own
 finish line is the four offline gates (`validate`, `crud verify --db`, `coverage --plan`, the independent
 acceptance re-derivation) plus this file — and the hand-over must say, in one unambiguous sentence, that the
 export **has not been imported or run anywhere**. A build described as "done" that was never driven reads as
@@ -544,6 +554,14 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
 - [ ] Each unit passed T1 (`validate` 0 errors) + T2; the whole project passes `validate`; **`crud verify --db` was
       run** against a throwaway Postgres (§3a — "no DB" is not an excuse) and **every remaining FAIL is triaged** to
       the verifier's own substitution, not left unread.
+- [ ] **Every List control whose grid carries a nested column is wired to a before-complete rule.**
+      Mechanical check, no judgement needed: for each `dynaform.form.list.field.plugin`, every
+      `columnSettings[].fieldExpression` containing a `.` requires
+      `onBeforeUserTaskCompleteRuleIdentifier` on the create AND the edit action, pointing at a rule
+      that exists in `rep-objects.rules[]`. Miss it and every line the user adds shows blank
+      reference columns until the document is saved and reopened — invisible to `validate`, to
+      `crud verify --db`, and to any test that reads a SAVED document
+      ([02 §7.0b](02-form-controls-reference.md)). No two grid columns may share a heading, either.
 - [ ] Rendered under **each** `tenant.json.locales` — labels change with the locale (no one-language-under-all bug);
       a single-language project has **no** `localized` fields.
 - [ ] **Written down for the tester, because no gate can reach it**: Home renders charts; nav resolves in the

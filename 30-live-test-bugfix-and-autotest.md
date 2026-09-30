@@ -94,6 +94,13 @@ acceptance run, and an autotest should not drive it. Knowing it exists is enough
 console", switch it OFF explicitly — otherwise the previous step leaks into this one and
 you report a permissions failure that is really a leftover toggle.
 
+⚠️ **It also hides half of Project Settings.** `Layout`, `Import / Export` and `Accesses`
+are gated on holding the ADMIN or NCT_AUTHOR **role**, which an author holds only while
+author mode is on. With it off the settings list is `Branding · Localization ·
+Integrations · Appearance · Developer`, and the missing three read exactly like a broken
+build. (`Developer` is NOT in that group — it is gated on role-group MEMBERSHIP, so it
+stays put whatever the toggle says.)
+
 ### 2.3 The inherited admin quick links — the full list
 
 Relative to `<root>/<realm>/<client>`:
@@ -157,6 +164,32 @@ them shipped in a delivered project that had already been walked through in all 
 | 10 | **A guard whose input nobody writes** | the mirror image: a condition reads a column that no rule ever sets, so it is NULL everywhere and the branch is dead. Take every field a guard READS and grep the rules and crud methods for a WRITER of it; a read with no writer is a guard that has never fired. |
 | 11 | **A template nobody calls** | mail and PDF templates ride in the export and look finished in the admin list, because nothing there says whether any rule invokes them. Grep the rules for each template `alias`. Delivered projects have shipped with the majority of both kinds unreferenced — every notification silent, every printout unobtainable. |
 | 12 | **A uuid where a person must read or type** | scan register columns and form fields for a `fieldExpression` ending in `Id`, and filter-bar fields for a `filterKey` of the same shape. Each one is a box that asks a human for a uuid, or a column that prints one. The fix is a join in the crud SELECT plus a dropdown control — not a wider column. |
+
+| 13 | **A document's sub-grid that is blank until you save** | open a document form, press **Add line**, pick the material / roll / order line, save the LINE — and read the grid **before saving the document**. Reference columns (`material.code`, `roll.code`, `orderLine.name`) must show the code and the name at once. Blank-now-filled-after-reopen means the List control has no `onBeforeUserTaskCompleteRuleIdentifier`: the picker stored `{"id": …}` and nobody fetched the rest ([02 §7.0b](02-form-controls-reference.md)). **This is the defect class that hides from everything else in this table** — it passes `validate`, it passes `crud verify --db`, and it passes every test written against a SAVED document, because `json_agg` fills those columns on read. One delivered project had it on **12 of 12** List controls behind 400 green tests. Check the headings in the same glance: two adjacent columns titled the same mean the nested column took its label from the FK instead of the target column. |
+
+### Two ways a check lies to you — both cost a day each time
+
+**1. An observation that is identical whether the feature works or not.** "The charts are still
+there after switching the theme" passes when the theme switched AND when the click missed the
+control entirely — the charts were there before. "The filter returned rows for a value I took from
+the grid" passes when the filter matched AND when it was silently dropped, because a dropped filter
+returns the whole table. The fix is the same in both cases: **assert MOVEMENT, not survival.** The
+body background must DIFFER after picking a theme; a value that matches nothing must return ZERO
+rows. If you cannot name what must change, you have not written a check yet.
+
+**2. A skip that describes the product instead of your own aim.** Three times on one project a
+skip reason turned out to be false:
+* *"the theme item would not click (it is in a collapsed menu)"* — there was no menu; the control
+  sits in the header and the label the test searched for lives in its screen-reader `span`;
+* *"no draft on the first page"* — a statement about PAGINATION, not about the data; the draft
+  existed and a filter found it;
+* *"no roll available for this material"* — a query showed **270** eligible rolls; the dropdown was
+  empty because a cascade cannot refresh inside a line form at all.
+
+Each one would have shipped a real defect as a documented limitation. **Before writing a skip that
+blames the data, run the query that proves the data is missing.** If the query disagrees, you have
+found a defect, not a limitation — and if it agrees, quote the number in the skip reason so the next
+reader can check you.
 
 Two cheap techniques that find more than clicking:
 
@@ -277,7 +310,8 @@ a Must requirement the product could not perform.
 | workflows | each queue renders; **queue rows carry data**; a task action opens a populated form (not blank, not 500); pressing start twice opens ONE case |
 | roles | role groups exist; create user + assign groups; persona cannot see what it must not |
 | prohibitions | each guard refuses AND names the reason; a discarded write must not report success |
-| dashboards | charts draw; KPI tiles resolve; filter labels localized; theme switch restyles |
+| dashboards | charts draw; KPI tiles resolve; filter labels localized; theme switch **actually restyles** — assert the body background CHANGES, not merely that the charts survived; a click that missed the control looks identical to one that worked |
+| document lines | for every document with lines: open Create, **Add line**, fill the reference pickers, save the LINE, and assert the grid's reference columns are **non-empty BEFORE the document is saved**. Asserting this on a saved document proves nothing. Assert only the columns whose picker the test actually filled (a cascading roll list can legitimately be empty), and aim the Add-line button at the DOCUMENT's grid — a receipt has a second grid for landed costs whose button looks the same |
 
 ### Rules the suite obeys
 

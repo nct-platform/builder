@@ -1135,6 +1135,79 @@ Three things that are easy to get wrong:
 > the field empty and nothing runs. `validate` warns on it — heed that warning, or add the rule to
 > `rep-objects.rules[]` before packing.
 
+#### The rule, stated as a check you can run
+
+**Every `columnSettings[].fieldExpression` that contains a dot is a claim about another table, and
+that claim is empty until something fills it.** So, for each List control:
+
+```
+for every column whose fieldExpression contains "." :
+    the List's create AND edit actions must carry onBeforeUserTaskCompleteRuleIdentifier
+    pointing at an EXECUTION rule that writes that column's path into the temp item
+```
+
+A List with `roll.code` in its grid and no hook is not "mostly working" — it is a grid that goes
+blank on every line the user adds, and fills itself only after a save-and-reopen. Offline gates stay
+green: the settings parse, the column resolves, the rule (if any) compiles. **Nothing but opening the
+form and adding a line tells you.** Automate exactly that: add a line, then assert the reference
+column is non-empty BEFORE saving the document. Asserting it on a SAVED document proves nothing —
+`json_agg` fills those columns on read whether the hook exists or not.
+
+Measured on a live project (Aslanyans, 2026-09-29): **12 of 12 List controls shipped without the
+hook**, across eleven document types. The owner found it by hand on the purchase-order form; every
+automated suite the project had — four hundred tests — was green, because they tested the create
+form (fields present, mandatory marked) and the registers of SAVED documents, and never the state in
+between.
+
+Run it over your own export before you call the build done — it needs nothing but the stdlib:
+
+```python
+import json
+data = json.load(open("branches.json", encoding="utf-8"))
+rules = {r["identifier"] for r in json.load(open("rep-objects.json", encoding="utf-8"))["rules"]}
+bad, dupes = [], []
+
+def walk(n):
+    if isinstance(n, dict):
+        if (n.get("pluginName") or n.get("name")) == "dynaform.form.list.field.plugin":
+            p = (n.get("properties") or {}).get("settings") or {}
+            st = json.loads(p["stringValue"]) if isinstance(p.get("stringValue"), str) else {}
+            cols = st.get("columnSettings") or []
+            nested = [c["fieldExpression"] for c in cols if "." in c.get("fieldExpression", "")]
+            acts = [a for k in ("createNewActions", "userActions")
+                    for a in (st.get(k) or {}).get("actions", [])
+                    if a.get("direct") != "on" and a.get("submitForm")]
+            if nested:
+                for a in acts:
+                    hook = a.get("onBeforeUserTaskCompleteRuleIdentifier")
+                    if not hook or hook not in rules:
+                        bad.append((st.get("crudAlias"), a.get("id"), nested))
+            seen = {}
+            for c in cols:                      # two columns, one heading
+                seen.setdefault(c.get("name"), []).append(c.get("fieldExpression"))
+            dupes.extend((st.get("crudAlias"), k, v) for k, v in seen.items() if len(v) > 1)
+        for v in n.values(): walk(v)
+    elif isinstance(n, list):
+        for v in n: walk(v)
+
+walk(data)
+print("actions missing the hook:", bad)
+print("columns sharing a heading:", dupes)
+```
+
+Both lists must be empty. `bad` non-empty means lines render blank until save-and-reopen; `dupes`
+non-empty means the grid has two columns a user cannot tell apart.
+
+#### ⛔ The label trap that rides along with it
+
+Generating a nested column usually means generating TWO of them — `material.code` and
+`material.name` — and the obvious label source is the FK column (`material_id` → "Material"). Do
+that and the grid shows **two adjacent columns with the same heading**, and no one can tell which is
+the code and which is the name. Take the label from the TARGET column instead
+(`material.material_code` → "Material code", `material.material_name` → "Material name"). Same bug,
+same fix, for `suggested_roll_id` / `chosen_roll_id` pointing at one table: label them by their ROLE
+("Suggested roll (FIFO)", "Chosen roll"), never both by the target table's name.
+
 ### 7. List field — `dynaform.form.list.field.plugin`
 
 Settings: `ListFormControlSettings` → base. `dataClass` = `java.util.List`. Stores a nested table with
@@ -1577,6 +1650,28 @@ mappings) + the dependent-dropdown recipe → [25 §3](25-form-settings-validati
 
 Runtime: `BaseFormControl.setupEventComponentMappings()`, called from `onInitialize()` only
 when `formType()==FORM`.
+
+> 🛑🛑 **Therefore: events do NOT work on a control inside a List's line form.** That sub-form is a
+> `ListItemFormPlugin`, not a `FormPlugin`, so its controls never get the behaviour attached — the
+> mapping sits in the export, `validate` is happy, the settings panel shows it, and **nothing
+> happens on change**. Measured on a live project (2026-09-29): picking the material in a transfer
+> LINE produced no ajax request at all, and the dependent roll list stayed empty for all 18
+> materials while the underlying query returned 270 rolls across 13 of them.
+>
+> **So a cascading dropdown cannot live inside a line form.** Choose one:
+> * make the parent list's picker independent — its choices rule returns the full set and puts the
+>   distinguishing value (material code, warehouse) into the option LABEL, so the user searches the
+>   list instead of narrowing it; or
+> * move the narrowing field to the DOCUMENT header, where `formType()==FORM` and events do fire,
+>   and have the line's rule read it from `context.<ctx>.<alias>.data`.
+>
+> A rule written to read the line's own selection is the trap underneath this: `context.currentData`
+> holds the row only during that row's VALIDATION and its before-complete rule
+> ([08](08-groovy-rules-and-context.md) §currentData). A choices rule runs on refresh, where it is
+> empty — so even reading the temp item directly
+> (`contextDataMap['__temp_list_item_context__'].crudDataMap['__temp_item__']`) does not save a
+> cascade that is never refreshed in the first place. **An empty dropdown leaves the user with no
+> way forward at all; a long one merely costs a search.**
 
 > **Invariant — resolve `componentIdentifier`.** It is matched at runtime against
 > `plugin.getContent().getUniqueIdentifier()` while visiting the descendants of the **same FormPlugin**
