@@ -8339,7 +8339,7 @@ def _check_action_refused_by_role(p, r):
     hides it from everyone else; the rule keeps its check as the server-side guard (a hidden button is a courtesy,
     the rule is the authorisation). Covers every action a user can press: crud table and tree actions, process
     table start and global actions, BPMN user-task actions. A refusal that depends on the DATA rather than on the
-    role is not this check's business — that one is a design decision per action (system_prompt OP 5e: hide,
+    role is not this check's business — that one is a design decision per action (system_prompt OP 5i: hide,
     explain in the form, or refuse a direct action in the business's words). (25 "An action that cannot run")"""
     rules_by_id = {x.get("identifier"): x for x in (p.rep.get("rules") or []) if isinstance(x, dict)}
     # crud tables' create/edit actions over a role-guarded entity are already an ERROR (_check_write_action_predicate)

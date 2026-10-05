@@ -80,7 +80,8 @@ keys onto the same `FormControlSettings` JSON:
 **The three rule types this panel references, do not mix them up:** Prohibited/Mandatory selectors take a
 **PREDICATE**; a rule-mode Default takes an **EXECUTION_RULE**; Validations take a **PREDICATE** (§2 — despite the
 "validation" name, a `conditionalValidations` entry points at a `GroovyPredicate`, **not** a `GroovyValidationRule`).
-The form-level Global/Action validators (§4.2) are the only place a `VALIDATION_RULE`/`GroovyValidationRule` is used.
+A `VALIDATION_RULE`/`GroovyValidationRule` runs in two places only: the form-level `validators` (§4.2) and a user
+task action's `validationRuleIdentifiers` — `actionValidators` are stored and never run (§4.2).
 
 ---
 
@@ -612,7 +613,7 @@ the user meets. There is no default; the examples illustrate, the reasoning is w
 | the user should… | mechanism | when |
 |---|---|---|
 | not see it at all | the action's PREDICATE (`predicateIdentifier`) — the button is absent | the action is not this user's business: they hold no role group for it (the usual case); the record's state makes it meaningless (Approve on what is approved, Post on what is posted); a condition the user can neither see nor change from here |
-| see it, and learn what blocks it BEFORE submitting | a VALIDATION rule on the action's form — `validationRuleIdentifiers` on a task action, the form's action validators for a table action that opens a form (§4.2) — with `addFieldError` on the field that causes it AND `addError` for the text (next section) | the user can fix the cause in the form (a quantity above what is in stock, a date in a closed period), or must know the action exists and what blocks it |
+| see it, and learn what blocks it BEFORE submitting | a VALIDATION rule on the action's form — `validationRuleIdentifiers` on a user task's action; for a table action that opens a form, that form's `validators` (§4.2: they run on every submit of the form, so a check meant for one action reads `service.actionId`; ⛔ never `actionValidators` — stored, never run) — with `addFieldError` on the field that causes it AND `addError` for the text (next section) | the user can fix the cause in the form (a quantity above what is in stock, a date in a closed period), or must know the action exists and what blocks it |
 | see it, press it, and be told no — in words | a DIRECT action (no form) whose EXECUTION rule throws `new RuntimeException(<the business's own words, in every locale>)`, shown as the error message | knowing the action exists and why it is refused right now helps the user ("3 documents of this period are still unposted") |
 
 Combine them when the PRD needs it — hidden from the roles that have no business with it, explained to the role
@@ -657,8 +658,8 @@ Where a validation rule can be attached:
 | Trigger | Slot | Notes |
 |---|---|---|
 | workflow user-task action | `ActionDto.validationRuleIdentifiers` (list of rule identifiers) | the `flowable:userActions` payload — this is the one that fixes the message above |
-| form (on save) | `forms[].validators` / `forms[].actionValidators` | runs for every submit — keep DRAFT-legal states out of it |
-| **crud.table row/toolbar action** | **none** — `CrudTableActionDto` has no `validationRuleIdentifiers` (04 §ActionDto) | the EXECUTION rule's throw is the ONLY mechanism; keep it as the backstop and make the message self-contained |
+| form (on save) — also the form a crud.table action opens | `forms[].validators` (⛔ not `forms[].actionValidators`: stored, never run — §4.2) | runs for every submit of the form — keep DRAFT-legal states out of it; a check meant for one action reads `service.actionId` |
+| **crud.table DIRECT row/toolbar action** (no form) | **none** — `CrudTableActionsDto.ActionDto` has no `validationRuleIdentifiers` (04 §ActionDto) | the EXECUTION rule's throw is the only mechanism: make the message self-contained, in the business's words — or hide the action by its predicate (section above) |
 
 So the rule of thumb: **duplicate the checks** — the VALIDATION rule for a clean UX wherever a slot
 exists, and keep the same guards inside the EXECUTION rule as the last line of defence (a direct
