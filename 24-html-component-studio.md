@@ -1468,10 +1468,35 @@ try {
 
 ---
 
+## 12a · Testing a component — by the PRD, like any screen
+
+A studio component is the builder's own code, and no offline gate runs it — `validate` resolves its includes and
+nothing more. So every component gets its own scenarios in `test-scenarios.md` (the contract's step 7, family r)
+and its own tests in `test/` (step 7a, [30](30-live-test-bugfix-and-autotest.md) §7), written from what the PRD
+says the screen does — and a red one is fixed like any other defect (30 §5):
+
+| what the PRD says | the scenario proves | how the suite proves it (`pages/studio_page.py`) |
+|---|---|---|
+| it shows <data> | real values render — not an empty wrapper, the usual failure (a dropped document, a script that threw before drawing, a rule name that does not resolve — often with a clean console) | `with StudioComponent(page, "<root you authored>") as c: c.open(path, ready="<a selector only real data produces>")` waits for CONTENT inside the root — `text=` / `ready=`, never "some child exists" (a spinner is one); compare the values with the register they come from, or through `helpers/db.py` |
+| a control does <action> | the action's effect — the record written, the number moved — read back after re-opening, and ONE click = ONE effect, also after an ajax re-render re-mounted the component (§6.2) | `click(...)` is a real click, never a synthetic event; `count_effect(...) == 1` |
+| it pages, sorts, filters | across the server's pages, not within the first one ([24c](24c-html-data-tables-and-paging.md)) | read page 2 after paging; a filter value that matches nothing shows zero rows |
+| empty, loading, error | each state drawn — the bridge REJECTS on a broken rule (§4.4), and the component must show that | provoke each (a filter that matches nothing, a role with no data) and `wait_text(...)` the state |
+| role X sees / may do Y (§9a) | the flags come from the rule; a role without the right sees no control AND is refused by the rule if it calls anyway | as the author holding the role, and as a `persona(...)` without it |
+| it is localized (§9) | each locale's labels; no text of one language in another | the test file's `LOCALE` and the captions in `helpers/locales.py` |
+| it works on a dark skin ([24a](24a-theming-and-dark-mode.md)) | readable on `Standard` and on a dark skin | `{manual}` — a person looks; the suite cannot judge contrast |
+| always | no page error, no console error, no failed request while it works | `problems()` is empty at the end of each test |
+
+⛔ **Give every component a stable ROOT hook in its main document** — an id or a component-unique class on its top
+element (§2's prefix rule) — because that is what its tests locate. Never the platform's generated wrapper id: it
+changes on every mount.
+
+---
+
 ## 13 · Done when
 
-**Done when:** every include resolves, and `test-scenarios.md` carries a scenario saying the component must
-render with an empty browser console on the tester's import; and
+**Done when:** every include resolves, and `test-scenarios.md` carries the component's scenarios — every claim the
+PRD makes about this screen (§12a), including that it renders with an empty browser console — each automated in
+`test/` with `StudioComponent`; and
 the component's script-selection mode (§3.2) is the one you intended; one `<Screen> Data` rule
 feeds the whole screen; every bridge call is inside `try/catch` and renders its error; page-level actions live in
 the breadcrumb bar and morph by key as the user drills in; every timer/listener is registered through
@@ -1506,6 +1531,8 @@ the breadcrumb bar and morph by key as the user drills in; every timer/listener 
       layout really contains `site.breadcrumb.plugin`
 - [ ] `css.byTheme` uses `"*"` + theme tokens (no literal hex); checked on `Standard` **and** a dark skin
 - [ ] `mrjun.py validate --project ./app` exits 0, then `mrjun.py pack`
+- [ ] Its scenarios (§12a) are in `test-scenarios.md` and automated in `test/`; the main document's top element
+      carries the stable root hook the tests locate
 - [ ] **Live-rendered**: component draws, buttons appear and act, console clean
 
 ---

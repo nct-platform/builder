@@ -33,11 +33,103 @@ F_DB_DUMP = "project-db.dump"
 F_CRUDS = "dynamic-cruds.json"
 F_INTEGRATIONS = "integrations.json"
 
+# The rep-objects.json collections, for READING: identifier maps, shape checks, counts.
+# `apiExposures` (the project's public API endpoints, doc 32 §6) is the one OPTIONAL key and the one whose
+# absence is the safe value: on import, absent or null leaves the target's endpoints untouched, a list
+# replaces them, and [] deletes every endpoint together with its key bindings. So nothing may ever create
+# this key — never `rep.setdefault(coll, [])` over this list, never an empty default when writing.
+# A count reads absent, null and [] all as 0 and says nothing about whether an archive is safe to import, so
+# `inspect` prints `api_exposures_state` for it instead, and `validate` refuses [] and a list.
 REP_COLLECTIONS = [
     "sources", "queries", "schedulers", "workflows", "rules", "contexts",
     "formGroups", "forms", "settings", "processGroups", "roleGroups",
     "userRoleGroupAssignments", "mailTemplates", "pdfTemplates",
+    "apiExposures",
 ]
+
+def api_exposures_state(rep):
+    """What `rep-objects.apiExposures` does on import (doc 32 §6), as (state, count, words).
+
+    "absent" and "null" leave the target's endpoints and key bindings as they are — the only values a build may
+    carry; "empty" ([]) deletes every endpoint of the target with its key bindings; "list" replaces the target's
+    endpoints with its entries; "invalid" is no list at all, which the import cannot read.
+    """
+    if "apiExposures" not in rep:
+        return "absent", 0, "absent — safe: the target's API endpoints stay as they are"
+    value = rep.get("apiExposures")
+    if value is None:
+        return "null", 0, "null — safe: the target's API endpoints stay as they are"
+    if not isinstance(value, list):
+        return "invalid", 0, "not a list (%s) — the import cannot read it" % type(value).__name__
+    if not value:
+        return "empty", 0, "[] — DELETES every API endpoint of the target and every key binding on import"
+    return "list", len(value), ("%d endpoint(s) — REPLACE the target's API endpoints on import; the ones not in "
+                                "the list are deleted with their key bindings" % len(value))
+
+
+def api_exposure_lines(rep):
+    """One line per endpoint of a `rep-objects.apiExposures` list (doc 32 §6) — and, for a rule call, one per
+    operation with the rule it runs, flagged when `rules[]` does not have it (after import that operation
+    answers 404 until the rule exists; a switched-off one is never called). Empty for anything that is not a
+    list."""
+    value = rep.get("apiExposures")
+    if not isinstance(value, list):
+        return []
+    known = {r.get("identifier") for r in (rep.get("rules") or []) if isinstance(r, dict)}
+    lines = []
+    for e in value:
+        if not isinstance(e, dict):
+            lines.append("  ? an entry that is not an object (%s) — the import refuses the whole list"
+                         % type(e).__name__)
+            continue
+        lines.append("  %-13s /%s  %s%s" % (e.get("kind"), e.get("slug"), json.dumps(e.get("name"), ensure_ascii=False),
+                                            "" if e.get("enabled") else "  [off]"))
+        if e.get("kind") != "RULE":
+            continue
+        for op in e.get("operations") or []:
+            if not isinstance(op, dict):
+                continue
+            rule = op.get("ruleIdentifier")
+            path = op.get("path") or ""
+            lines.append("      %-6s /%s%s  -> rule %s%s, body %s%s" % (
+                op.get("method"), e.get("slug"), "/" + path if path else "", rule,
+                " (%s)" % op["ruleName"] if op.get("ruleName") else "", op.get("input") or "NONE",
+                "" if op.get("enabled", True) else "  [off]"))
+            if rule and rule not in known:
+                if op.get("enabled", True):
+                    lines.append("         ! rule %s is not in rules[] — this operation answers 404 "
+                                 "endpoint_not_found until it exists" % rule)
+                else:
+                    lines.append("         (rule %s is not in rules[] — the operation is off, nobody calls it)"
+                                 % rule)
+    return lines
+
+
+def api_exposure_missing_rules(rep):
+    """(slug, method, path, rule identifier) of every switched-on rule-call operation whose rule `rules[]` lacks."""
+    value = rep.get("apiExposures")
+    if not isinstance(value, list):
+        return []
+    known = {r.get("identifier") for r in (rep.get("rules") or []) if isinstance(r, dict)}
+    missing = []
+    for e in value:
+        if not isinstance(e, dict) or e.get("kind") != "RULE":
+            continue
+        for op in e.get("operations") or []:
+            if (isinstance(op, dict) and op.get("enabled", True) and op.get("ruleIdentifier")
+                    and op["ruleIdentifier"] not in known):
+                missing.append((e.get("slug"), op.get("method"), op.get("path") or "", op["ruleIdentifier"]))
+    return missing
+
+
+def api_exposure_rule_identifiers(rep):
+    """Every rule a rule-call operation of `rep-objects.apiExposures` names — empty when the key is not a list."""
+    value = rep.get("apiExposures")
+    if not isinstance(value, list):
+        return set()
+    return {op.get("ruleIdentifier") for e in value if isinstance(e, dict) and e.get("kind") == "RULE"
+            for op in (e.get("operations") or []) if isinstance(op, dict) and op.get("ruleIdentifier")}
+
 
 # ruleType -> executor  (hard rule §5)
 RULE_EXECUTOR = {

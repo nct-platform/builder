@@ -1187,6 +1187,12 @@ Neighboring controllers for source/schema discovery: `SourceDatabaseController`,
 `DatabaseInternalController`, `SchemaInternalController`, `ChartReplacementController` (in `nct-query`).
 For a DYNAMIC-CRUD build via export files, REST is not needed — it is for runtime/UI; the list is given for completeness.
 
+⛔ **These are the platform's own endpoints, not an integration surface** — they take a user's session or the
+platform's internal credential, and nothing in a project can grant a third party either. When a PRD wants ANOTHER
+system to read the project's lists or press its buttons, that is the project's **public API**
+(`/public-api/v1/<endpoint>`, an API key per calling system, configured live after import) —
+[32-public-api.md](32-public-api.md).
+
 ---
 
 ## 15. findControls → replaceParams pipeline

@@ -151,6 +151,17 @@ task reads an id out of `attrs`, a direct start action hands it nothing and the 
 `direct:"off"` with a `formGroupIdentifier` — that opens the group as a **start form** (the absence of a
 `processIdentifier` is what marks it one) and the process starts carrying what the form collected.
 
+**Another system is a new CALLER of one of these starters, not a starter of its own.** When the PRD says a
+partner's system, a mobile app or a portal opens the case, it calls the project's public API, and the API
+presses one of the first two buttons above — a user start action, or a document's create/row action whose rule
+starts the case — as a signed-in person or a named service account, through the same predicate, form and rules
+a person goes through. Build the starter this table names; then make it API-friendly and list the endpoint in
+the handover ([32](32-public-api.md) §3, §8). The Phase-1a inventory of [19](19-build-decision-procedure.md)
+records it the same way: the button's own value with `+ API CALL` after it (`START ACTION + API CALL`,
+`DOCUMENT ACTION + API CALL`), whether people press that button too or only the other system does — one button
+is one starter, however many callers. Through the API too, a `direct:"on"` start action takes no data: data
+sent to one is refused (`422 action_takes_no_data`).
+
 ### 2.0.1 Two starters for one process is a decision, not a bonus
 
 If a document-driven start already exists and you ALSO add a start action, the same document can get two
@@ -251,14 +262,16 @@ and `context.<ctx>.<alias>.data.get()` returns an **empty LinkedHashMap**, never
 
 Every process variable is merged into the document's ROOT `attrs` and overrides same-named attributes from the
 start document, so `attrs.get('owner')`, `attrs.get('processEntityId')` and `attrs.get('_traceId')` are free
-reads — and those three names must never be used for business data. The task runs as the assignee of the last
-COMPLETED user task, else the `owner` process variable, else the owner access row; in a case that has not
-reached a user task yet, that is the owner the starter chose. A child process started from here therefore
-inherits **this** identity unless the call passes `owner` explicitly.
+reads — and those three names must never be used for business data. The task runs as the case's OWNER — the
+`owner` process variable, else the owner access row — for the whole case: the engine would prefer the assignee
+of the last completed user task, but the platform never assigns a user task to whoever completes it, so there is
+none (unless the BPMN hard-codes one). So `service.security.user()` here is the starter, never the approver —
+an action's complete rule must record who acted ([16](16-groovy-service-api.md) §2.7). A child process started
+from here inherits **this** identity unless the call passes `owner` explicitly.
 
-⚠️ If a service task binds several rules and any one of them fails, the remaining rules still run and the task
-then throws — and the throw happens before the task's context data is saved, so the whole task's document
-changes are discarded while whatever the rules already wrote to the database is not.
+⚠️ If a service task binds several rules, they run in order and the task STOPS at the first one that fails, then
+throws — before the task's context data and its access changes are saved, so the whole task's document changes
+are discarded, while whatever the earlier rules already wrote to the database is not.
 
 ### 2.4 Choosing
 
@@ -267,7 +280,7 @@ changes are discarded while whatever the rules already wrote to the database is 
 | Answers | "when time passes" | "when this row is written" | "when the case reaches this step" |
 | `contextDataMap` | null | null | **non-null** (document or skeleton) |
 | `param` | empty | the method's declared params | empty |
-| Acting user | the schedule's `serviceUserEmail` (may be blank) | the caller's email, inherited down the chain | last completed user task's assignee, else `owner` |
+| Acting user | the schedule's `serviceUserEmail` (may be blank) | the caller's email, inherited down the chain | the case's `owner` (no user task is ever assigned) |
 | Failure is seen by | nobody (a log line) | the caller, as an exception | the process (the task throws) |
 | Latency | up to one cron period | immediate, synchronous | immediate, synchronous |
 | Natural idempotency | **none** — §5 is mandatory | only on `create` | one per arrival at the step |
@@ -905,7 +918,7 @@ something you passed**. Only five option keys are read; anything else — `roleG
 | Option | Obligation | What omitting it costs |
 |---|---|---|
 | `groupIdentifier` | **Mandatory** whenever the worklist is group-scoped, which is the arrangement [07](07-workflows-and-tasks.md) prescribes. Pass the identifier authored in `rep-objects.processGroups[]` — the same one the `process.table.pluin` node and its settings mirror carry | the case is created with `group = null`, and the worklist's INNER join on the group excludes it **for everyone, admins included**, with nothing logged. A dangling identifier behaves identically: the lookup returns null, a warning is logged server-side, the start succeeds |
-| `owner` | Defaults to the user the rule runs as — for a scheduler tick, the schedule's `serviceUserEmail`. Pass it explicitly when the case belongs to somebody other than the service identity | the process is **never ownerless on a stock deployment**: with no acting user at all the platform assigns the project's **configured author account**, writes its owner access row and its `owner` process variable — so the risk there is not "nobody sees it" but "**one wrong account** owns it", and since `owner` is the identity a service task executes as until the first user task is completed (after that the last assignee wins), `service.security.user()` in the case's opening tasks returns the author, not the person it is about. ⚠️ That fallback is a **configuration value whose in-code default is EMPTY**, and blank **disables** it: on a deployment that blanks it the case gets **no owner USER row and no `owner` process variable**, and is reachable only by admins and authors ([07](07-workflows-and-tasks.md) "A rule-started process has no BUSINESS starter"). Nothing in the export tells you which of the two you are shipping onto — which is why you pass `owner`/`roleGroups`/`emails` rather than inherit one |
+| `owner` | Defaults to the user the rule runs as — for a scheduler tick, the schedule's `serviceUserEmail`. Pass it explicitly when the case belongs to somebody other than the service identity | the process is **never ownerless on a stock deployment**: with no acting user at all the platform assigns the project's **configured author account**, writes its owner access row and its `owner` process variable — so the risk there is not "nobody sees it" but "**one wrong account** owns it", and since `owner` is the identity every service task of the case executes as (no user task is ever assigned, [16](16-groovy-service-api.md) §2.7), `service.security.user()` in the case's service tasks returns the author, not the person it is about. ⚠️ That fallback is a **configuration value whose in-code default is EMPTY**, and blank **disables** it: on a deployment that blanks it the case gets **no owner USER row and no `owner` process variable**, and is reachable only by admins and authors ([07](07-workflows-and-tasks.md) "A rule-started process has no BUSINESS starter"). Nothing in the export tells you which of the two you are shipping onto — which is why you pass `owner`/`roleGroups`/`emails` rather than inherit one |
 | `roleGroups` | The people who work the queue. Matched by **name, exactly**; a single String is accepted where a list is expected | a misspelled name produces an access row that can never match, and nothing says so. Copy the name from the project's role groups |
 | `emails` | Individuals. Trimmed but **never case-folded**, and matched character-for-character against the token's `email` claim | `Anna.Smith@example.com` in the rule and `anna.smith@example.com` in the identity provider are two different rows: the case is invisible to the very person it was opened for |
 | `businessKey` | A human key — `"ESC-" + docNumber`. Generated as `<owner\|system>_<uuid>` when omitted | the free-text Search box is on the **admin Processes console**, not on a worklist page, and it is a lowercase LIKE over `businessKey` alone — so a generated key costs you that console's search. A worklist has no free-text search at all: it filters through its filter form and `filterExpression` over `paramsToFilter`, which a programmatic start leaves EMPTY (see the index bullet). The key is still **not** a de-duplication key (§5) |

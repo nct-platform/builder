@@ -51,6 +51,28 @@ def cmd_rolegroup_list(args):
 # ---------------------------------------------------------------------------
 
 
+def cmd_api_exposures_show(args):
+    p = core.Project(args.project)
+    core.out("apiExposures: %s" % core.api_exposures_state(p.rep)[2])
+    for line in core.api_exposure_lines(p.rep):
+        core.out(line)
+
+
+def cmd_api_exposures_drop(args):
+    """Removes the key an export of a live project writes (doc 32 §6) — there is no command that writes it."""
+    p = core.Project(args.project)
+    state, _count, words = core.api_exposures_state(p.rep)
+    if state == "absent":
+        core.out("apiExposures: already absent — nothing to drop")
+        return 0
+    p.rep.pop("apiExposures")
+    p.mark(core.F_REP)
+    p.save()
+    core.out("apiExposures dropped (it was: %s) — the import now leaves the target's API endpoints and key "
+             "bindings as they are" % words)
+    return 0
+
+
 def cmd_context_add(args):
     p = core.Project(args.project)
     contexts = p.rep.setdefault("contexts", [])

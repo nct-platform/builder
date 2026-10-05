@@ -60,6 +60,11 @@ user **reimports** to get a working application with **dynamic CRUD integration*
 | **Form settings, validations & field events** — the control Config accordion, the Form Settings panel, validation-from-template, event → refresh | [25-form-settings-validation-and-events.md](25-form-settings-validation-and-events.md) |
 | **Orchestration & testing a big PRD** — decompose into a `plan.json` ledger, test each unit, the `coverage` gate, the live acceptance run | [26-orchestration-and-testing.md](26-orchestration-and-testing.md) |
 | **Process start — who opens the case** — the decision every process owes (WHO / WHEN / what INVOKES that) and the four starters: a **user start action**, a **document lifecycle rule**, a **scheduler tick**, a **service task**. Plus the sweep rule that calls `service.workflow.start`, idempotency, and making the case findable | [27-event-driven-process-start.md](27-event-driven-process-start.md) |
+| **Support mode over MCP** — a live project changed through its MCP channel: what has a live channel and what does not, tokens, the hand-off to the next session | [28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) |
+| **Global resources** — the project's own files (js, css, html, fonts, images) and the scripts and stylesheets loaded on EVERY page | [29-global-resources.md](29-global-resources.md) |
+| **The automated suite and the test-and-bugfix loop** — `test/` written at build time from the scenarios (every build's third deliverable), and the order of work when the user asks to test the imported project and fix what fails | [30-live-test-bugfix-and-autotest.md](30-live-test-bugfix-and-autotest.md) |
+| **E-mail as the project itself, and a mailbox on a page** — accounts are configured live; what you build is the page, the rules and a handover step | [31-email-integration-and-mailbox.md](31-email-integration-and-mailbox.md) |
+| **Public API — another system calling the project** — keys and endpoints are configured live; what you build is the tables, actions, forms and rules they expose, API-friendly, plus a handover; never `rep-objects.apiExposures` | [32-public-api.md](32-public-api.md) |
 
 > **🔧 Tooling.** Do the entire assembly below with the **commands** of [`tools/mrjun.py`](tools/mrjun.py), not hand-written
 > JSON — the CLI encodes all the "hard rules" (settings vs model, `id=null`, fresh uuids, `ruleType→executor`,
@@ -348,6 +353,17 @@ first, then the row (the `FORM` helper in [08](08-groovy-rules-and-context.md)).
 > [02 §7.0b](02-form-controls-reference.md). Found on a live project with all 12 List controls
 > unwired and 400 green tests.
 
+> ⛔⛔ **…and the same document one step later: its HEADER TOTAL is stale until the document is
+> sent.** The recompute (`recomputeTotals`, `computeLineAmounts`, a `computeX` engine method) is
+> normally wired into the `submit`/`post` rule, because that is where the PRD talks about it. But a
+> register renders the row the moment it is SAVED — so between save and submit it prints the
+> column's default beside the very lines it summarises. Wire the status-neutral recomputes as a tail
+> on the **persist rules** (`Action Create` / `Action Update`), derive the list of calls from the
+> engine's method registry so a typo stops the build, and keep out anything that flips a status or
+> writes stock movements. Recipe and the four constraints:
+> [19 Phase 1c](19-build-decision-procedure.md). Found by ONE draft among sixteen posted documents —
+> the arithmetic was right in all sixteen, the moment of running it was wrong in the one.
+
 - **Config accordion + Form Settings** — the "Create Validation from Template" flow (51 templates →
   `GroovyPredicate` bodies + regex presets + ERROR/WARNING), field **events** (event → Execute-Rules-Before-Refresh
   → refresh fragment; several targets = several mappings), and the form-level **Hidden Content Configuration**,
@@ -497,6 +513,14 @@ Consignments — the chain is identical):
       `every columnSettings[].fieldExpression containing "." ⇒ hook present`. Then open one such form,
       add a line, and read the grid BEFORE saving; a saved document shows those columns correctly with
       or without the hook, so testing the saved state proves nothing ([02 §7.0b](02-form-controls-reference.md)).
+- [ ] **Every derived column a REGISTER shows is recomputed on SAVE, not only on submit.** For each
+      crud with a `recomputeTotals`/`computeLineAmounts`-shaped engine method, the string
+      `<alias>.<method>(` must appear in the body of BOTH persist rules (`Action Create`,
+      `Action Update`). Check it mechanically over the export — `validate` cannot see it, and no
+      invariant test will either: invariant tests read registers, and a register holds seeded rows
+      (the seeder writes derived columns itself) and posted rows (the engine ran). The one state
+      nobody looks at is *saved, not sent* ([19 Phase 1c](19-build-decision-procedure.md)).
+      Prove the check non-vacuous: delete one call from the export and watch it fail.
 - [ ] **No two grid columns share a heading.** Nested columns take their label from the TARGET column
       (`material.material_code` → "Material code"), not from the FK (`material_id` → "Material"), or
       `material.code` and `material.name` both come out as "Material". Two references to one table
@@ -534,6 +558,9 @@ Consignments — the chain is identical):
       never runs on import** — you must hand-write every locale (blank slots stay blank). Full layer model,
       export-key inventory, and the coverage rule → [20-localization.md](20-localization.md).
 - [ ] The `id` of rep objects = `null` (links only via `identifier`).
+- [ ] **No `rep-objects.apiExposures` key** — `validate` refuses `[]` (deletes every public-API endpoint of the
+      target on import) and a list (replaces them); remove it with `mrjun.py api-exposures drop`. An inbound API
+      is delivered as a handover — endpoint table, note, test calls — never as endpoints ([32](32-public-api.md) §6, §8).
 - [ ] The typo `process.table.pluin` is preserved; not "fixed".
 - [ ] **Every status/enum LITERAL a SQL method writes is in the column's CHECK-constraint set** (`db show <table>`
       to see it; `validate` errors otherwise) — a lifecycle write outside the set throws on any real row.
@@ -550,6 +577,10 @@ Consignments — the chain is identical):
 - [ ] **Verified against a POPULATED DB**, not just empty tables: `mrjun.py crud verify --db "…"` (seeds a
       fixture row so CHECK/NOT NULL/FK fire). Empty transactional tables hide every one of the above.
 - [ ] Wiring an existing schema+UI? Follow [18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md).
+- [ ] **`test-scenarios.md` and `test/` ship beside the export** — every scenario the PRD implies (registers, forms
+      field by field, rules in action, every BPMN path, every calculation and dependency, studio components, access,
+      prohibitions, locales), each automated in `test/` from its expected values, and `mrjun.py autotest check`
+      green ([30](30-live-test-bugfix-and-autotest.md), `system_prompt.txt` steps 7–7a).
 
 ## 6. Pitfalls (summary)
 

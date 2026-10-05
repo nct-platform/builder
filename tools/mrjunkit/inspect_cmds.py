@@ -61,6 +61,10 @@ def cmd_inspect(args):
     lines.append("")
     lines.append("rep-objects:")
     for coll in core.REP_COLLECTIONS:
+        if coll == "apiExposures":
+            # A count would read absent, null and [] alike — and only the first two are safe to import.
+            lines.append("  %-24s %s" % (coll, core.api_exposures_state(rep)[2]))
+            continue
         lines.append("  %-24s %d" % (coll, len(rep.get(coll, []) or [])))
     lines.append("  rules by type:")
     for t, n in rules_by_type.items():

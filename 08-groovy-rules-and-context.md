@@ -377,7 +377,7 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 |---|---|---|
 | `context.<ctxAlias>` | context wrapper; `<ctxAlias>` must be among the attached `contextIdentifiers` | `DynamicContextWrapper` (`DynamicRuleContext.groovy`) |
 | `context.<ctxAlias>.<crudAlias>` | CRUD wrapper; `<crudAlias>` must be in `context.crudAliases` | |
-| `context.<ctxAlias>.<crudAlias>.data.get()` | **the current row** as a Map (JsonNode → object) | → `CrudDataWrapper` → `CrudDataDto.get()` |
+| `context.<ctxAlias>.<crudAlias>.data.get()` | **the current row** as a Map (JsonNode → object) — a detached COPY (an empty map, never `null`, when unset): changing the map changes nothing until you `put()` it back, or write single fields with `setField` | → `CrudDataWrapper` → `CrudDataDto.get()` |
 | `...data.getField('col', Type.class)` | one field of the row (dot-path: `'company.id'`) | `CrudDataDto.getField` |
 | `...data.getField('col', default)` | field with a default | `CrudDataDto.getField` |
 | `...data.put(obj)` | replace the entire current row | `CrudDataDto.put` |
@@ -385,7 +385,7 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 | `...data.hasField('col')` | whether the field exists | `CrudDataDto.hasField` |
 | `context.<ctxAlias>.<crudAlias>.service.<method>(args)` | call a CRUD method (same path as `service.crud`) | `DynamicRuleContext.groovy` → inner `ServiceWrapper` → `executeCrudMethod` |
 | `context.<ctxAlias>.data.<attr>` (read) / `= v` (write) / `.getAttr(k)` / `.setAttr(k,v)` | attributes of **this context** (CONTEXT scope) | `ContextDataWrapper` (read, write) |
-| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** attributes (GLOBAL scope) — persisted with the case inside a process, otherwise living as long as the document | `GlobalDataWrapper` (read, write); method syntax → `ContextDataDto.getAttr`/`setAttr` |
+| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** attributes (GLOBAL scope) — persisted with the case inside a process, otherwise living as long as the document. `setAttr('k', null)` REMOVES the key; a decimal comes back from `getAttr` as a `Double` — `as BigDecimal` before exact arithmetic | `GlobalDataWrapper` (read, write); method syntax → `ContextDataDto.getAttr`/`setAttr` |
 | `context.contextData` | raw `ContextDataDto` | |
 | `context.currentData` | the current item in a nested (List) form, or `null` in the parent | `ExecutionRuleTemplate.groovy` |
 
@@ -443,7 +443,8 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 #### `currentData` — nested (List) forms
 
 `context.currentData.get()` returns the current list item **only** during validation/logic of that
-item; in the parent form — **`null`**. The backing is a synthetic context
+item; in the parent form `currentData` ITSELF is **`null`**, so `currentData.get()` throws a
+`NullPointerException` there — guard with `if (currentData != null)`. The backing is a synthetic context
 `__temp_list_item_context__.__temp_item__` (`ExecutionRuleTemplate.groovy`). Order: first the
 parent's validation (`currentData == null`), then each item is validated separately
 (`currentData == item`); field errors bind to that item's row.
@@ -475,7 +476,7 @@ The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
 | `service.notification.push.*` / `service.notification.mail.<alias>(...)` | push/mail | **EXECUTION only** | `NotificationWrapper` — built only in `GroovyExecutionRule.java` |
 | `service.report.pdf.get.<alias>(...)` / `.download(...)` / `.email.<mail>(...)` / `.push.*` | PDF reports | **EXECUTION only** | `ReportWrapper`/`PdfReportProxy` — `setReport` only in `GroovyExecutionRule.java` |
 | `service.quota.*` | quotas | **EXECUTION only** | `QuotaProxy` — built only in `GroovyExecutionRule.java` |
-| `service.access.*` | role/user-access mutations (`addRoleAccess`, `hasRoleAccess`, …) | all | `ServiceWrapper.access` (`AccessManager`) |
+| `service.access.*` | the case's access rows: who SEES a case (`addRoleGroupAccess`, `removeOwnerAccess`, `hasUserAccess`, …) | all — but an edit is SAVED only from a service task's rule or a sequence-flow predicate; everywhere else it returns `true` and is discarded ([16](16-groovy-service-api.md) §2.7, [07](07-workflows-and-tasks.md) "Stage-wise case access") | `ServiceWrapper.access` (`AccessManager`) |
 | `service.workflow.start("<workflowIdentifier>", ctxMap[, opts])` | start a process; returns its identifier. First argument is the workflow **identifier** (autocompleted inside the quotes), and the workflow must be deployed | **EXECUTION only** (incl. CRUD GROOVY methods) | `WorkflowProxy` — `setWorkflow` refuses in predicate/validation |
 | `service.workflow.list / actions / startActions / contextData / complete` | work an EXISTING case: page through a worklist, ask what may be done to a process, read its context data, execute an action with new data. The first argument of most of them is a **process table's Settings ID**, which makes the rule inherit that table's workflow, filter and indexes — see [16](16-groovy-service-api.md) §2.13 | **EXECUTION only** (incl. CRUD GROOVY methods) | same gate as `start` |
 | `service.store.session.get/put/remove/containsKey/keys/all/clear` | key/value storage for the **browser session**, per project. Empty (put stores nothing, get answers `null`) wherever no browser session took part: a VALIDATION rule, a CRUD GROOVY method invoked directly from a page, anything a process table evaluates or runs against a case, scheduler / Kafka / MCP — see [16](16-groovy-service-api.md) §2.14 | all (but see the empty-list) | `RuleStoreProxy` → `SessionKeyValueStore` |
@@ -732,6 +733,29 @@ return service.global.conversion.toSelectOptionsLocalized(list, "id", "name")
 def created = context.crm_context.accounts_cruid.service.create(context.crm_context.accounts_cruid.data.get())
 context.crm_context.accounts_cruid.data.put(created)
 ```
+
+> ⛔ **If the row has DERIVED columns, the persist rule is where they get computed — not the submit
+> rule.** This two-line body is the whole persist rule in most projects, and that is correct for a
+> reference table. For a DOCUMENT with lines it is one line short: the header total, the variance and
+> the flags are written by engine methods, those methods are normally called from `submit`/`post`, and
+> a register renders the row the moment it is saved. Between save and submit the register therefore
+> prints a default next to the lines it is supposed to summarise. Append the status-neutral
+> recomputes:
+>
+> ```groovy
+> def created = context.<ctx>.<alias>.service.create(context.<ctx>.<alias>.data.get())
+> context.<ctx>.<alias>.data.put(created)
+> def _sid = ID(created)          // ID() must also cope with a JsonNode, not only a Map
+> if (_sid != null) {
+>     service.crud.<alias>.computeLineAmounts([id: _sid])
+>     service.crud.<alias>.recomputeTotals([id: _sid])
+> }
+> ```
+>
+> The `update` twin reads the id from `context.<ctx>.<alias>.data.get()` instead of `created`.
+> Constraints (derive the call list from the engine registry; status-neutral methods only; never
+> swallow the exception; the methods must be idempotent because they now run on save AND on submit):
+> [19 Phase 1c](19-build-decision-procedure.md).
 
 **EXECUTION — `init` logic (set service fields before saving):**
 ```groovy

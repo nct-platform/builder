@@ -10,7 +10,7 @@ try:
 except ImportError:  # pragma: no cover
     dist_cmds = None
 
-from . import (case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
+from . import (autotest_cmds, case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
                crudverify_cmds, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
                packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
                globalresource_cmds, workflow_cmds)
@@ -376,6 +376,20 @@ def build_parser():
     _add_project(sp)
     sp.set_defaults(func=rep_cmds.cmd_rolegroup_list)
 
+    # -- api-exposures ------------------------------------------------------
+    # The project's public API endpoints are configured LIVE (doc 32): no command writes this key. What an export
+    # of a live project wrote is shown here, and removed before a build is packed.
+    ax = sub.add_parser("api-exposures", help="rep-objects apiExposures (doc 32 §6): show / drop — never written") \
+        .add_subparsers(dest="sub", metavar="<sub>")
+    sp = ax.add_parser("show", help="what the key does on import: absent / null (safe), [] (deletes every "
+                                    "endpoint and key binding), a list (replaces the target's endpoints)")
+    _add_project(sp)
+    sp.set_defaults(func=rep_cmds.cmd_api_exposures_show)
+    sp = ax.add_parser("drop", help="remove the key, so the import leaves the target's endpoints and key bindings "
+                                    "alone")
+    _add_project(sp)
+    sp.set_defaults(func=rep_cmds.cmd_api_exposures_drop)
+
     # -- context ------------------------------------------------------------
     ctx = sub.add_parser("context", help="rep-objects contexts").add_subparsers(dest="sub", metavar="<sub>")
     sp = ctx.add_parser("add", help="create a context (and bind crudAliases)")
@@ -433,6 +447,41 @@ def build_parser():
                          % handoff_cmds.DEFAULT_BROWSER)
     sp.add_argument("--base-url", dest="base_url", help='the ORIGIN the project is served from — `http://host:port`, no path. Recorded in .dokie/project.json and reused by every later session, so it is asked for ONCE per folder. The project URL is built as <root>/<realm>/<client>; paste only the origin — a pasted `.../auth;jsessionid=...` is trimmed back to it.')
     sp.set_defaults(func=handoff_cmds.cmd_handoff_browser)
+
+    # -- autotest -----------------------------------------------------------
+    # The third deliverable of every build (doc 30, contract step 7a): the automated suite in ./test, BESIDE the
+    # export. scaffold lays down the proven harness; check is the suite's offline gate.
+    at = sub.add_parser("autotest", help="the automated test suite beside the export (doc 30): scaffold the "
+                        "harness / check scenarios<->tests offline / env: what test/.env holds").add_subparsers(dest="sub", metavar="<sub>")
+    sp = at.add_parser("scaffold", help="lay down the suite's harness (runner, .env reader, page objects, coverage "
+                                        "map) in ./test; never overwrites tests/, .env, .env.example, README.md or "
+                                        "helpers/locales.py")
+    _add_project(sp)
+    sp.add_argument("--out", help="suite folder (default: <the export's parent>/test)")
+    sp.add_argument("--force-infra", dest="force_infra", action="store_true",
+                    help="also replace harness files that already exist (what the builder fills for the project "
+                         "and the owner's .env are never touched)")
+    sp.set_defaults(func=autotest_cmds.cmd_autotest_scaffold)
+    sp = at.add_parser("check", help="the suite's offline gate: every scenario cited by a test (§N.M) or "
+                                     "{manual: reason}, every plan row cited on a scenario's Covers line "
+                                     "(plan:<id>), the code compiles, its imports/fixtures/markers resolve, no "
+                                     "credential or literal address, .env hygiene. Non-zero exit on any error")
+    _add_project(sp)
+    sp.add_argument("--tests", help="suite folder (default: <the export's parent>/test)")
+    sp.add_argument("--scenarios", help="scenario file (default: <the export's parent>/test-scenarios.md)")
+    sp.add_argument("--plan", help="coverage ledger (default: <the export's parent>/build-plan/plan.json)")
+    sp.set_defaults(func=autotest_cmds.cmd_autotest_check)
+    sp = at.add_parser("env", help="which keys of test/.env are set (never a secret's value); write BASE_URL and "
+                                   "the run's knobs. Credentials are refused — the owner writes them in the file. "
+                                   "Non-zero exit while BASE_URL, AUTH_USER or AUTH_PASSWORD is empty")
+    _add_project(sp)
+    sp.add_argument("--tests", help="suite folder (default: <the export's parent>/test)")
+    sp.add_argument("--base-url", dest="base_url",
+                    help="the origin (http://host:port — realm and client come from the folder) or the project's "
+                         "whole address <origin>/<realm>/<client>; a pasted .../auth;jsessionid=... is trimmed")
+    sp.add_argument("--set", action="append", metavar="KEY=VALUE",
+                    help="a knob of the run: %s (repeatable)" % ", ".join(autotest_cmds.KNOB_KEYS))
+    sp.set_defaults(func=autotest_cmds.cmd_autotest_env)
 
     # -- rule ---------------------------------------------------------------
     rule = sub.add_parser("rule", help="rep-objects rules").add_subparsers(dest="sub", metavar="<sub>")
@@ -655,6 +704,9 @@ def build_parser():
     # -- validate -----------------------------------------------------------
     sp = sub.add_parser("validate", help="integrity checks (non-zero exit on errors)")
     _add_project(sp)
+    sp.add_argument("--keep-api-exposures", action="store_true",
+                    help="accept a rep-objects.apiExposures list (a WARNING instead of an error) — only when the "
+                         "import is MEANT to make the target's API endpoints exactly that list (doc 32 §6)")
     sp.set_defaults(func=validate_cmds.cmd_validate)
 
     # -- coverage -----------------------------------------------------------

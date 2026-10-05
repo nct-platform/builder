@@ -394,13 +394,31 @@ Management plugin — in [10-database-management.md](10-database-management.md).
 ### 6. `rep-objects.json` — object (`Qss` wrapper)
 
 All project objects except content and DB. Serialized as `Qss`
-(`CmsProjectServiceImpl.java`, fields in this order). 14 keys, **all always present**
-(may be empty arrays):
+(`CmsProjectServiceImpl.java`, fields in this order). 14 keys **always present** (may be empty arrays), plus a
+15th, `apiExposures`, that only an export of a live project writes:
 
 ```
 sources, queries, schedulers, workflows, rules, contexts, formGroups, forms,
-settings, processGroups, roleGroups, userRoleGroupAssignments, mailTemplates, pdfTemplates
+settings, processGroups, roleGroups, userRoleGroupAssignments, mailTemplates, pdfTemplates,
+apiExposures        <- optional; LEAVE IT OUT of anything you author (below)
 ```
+
+> ⛔ **`apiExposures` — the project's public API endpoints — is the one key whose ABSENCE is the safe value.**
+> An export of a REPORT project writes it (as `null` when the export could not read the endpoints, and for any
+> other project type), and an import reads it like this:
+>
+> | in the archive | on import |
+> |---|---|
+> | absent, or `null` | the target's API endpoints and their key bindings are left exactly as they are |
+> | a list | the target's endpoints become exactly that list — matched by `identifier`; the ones not listed are **deleted with their key bindings** |
+> | `[]` — what a project with no endpoints exports | ⛔ **every endpoint of the target is deleted, with every key binding** |
+>
+> API keys never travel, so a binding deleted by an import comes back from no archive: every integration calling
+> those endpoints answers `404` until somebody rebinds each key by hand. **Never author the key, and delete it from
+> a base exported from a live project** unless the import is meant to restore exactly that list — how, and what an
+> entry looks like: [32](32-public-api.md) §6. No `mrjun.py` command writes it, and none may default it to `[]`;
+> `mrjun.py api-exposures show` says what it would do, `api-exposures drop` removes it, and `validate` refuses `[]`
+> and a list until it is gone.
 
 (`pdfTemplates[]` — element `PdfTemplateDto`, `id` nulled on export like the rest — is exported for **all**
 project types, and imported for all types alongside `roleGroups`/`mailTemplates` (not gated on REPORT); see
@@ -443,6 +461,7 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 | `userRoleGroupAssignments` | `{userId, roleGroupId, roleGroupName}` | — |
 | `mailTemplates` | `MailTemplateDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `pdfTemplates` | `PdfTemplateDto` (`id` nulled on export; saved into nct-pdf on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
+| `apiExposures` | `ApiExposureDto` — one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
 
 #### Rule types in rep-objects (all THREE are real)
 
@@ -471,6 +490,7 @@ Rather than memorising numbers, know what each list scales with — that is how 
 | `settings` | one per settings-bearing plugin node |
 | `processGroups` / `roleGroups` / `mailTemplates` | the baseline defaults plus whatever you add |
 | `userRoleGroupAssignments` | number of users with an explicit role-group binding |
+| `apiExposures` | absent from anything you author; in an export of a live project, the API endpoints configured there |
 
 **Why a dynamic project has hundreds of queries**: every **SQL method** of a dynamic CRUD references a saved
 `query`. With the standard method set (`findAll`, `count`, `get`, `create`, `update`, `delete`) that is
@@ -747,7 +767,13 @@ tenant, only steps **10** (roleGroups), **11** (mailTemplates) and **PdfTemplate
 7. **Workflows, rules, contexts** (isReportProject) — save with `id(null)`.
 8. **FormGroups → forms** (isReportProject): save formGroups, build an `identifier→saved` map,
    rebind `form.formGroup` by identifier, save forms.
-9. **Settings, processGroups** (isReportProject). End of the `isReportProject` block.
+9. **Settings, processGroups** (isReportProject), then **API endpoints** (isReportProject, and only when
+   `apiExposures` is present and not `null`) — the last object step of the block, after every definition an
+   endpoint names. The archive's list replaces the project's endpoints in ONE step: matched by `identifier`,
+   the ones it lacks deleted with their key bindings, the kept ones keeping theirs. All or nothing — one
+   invalid entry refuses the whole list, changes nothing, and the import's failure report names each endpoint
+   with its reason. Keys never travel, so an endpoint new to the project arrives with none
+   ([32](32-public-api.md) §6). End of the `isReportProject` block.
 10. **RoleGroups** (for any type): delete existing ones, recreate with `id(null)`
     ensure `Author`/`Developer`; restore `userRoleGroupAssignments` by
     role-group name.
@@ -811,6 +837,7 @@ to a Groovy method fails with `"Rule not found with identifier: <ruleIdentifier>
 | DB schema `int_*` / `system_*` (≠ the target's own `system_<realm>_<client>`) | **skipped** (mapped to null) — assumed to be the donor's integration/liquibase registries. Silent: logged only. A business schema named this way loses ALL its tables and rows on import ([10](10-database-management.md) §Export shape) |
 | dynamic CRUD | recreated entirely via `bl.*`; new ids; source creds from the live src_source |
 | hidden Groovy rules of methods | recreated by `ensureHiddenGroovyRule` from `method.ruleIdentifier` |
+| `apiExposures` (API endpoints) | `id` nulled on export, `identifier` kept; reconciled by `identifier` as one list; key bindings never travel and survive only on the endpoints the list keeps ([32](32-public-api.md) §6) |
 
 ---
 

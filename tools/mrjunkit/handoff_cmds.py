@@ -436,6 +436,11 @@ def _router_body(facts):
         L.append("| `%s/` | case notes: what was decided for THIS project (§4) |" % f["case_rel"])
     if f["mrjun_file_rel"]:
         L.append("| `%s` | the packed export that was shipped |" % f["mrjun_file_rel"])
+    if f.get("scenarios_rel"):
+        L.append("| `%s` | every scenario of the PRD, numbered — what to test (contract step 7) |" % f["scenarios_rel"])
+    if f.get("tests_rel"):
+        L.append("| `%s/` | the automated suite of every scenario — `%s/start.sh` runs it (contract step 7a, doc 30) |"
+                 % (f["tests_rel"], f["tests_rel"]))
     L.append("| `.dokie/project.json` | machine state: mode, paths, counts |")
     L.append("")
     L.append("⛔ The case notes folder is a **sibling** of the export dir, never inside it — `pack`")
@@ -582,6 +587,26 @@ def _router_body(facts):
              % (mj, wd, f["alias"] or "<alias>"))
     L.append("```")
     L.append("")
+    if f.get("tests_rel"):
+        L.append("### The automated suite, and test-and-fix")
+        L.append("")
+        L.append("The suite has its own offline gate, and it runs only against a live project:")
+        L.append("")
+        L.append("```")
+        L.append("python3 %s autotest check --project %s      # every scenario cited by a test" % (mj, wd))
+        L.append("python3 %s autotest env   --project %s      # which %s/.env keys are set — never a value"
+                 % (mj, wd, f["tests_rel"]))
+        L.append("cd %s && ./start.sh                              # needs %s/.env filled by its owner"
+                 % (f["tests_rel"], f["tests_rel"]))
+        L.append("```")
+        L.append("")
+        L.append("When the user asks to **test and fix**, follow `system_prompt.txt` → TEST & BUGFIX and doc 30:")
+        L.append("the MCP connection for the fixes, `handoff browser` for what the suite cannot see; run the suite,")
+        L.append("triage every red as a defect of the product, the test or the scenario (or a drifted tenant), fix")
+        L.append("the project (over MCP and in the export), re-run. ⛔ Never change an expected value to what the")
+        L.append("screen shows; never ask for a password or a key in the chat — `test/.env` is filled by its owner;")
+        L.append("and never import or `./start.sh reset` without the user's yes — it replaces the project's data.")
+        L.append("")
     L.append("### ⛔ Step 6 — RECONCILE WHAT ARRIVED. The import reports DONE either way.")
     L.append("")
     L.append("`validate` proves the file is well-formed; it cannot prove the platform accepted it.")
@@ -1247,6 +1272,9 @@ def cmd_handoff_emit(args):
         # belong, and `case init` creates exactly this path. `cases` (empty) says whether it is there.
         "case_rel": _rel(case_dir, out_root),
         "mrjun_file_rel": _rel(packed, out_root) if packed else None,
+        # The two test deliverables (contract steps 7 and 7a), when the folder has them.
+        "scenarios_rel": "test-scenarios.md" if os.path.isfile(os.path.join(out_root, "test-scenarios.md")) else None,
+        "tests_rel": "test" if os.path.isdir(os.path.join(out_root, "test")) else None,
         "mcp": None,
         "root_url": None,
         "live_url": None,

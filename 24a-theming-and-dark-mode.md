@@ -737,8 +737,8 @@ skin dresses the box and forgets the trim.
 >
 > Setting `--bs-popover-bg` also repaints the **arrow tip**, which bootstrap draws from that
 > variable — miss it and a correctly-dark popover still grows a white spike.
-> Check the real list before you assume coverage:
-> `grep -n "popover\|tooltip\|dropdown-header" nct-ui/src/main/resources/static/architectui-html-pro/themes/dark.css`
+> Check the real list before you assume coverage: with the dark skin on, open the browser's DevTools →
+> Sources, find the theme's `dark.css` and search it for `popover`, `tooltip` and `dropdown-header`.
 
 ### 7.5 ⚠️ Charts: Plotly paints white paper
 

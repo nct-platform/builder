@@ -41,15 +41,19 @@ The layout you work in from here on:
     |-- CLAUDE.md            <- what a FRESH session reads before anything else
     |-- .claude/skills/      <- one skill: the router into the four files above
     |-- project.mrjun        <- THE OUTPUT in build mode; in support mode the AUDIT RECORD of what was applied
-    `-- test-scenarios.md    <- THE SECOND DELIVERABLE, beside the export (HOW TO WORK step 7)
+    |-- test-scenarios.md    <- THE SECOND DELIVERABLE, beside the export (HOW TO WORK step 7)
+    `-- test/                <- THE THIRD DELIVERABLE: the automated suite of EVERY scenario (step 7a)
 
     `.dokie/project.json`, `CLAUDE.md` and `.claude/skills/` are GENERATED, never hand-written — one
     toolkit command (step 7b) rewrites all three from plan.json, the case notes and the export itself, so
     they cannot drift from the folder they describe. Everything else in the tree you author.
-    ⛔ Never write a token into any of them, or into any other file in this folder. The MCP connection
-    is registered with the CLIENT — one `claude mcp add`, scope `local` — which keeps it per project
-    OUTSIDE the folder and reuses it in every later session. That is why nothing here holds a credential
-    and why nothing here has to ask for one twice.
+    ⛔ CREDENTIALS: the folder has at most TWO files that hold one, and both are git-ignored, mode 600, and
+    written by their owner — `./.mcp.json` (the MCP connection: `handoff mcp` writes it from the clipboard
+    or a pasted block; or `claude mcp add`, scope `local`, keeps it outside the folder altogether) and
+    `test/.env` (the accounts the suite signs in with — the project's owner fills it, in the file). Never
+    write a token, password or key into ANY other file — not CLAUDE.md, the skill, `.dokie/project.json`,
+    a case note, a test, the export — and never type one into either of those two yourself, read one out of
+    them, or echo one back. Say so in the hand-over, so nobody commits or mails them.
 
 Your inputs:
   BASE     ./builder/initialtemplates/empty.mrjun — the REPORT-typed skeleton you build ON. Use it; do
@@ -89,6 +93,10 @@ case note. ./builder/GETTING-STARTED.md is the human-facing overview of all of t
 ======================================================================
 OPERATING PRINCIPLES (these override speed — read before every build)
 ======================================================================
+These principles govern a BUILD — from a PRD to the three deliverables. Testing the running project and fixing
+what fails is a separate request the user makes afterwards (TEST & BUGFIX, after step 8): only there do you run
+anything against a live project, and that section says exactly what changes.
+
 The failure mode to avoid: finishing a large PRD fast and shallow, treating a green `validate` as "done".
 `validate` proves SHAPE, not BEHAVIOUR — a project can pass it and still render blank pages, wrong-language
 labels, empty charts, un-branded mail, or fail to import. A big PRD is many hours/days of work; a fast finish is
@@ -97,17 +105,21 @@ a red flag, not an achievement.
 0. DEPTH OVER SPEED. Never declare done on a green `validate` alone — it proves SHAPE, not BEHAVIOUR. The
    finish line is FOUR gates, all green: `validate`, `crud verify --db` against a throwaway Postgres (doc 26
    §3a — the only gate that executes your SQL), `coverage --plan plan.json`, and the INDEPENDENT ACCEPTANCE
-   re-derivation of step 5b. And you ship TWO artifacts, not one: the `.mrjun` and, beside it, a
-   `test-scenarios.md` that lets a human test the running application without you (step 7).
+   re-derivation of step 5b. And you ship THREE artifacts, not one: the `.mrjun`; beside it a
+   `test-scenarios.md` that lets a human test the running application without you (step 7); and `test/`, the
+   automated suite of EVERY scenario in that file — written in the same session, without asking, and gated
+   offline by `mrjun.py autotest check` (step 7a).
 
    ⛔ NO TOKEN — THE DEFAULT, AND EVERY WORD OF IT STANDS:
-   ⛔ YOU DO NOT RUN THE APPLICATION. You are not given a platform, you do not ask for one, and you do not
+   ⛔ DURING A BUILD YOU DO NOT RUN THE APPLICATION. You are not given a platform, you do not ask for one, and you do not
    import anything anywhere. The person who ran you owns a project, knows its URL and its logins, and will
    drive the import themselves — which is exactly what `test-scenarios.md` is for. Asking them "where should
    I test this?" hands your job back to them and stalls the build on an answer that changes nothing you can
    do: an environment reachable from your sandbox is not something you can assume, and a half-driven import
-   is worse evidence than an honestly unverified one. Build, gate it offline, hand over both files, and say
-   plainly that it has not been imported. (See step 6.)
+   is worse evidence than an honestly unverified one. Build, gate it offline, hand over all three, and say
+   plainly that it has not been imported. (See step 6.) Writing the automated suite is NOT running the
+   application: you write it offline, from the scenarios, prove it with its offline gate, and it runs later —
+   when the user runs `test/start.sh`, or when they ask you to test and fix (TEST & BUGFIX, after step 8).
 
    ⛔ A TOKEN WAS PASTED (Operating Principle 1's one allowed question) — THEN YOU IMPORT, AND NOTHING ELSE
    RELAXES. You still author offline, still pass all four gates before the archive leaves the folder, and still
@@ -127,8 +139,8 @@ a red flag, not an achievement.
    fallback — doc 15); (c) SCOPE/DEPTH — which phases, how far. The old "ask OR record an assumption" is too
    weak for these three — ASK. (Phase 0, doc 19, which lists the same three.)
 
-   ⛔ THREE, AND ONE ENVIRONMENT QUESTION — NAMED BELOW, AND NOTHING ELSE. Do not ask for a project URL, a realm, a client, a login, a
-   localhost port, or where the logs are. You will not drive the UI, and without a token you will not import
+   ⛔ THREE, AND ONE ENVIRONMENT QUESTION — NAMED BELOW, AND NOTHING ELSE. During a build, do not ask for a project URL, a realm, a client, a login, a
+   localhost port, or where the logs are (TEST & BUGFIX, a later request, has its own short list). You will not drive the UI, and without a token you will not import
    either (OP 0), so every one of those answers is input you would discard — which Operating Principle 5f
    forbids. Each of the three above changes what you AUTHOR; a URL changes nothing you can do, and even in
    the connected branch it is the TOKEN that carries the coordinates, never a question.
@@ -171,8 +183,10 @@ a red flag, not an achievement.
 
    What the offline gates cannot reach — a page that opens without its layout chrome, a form whose dropdown
    comes back empty, a chart that renders blank, a predicate that is silently false — is REAL, and it is why
-   `test-scenarios.md` exists and why it must be exhaustive rather than a sample. You are not the one who
-   finds those; you are the one who makes them findable in one pass by someone who did not read the PRD.
+   `test-scenarios.md` exists, why it must be exhaustive rather than a sample, and why `test/` automates every
+   one of its scenarios: the first run against the live project then finds those defects by command instead of
+   by somebody's afternoon. You are not the one who finds them during a build; you are the one who makes them
+   findable — by a person in one pass, and by the suite in one command.
    (doc 23 for the bug classes and the live-debug loop the USER runs; doc 26 for the gate ladder.)
 
 5. THINK IN BUSINESS TERMS, NOT IN TABLES. The platform makes it easy to publish a screen per table and call it
@@ -356,6 +370,15 @@ Reference library — doc/builder/ :
                                         default); one load order, and how an archive is ordered; the dependency
                                         suggestions; environment PUBLISH does not carry these.
                                         Toolkit: globalresource add / add-zip / mkdir / ls / set / rm.
+  30-live-test-bugfix-and-autotest.md . THE AUTOMATED SUITE AND THE TEST-AND-BUGFIX LOOP. Read §6-§7 BEFORE
+                                        writing test/ (step 7a): the harness `autotest scaffold` lays down,
+                                        the .env keys and who writes them, one test pattern per scenario family
+                                        (registers, forms field by field, rules in action, every BPMN path,
+                                        calculations and dependencies, studio components, access,
+                                        prohibitions, locales, reports, printouts, API) and the rules a blind
+                                        suite obeys. §0-§5 when the user asks to test and fix: the import
+                                        (yours to drive, only after their yes), author mode, triage of every
+                                        red test (product / test / scenario defect), the BUGLIST.
   31-email-integration-and-mailbox.md . EMAIL - the project sending AS ITSELF, and a mailbox on a page.
                                         Read it when a PRD says "from our domain", "the support inbox", or
                                         "when a customer emails us, open a case".
@@ -382,6 +405,31 @@ Reference library — doc/builder/ :
                                         an EXECUTION rule (16 section 2.16). With more than one mailbox, name
                                         it ONCE with service.mailbox.account("Support") instead of repeating
                                         account: in every call - the call that forgets reads the wrong one.
+  32-public-api.md .................... PUBLIC API - ANOTHER SYSTEM calling the project (a partner backend,
+                                        a mobile app, a portal). Read it when a PRD says "the partner's
+                                        system submits", "our app shows the customer their requests",
+                                        "approve from the mobile app", "integrate with <system> over an API".
+                                        FIRST FACTS, and they decide the plan: API KEYS are never in the
+                                        .mrjun, and you do NOT author the endpoints - they are configured
+                                        live in Settings > Developer > API after import. NEVER write
+                                        rep-objects.apiExposures: absent leaves the target's endpoints alone,
+                                        a list REPLACES them, and [] DELETES every endpoint with its key
+                                        bindings on import. A base exported from a live project may already
+                                        carry the key: validate refuses [] and a list, and
+                                        mrjun.py api-exposures drop removes it (32 section 6).
+                                        What you DO author: the tables, actions, forms and rules the
+                                        endpoints expose, written so they answer a machine exactly as they
+                                        answer a person - field keys are BINDINGS (fieldExpression,
+                                        <contextAlias>.<field>), never labels; preconditions are VALIDATION
+                                        rules (a deliberate throw new RuntimeException('<words>') refuses
+                                        with 422 and its words but names no field; anything else is a 500);
+                                        predicates admit the API identity (a signed-in person, or a named
+                                        service account that is never Author/Developer); every global action
+                                        has a predicate; a direct start takes no data; the table page's
+                                        filter form IS the API's filter list; a records table needs an id
+                                        filter its fetch rule honours; validated controls stay out of tabs.
+                                        Deliver the handover note + endpoint table and one test call per
+                                        operation in test-scenarios.md (sections 8-9).
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).
@@ -408,8 +456,10 @@ HOW TO WORK (do this for every task)
    ⛔ IF THE MODE IS SUPPORT AND `./.mcp.json` DOES NOT EXIST, ASK FOR THE CONNECTION — ONCE, FIRST, BEFORE
    ANY OTHER QUESTION. One folder is one project talking to one tenant, so the connection belongs to the
    folder and nothing else can supply it: *"this folder has no MCP connection yet — paste the block from
-   Settings → Developer → MCP tokens of the project you are supporting."* Then:
-        <paste> | python3 ./builder/tools/mrjun.py handoff mcp --project ./work
+   Settings → Developer → MCP tokens of the project you are supporting."* Prefer the route that keeps the token
+   out of the chat — the user copies the block and runs, in this session:
+        ! pbpaste | python3 ./builder/tools/mrjun.py handoff mcp --project ./work
+   (Linux: `wl-paste` or `xclip -o`); if they pasted it here instead, pipe that paste into the same command.
    The command normalises whatever was pasted, writes `./.mcp.json` mode 600 and git-ignores it. ⛔ Do NOT
    write that file yourself and do NOT echo the credential back — not in a reply, not in a note, not in a
    commit. Then STOP and say: restart Claude Code once in this folder and approve the server. MCP servers
@@ -418,13 +468,14 @@ HOW TO WORK (do this for every task)
    again; asking twice for something already answered is the failure this step exists to prevent.
 0b. SUPPORT MODE — OFFER THE LIVE TEST, once, after the connection is up. The MCP channel reads and writes
    OBJECTS; it cannot tell you whether what a person opens actually works, and a page that renders empty or a
-   rule that denies everyone passes `validate` every time. So offer to drive the running project in a real
-   browser: *"I can test this live — drive the scenarios in a browser and fix what I find over MCP. It will
-   create test records, and test roles if the scenarios need them, in the real project. Want me to?"* It is an
-   OFFER; wait for a yes, because it acts on a running tenant. On yes:
+   rule that denies everyone passes `validate` every time. So offer to test the running project: *"I can test
+   this live — run the automated suite in test/ against the running project, drive in a browser what it cannot
+   see, and fix what I find over MCP. It will create test records, and test roles if the scenarios need them, in
+   the real project. Want me to?"* It is an OFFER; wait for a yes, because it acts on a running tenant. On yes,
+   follow TEST & BUGFIX (after step 8) — writing `test/` first if the folder has none — and for the browser:
         python3 ./builder/tools/mrjun.py handoff browser --project ./work   (merges; keeps the tenant server)
    ⛔ Install a missing `node`/`npx` yourself — the command prints the line — then restart Claude Code once.
-   ⛔ OPEN THE PROJECT, NOT THE INSTALLATION — `<root>/<realm>/<client>`, e.g. `http://host:8077/saas/ardshin2`.
+   ⛔ OPEN THE PROJECT, NOT THE INSTALLATION — `<root>/<realm>/<client>`, e.g. `http://host:8077/saas/acme`.
    The bare root bounces to `…/auth;jsessionid=…`, which renders none of this project. realm/client come from
    the MCP TOKEN's own claims (or `.dokie/project.json`); only the root cannot be derived — the MCP endpoint is
    a different service on a different port. If `.dokie/project.json` records `project.liveUrl`, USE IT and ask
@@ -432,7 +483,8 @@ HOW TO WORK (do this for every task)
    so no later session asks again. `handoff browser` prints the resolved address or names the missing half.
    ⛔ THE HUMAN LOGS IN. Never type a password, never ask for one: open the URL and ask them to sign in, in
    that window, as a user holding the AUTHOR role — author is the role that can create roles, so with it you
-   build every other identity the scenarios need. The full loop, the scenario file, the negative cases and
+   build every other identity the scenarios need. (The SUITE is different: it signs itself in from
+   `test/.env`, which the owner filled — you start it and never read those values.) The full loop, the scenario file, the negative cases and
    what must never be driven against real records: 28-support-mode-over-mcp.md §8.
 1. UNPACK / INSPECT. If given a `.mrjun`: `python3 tools/mrjun.py unpack <file.mrjun> <workdir>`. Then ALWAYS
    `mrjun.py inspect --project <workdir>` to see the current state. Base a brand-new project on the `empty`
@@ -597,8 +649,9 @@ HOW TO WORK (do this for every task)
    ⛔ Do not import it. Do not ask for somewhere to import it. You have no platform and you are not getting
    one; the user has a project, knows its realm and client and login, and drives it themselves with the file
    you write in step 7. What you owe them here is not an attempt — it is an unambiguous sentence in the
-   hand-over: *this export has not been imported or run anywhere; the four offline gates are green; here is
-   what to click first.*
+   hand-over: *this export has not been imported or run anywhere; the four offline gates are green; the
+   automated suite in `test/` is written and passes its offline check, and has not been run; here is what to
+   click first.*
 
    ⛔ THE HAND-OVER ALSO CARRIES THE STEP-3a LEDGER — two short sections, always, even when both are empty.
    **"Assumed, because nobody answered"**: every List A item that went unanswered, written as the assumption
@@ -608,8 +661,8 @@ HOW TO WORK (do this for every task)
 
    That sentence is the whole point. A build described as "done" that was never run reads as tested, and the
    user finds out the hard way. A build described as "gated offline, not yet driven" sets them up to spend
-   twenty minutes on the sweep in `test-scenarios.md` §a and find the layout, dropdown and locale faults the
-   file gates structurally cannot see (doc 23).
+   twenty minutes on chapter 1 of `test-scenarios.md` (every page opens with its menu and header) and find the
+   layout, dropdown and locale faults the file gates structurally cannot see (doc 23).
 
 6b. IMPORT — ONLY IF A TOKEN WAS GIVEN. There is no half version of this step: with no token, skip it entirely
    and step 6 is the end of the build. With one, do all of it, in this order.
@@ -704,11 +757,86 @@ HOW TO WORK (do this for every task)
       to RE-OPEN the row and read it back — a toast is not evidence); a task invisible to a non-admin member of
       the group; a screen under each of the five skins.
 
-   Format each scenario so it can be executed and reported without asking you anything:
-   **№ · Role · Precondition · Steps · Expected result · WHAT ELSE MUST HAVE CHANGED (where to go and look) ·
-   What it proves**. Number them so a bug report can cite a number. Group by module, load-bearing first — the
-   tester may not reach the end — and open the file with a short dependency map: for each entity, the other
-   screens and numbers that react to it.
+   m. EVERY REGISTER — each CRUD table, tree and process table in the build: it paints ROWS, not just its
+      header; every column shows a readable value (no uuid, no raw enum code); every control of its filter form
+      narrows it, and a value that matches nothing returns ZERO rows; paging advances; create / edit / delete and
+      every row action exist exactly for the roles and states the PRD names — and are ABSENT, not
+      present-and-refusing, everywhere else.
+   n. EVERY FORM, FIELD BY FIELD — each field's label in every locale; mandatory or not; its default; read-only or
+      hidden in which state and for which role; every dropdown populated and filtered as designed, cascades
+      included; every validator and conditional validation with the exact message it shows; every warning and
+      its acknowledgement. Save, then RE-OPEN and read every value back — a toast is not evidence. A form with
+      lines also gets doc 26 §5 4a and 4b: the line grid BEFORE the document is saved, and the derived header
+      of a saved-but-unsent document.
+   o. EVERY RULE IN ACTION — not that a rule exists: what it DOES, observed where it shows. Each PREDICATE both
+      ways — the state in which it is true (the action, field or page is offered) and the one in which it is
+      false (it is not), varying the exact condition it reads. Each EXECUTION rule — every record it writes,
+      every number it recomputes, every process it starts (run it twice: still ONE case), every mail and PDF it
+      triggers, every access it grants, revokes or hands over, every owner it changes (an access change only
+      takes effect from a service task or a sequence flow — doc 07 "Stage-wise case access"). Each VALIDATION rule —
+      every message it can produce, error and warning, each provoked by exactly the input that should provoke it,
+      with every OTHER mandatory field filled so that the rule, not the field check, is what refuses.
+   p. EVERY PROCESS, PATH BY PATH, WALKED AS ITS USERS — list the BPMN's paths before writing: every route from
+      the start event to every end event, through every gateway outcome (each condition true AND false), every
+      loop (return for revision — taken once, then twice), every timer and boundary event, every call activity,
+      every parallel branch. One scenario per path; together they traverse EVERY sequence flow at least once —
+      say in the chapter which flows each path covers. Per step: who performs it (the role whose queue shows the
+      task — and that a member of that role who is NOT an author or admin sees it), what the task form shows and
+      requires, the record's status after it, and what else moved (c). Every way a case can START — start form,
+      direct start, scheduler, event, a rule — is its own scenario, and so is every way it can stop.
+   q. EVERY CALCULATION AND EVERY DEPENDENCY — THE HEART OF AN ERP. Write two inventories first, in chapter 0:
+      the CALCULATIONS (every derived value — totals, taxes, discounts, balances, stock on hand / reserved /
+      available, costs, KPIs, statuses derived from quantities — each with the PRD's formula, its inputs, its
+      rounding, its unit or currency, and the MOMENT it is recomputed: save, submit, post, approve, a scheduler)
+      and the DEPENDENCIES (what changes when what changes: the record graph your rules maintain). Then a
+      scenario per calculation with EXACT expected numbers worked out by hand from the scenario's own inputs —
+      decimal arithmetic, rounding half away from zero as the database rounds — and a scenario per dependency
+      chain: FORWARD (the action moves every dependent), BACKWARD (reverse, cancel, delete restores every
+      dependent), BOUNDARIES (zero, negative, the largest value, a rounding .5, a unit or currency conversion),
+      INVARIANTS that must hold after EVERY scenario (a balance equals the sum of its movements, a header the sum
+      of its lines, available = on hand − reserved, nothing negative that may not be), CONTENTION (two documents
+      drawing on the same balance), and the state between (saved, not yet sent — doc 26 §5 4b).
+   r. EVERY CUSTOM HTML STUDIO COMPONENT, BY THE PRD, LIKE ANY SCREEN (doc 24): it renders real data, not an empty
+      wrapper; every control does what the PRD says and its rule call returns what the screen then shows; the
+      empty, loading and error states; paging, sorting and filtering across pages, not within one (24c); ONE
+      click = ONE effect, also after the component was re-mounted by an ajax re-render; every locale; every role
+      it serves — and what it must hide from a role; every skin (24a); no console error.
+   s. ACCESS — WHO SEES WHICH RECORD. For every process: which users and role groups see which cases at each
+      step, and every rule that changes that — access granted, revoked, handed to a role group, a new owner —
+      each proven by the person who gained or lost access opening the list. For every register whose rows are
+      scoped by role: what each role sees, and what it does not.
+
+   ⛔ THE INVENTORIES COME BEFORE THE SCENARIOS. Chapter 0 holds them — registers, forms, rules by type and where
+   each is wired, processes with their path lists, calculations, dependencies, studio components, reports,
+   templates, triggers, roles, the role groups the suite's author account must hold and the personas the
+   scenarios need — and the TRACEABILITY table: every PRD requirement → the scenarios that prove it,
+   every `plan.json` row → the same. A requirement no scenario proves is a requirement nobody will ever test,
+   and step 7a's gate refuses a plan row that no scenario's Covers line cites as `plan:<id>` (the table is for
+   the reader; the gate reads the Covers lines, and refuses an id the plan does not have).
+
+   THE FORMAT — read by the suite's coverage map and by `mrjun.py autotest check`, so follow it exactly:
+
+        ## 0. How to read this file {prose}               provenance, dependency map, inventories, traceability
+        ## 1. Front door, navigation and access           ALWAYS chapter 1 — 1.1 the author signs in and lands
+                                                          inside the project, 1.2 the front door is not blank,
+                                                          1.3 every page opens with its menu and header; then
+                                                          {manual} 1.x for what only the importer can check:
+                                                          the import finished without an abort, `livediff`
+        ## 4. Purchase orders                             one chapter per module, load-bearing first
+        ### 4.2 · Approve an order above the limit        one scenario; a test cites it as §4.2
+        ### 9.3 · The printed invoice matches the brand {manual: a person compares the layout with the template}
+
+   Each scenario carries: **Role · Covers** (every `plan:<id>` it proves, the PRD section) **· Precondition ·
+   Steps · Expected result · WHAT ELSE MUST HAVE CHANGED (where to go and look) · What it proves**. Number them
+   so a bug report can cite a number, and never renumber once a test cites them. EVERY SCENARIO STANDS ALONE —
+   it never starts from what another scenario left behind (tests run alone, in any order, and a chain makes one
+   red into ten). A Precondition names the SEED rows it starts from — the ones `project-db.dump` carries, which
+   you authored, by their codes and values; they are READ-ONLY, so a scenario that must change one first creates
+   its own copy — and a scenario that writes says how its records are recognised (`zz-at-<scenario>-…`). `{manual: <reason>}` is for a
+   scenario NOTHING of which can be automated — a layout judged by eye, a mail read in a real inbox; a scenario
+   that can be automated even in part is an ordinary one whose remaining eye-check is one line of it. Group by
+   module, load-bearing first — the tester may not reach the end — and keep the dependency map in chapter 0: for
+   each entity, the other screens and numbers that react to it.
    ⛔ Be honest about provenance. You drove NOTHING — you have no platform (step 6) — so the file opens with
    one line saying so: *none of these scenarios has been executed; they are derived from the build, not from a
    run.* Then, per scenario, say which of the four offline gates covers it and which cannot: `crud verify`
@@ -719,8 +847,65 @@ HOW TO WORK (do this for every task)
    export was imported into <project> at <time>; the import reported <status> with <n> object failures; NO
    scenario below has been executed — an import is not a run.* Write what the session actually drove and not one
    word more. An import proves the objects were accepted and says NOTHING about a page keeping its chrome, a
-   dropdown populating or a rule firing — which is the entire subject of this file, so the sweep in §a is still
-   the tester's first job.
+   dropdown populating or a rule firing — which is the entire subject of this file, so chapter 1's sweep of every
+   page is still the tester's first job.
+
+7a. WRITE THE AUTOMATED SUITE — IN THE SAME SESSION, AND WITHOUT ASKING. `test-scenarios.md` tells a person
+   what to check; `test/` checks it by command. It is the third deliverable of every build — not an offer, not a
+   later phase, not a question. Do not ask whether to write it: write it, right after step 7.
+
+        python3 ./builder/tools/mrjun.py autotest scaffold --project ./work
+
+   That lays down the proven harness in `./test` — `start.sh`, the configuration that is the ONLY reader of
+   `test/.env`, page objects that already know how this platform's forms, dialogs, row menus, grids, queues and
+   studio components lie to a naive script, the exact-number helpers, the coverage map — and creates `test/.env`
+   from `.env.example` (mode 600, git-ignored, values empty). You write the TESTS: for every chapter of
+   `test-scenarios.md` one file `tests/test_NN_<chapter>.py`, and in it one test per scenario, its docstring
+   opening with the scenario's number (`§4.2`). `§` is reserved for scenario numbers and counted only in
+   docstrings: cite a PRD section as "PRD 4.2" and a library doc as "doc 30 §5". What the project needs beyond
+   the harness goes where the harness never overwrites it: fixtures and markers in `tests/conftest.py`, page
+   objects in `pages/project_<name>.py`, helpers in `helpers/project_<name>.py`. Read doc 30 §6–§7 and doc 28
+   §8.8 (the ways a UI assertion lies) BEFORE the first test — the suite is written blind, so it must be written
+   defensively.
+
+   ⛔ THE EXPECTED VALUES COME FROM THE SCENARIO FILE, NEVER FROM A SCREEN. You have not seen the screen — that is
+   exactly why this suite cannot encode a defect as the expected behaviour. Every number is computed in the test
+   from the scenario's own inputs with the PRD's formula (`helpers/numbers.py`: Decimal arithmetic, database
+   rounding), the formula written into the assertion message. Where the build is wrong the suite is red, and
+   that red is its job.
+   ⛔ LOCATE BY WHAT YOU AUTHORED. Page paths from the export's own page list; captions from
+   `helpers/locales.py`, which you fill from the export for EVERY locale; a grid column by its caption; a row by
+   a value the test itself typed. Never a generated id, never "the first row", never a literal host (addresses
+   come from `CONFIG.url(...)`).
+   ⛔ A TEST THAT WRITES runs under `@pytest.mark.destructive`, creates its own records (named `zz-at-<scenario>-…`),
+   finds a record the server numbered by DIFFERENCE (before/after), never by "the newest", cleans up through the
+   application's own actions in a `finally`, and re-reads the register to prove the cleanup happened. A test that
+   SENDS something out of the project — a mail to a real inbox, a message, a call to another system — is ALSO
+   `@pytest.mark.sends`, which runs only with `--run-sends`: a write can be cleaned up, a sent mail cannot.
+   ⛔ A PROCESS PATH IS ONE TEST, start to end event — step-tests lie at the joins. Each step acts as the role that
+   owns it (the author account holding that role group, or a persona from `.env` when the PRD forbids one person
+   doing both); each step asserts the task arrived in the right queue, the status after it, and the ripple.
+   ⛔ ASSERT MOVEMENT, REFUSAL AND TRACE: what must CHANGE (not what survived), a refusal by its own words (not
+   "some feedback appeared"), and the row read back — from the screen after re-opening, and from the database
+   through `helpers/db.py` when `PGDSN` is set (`db.query()` when the database IS the assertion — it skips without
+   one; `db.optional()` when the row is a second witness to what the screen already proved). For each test ask:
+   what would fail if the feature were deleted? If nothing would, it is decoration — rewrite it.
+   ⛔ `{manual: <reason>}` ONLY WHERE NOTHING CAN BE AUTOMATED — say what the person checks instead.
+
+   DONE WHEN — the offline gate passes:
+
+        python3 ./builder/tools/mrjun.py autotest check --project ./work
+
+   Every scenario cited by a test or justified as manual, and no malformed heading; every `plan.json` row cited on
+   a scenario's Covers line (`plan:<id>`), and no id the plan lacks; every file compiles, every import of the
+   suite's own modules resolves, every fixture a test asks for exists, every marker is registered (`pytest.ini`
+   or `tests/conftest.py`); `.env` git-ignored and `.env.example` free of secret values; no credential and no
+   literal address in the code (`CONFIG.url(...)`, `CONFIG.api_url(...)`). ⛔ You do NOT run the suite during a
+   build — there is no project to run it against (OP 0). It runs when the user runs `test/start.sh`, or when
+   they ask you to test and fix (TEST & BUGFIX, after step 8). ⛔ You never write a credential into `test/.env` —
+   not AUTH_USER/AUTH_PASSWORD, not a persona's, not PGDSN, not an API key; its owner fills it, in the file.
+   The one key you may write is BASE_URL, and only through `mrjun.py autotest env --base-url <origin>`, when the
+   folder knows where the project is served.
 
 7b. LEAVE THE FOLDER RESUMABLE — one command, and it is not optional:
 
@@ -740,8 +925,8 @@ HOW TO WORK (do this for every task)
    map costs more than none.
 
    ⛔ Three things this command must never be talked into. **No credential in any emitted file** — the token
-   is registered with the CLIENT and never lands in this folder at all; a `Bearer ${VAR}` in a config is the
-   trap, because an unset variable expands to the literal placeholder, the client still reports the server
+   lives only in the git-ignored `./.mcp.json` that `handoff mcp` writes (or with the client, `claude mcp add`),
+   never in CLAUDE.md, the skill or `.dokie/project.json`; a `Bearer ${VAR}` in a config is the trap, because an unset variable expands to the literal placeholder, the client still reports the server
    as connected, and every call 401s where nobody is looking. **No executable hook**, ever: a
    non-interactive run bypasses the folder-trust prompt and would execute one silently, and this folder is
    handed between people. **ONE skill, not one per module** — a skill's description is in context on every
@@ -751,13 +936,83 @@ HOW TO WORK (do this for every task)
 8. Tell the user exactly what you changed, which docs/commands you used, and the result of EACH of the four
    gates — `validate`, `crud verify --db`, `coverage --plan`, the step-5b re-derivation — naming what each one
    does and does not cover. State in one sentence that the export has not been imported or driven anywhere,
-   and that it targets a `type == REPORT` project created from the "Empty project" template. Name both
-   deliverables and where they are: the `.mrjun` and the `test-scenarios.md`. Point at the first sweep in
-   `test-scenarios.md` as their next step.
+   and that it targets a `type == REPORT` project created from the "Empty project" template. Name the three
+   deliverables and where they are: the `.mrjun`, the `test-scenarios.md`, and `test/` with the result of
+   `autotest check` (scenarios automated / manual, and why each manual one is). Then the next steps, in order:
+   import the `.mrjun` and deploy the workflows; fill `test/.env` (BASE_URL, AUTH_USER, AUTH_PASSWORD — in the
+   file, never in a chat; `mrjun.py autotest env` says which keys are set without showing one); run
+   `test/start.sh`, or ask me to "test and fix", which runs the suite against the live project and repairs what
+   it finds (TEST & BUGFIX — it needs the project's MCP connection). Say that `test/.env` and `./.mcp.json` hold
+   credentials — git-ignored and mode 600; never commit, mail or paste them.
    If step 6b ran, that sentence changes to what did happen: which project it was imported into, the three flags
    you passed, the terminal status, the per-object failures, the snapshot tag to revert to — and, unchanged, that
    nothing has been DRIVEN. Never let "imported" be read as "tested"; that is the same false report as calling a
    green `validate` done, only harder to disbelieve.
+
+======================================================================
+TEST & BUGFIX — WHEN THE USER ASKS YOU TO TEST THE PROJECT AND FIX WHAT FAILS
+======================================================================
+The build ends at step 8. Running the suite against the live project and repairing what it finds is a separate
+request, and only the user makes it, because it acts on a real tenant. When they make it ("test it", "run the
+tests and fix the bugs"), do this — the full loop is doc 30.
+
+1. PRECONDITIONS — check each; ask for one ONLY when it is missing, and only once.
+   a. `test/` exists. A folder BUILT before the suite was a deliverable has none: write it first (step 7a) from
+      `test-scenarios.md` — without asking, as in a build. A SUPPORT folder (a project not built here) gets
+      scenarios and tests for the change request and its neighbours only (doc 28 §8.4); a full suite of the
+      whole project is a separate request — offer it in one line.
+   b. `test/.env` is filled — `python3 ./builder/tools/mrjun.py autotest env --project ./work` says which keys are
+      set and never shows a secret's value (exit 1 while BASE_URL, AUTH_USER or AUTH_PASSWORD is empty). BASE_URL
+      is yours to write when the folder knows the project's address (`.dokie/project.json` → `project.liveUrl`):
+      `autotest env --base-url <it>`. Everything else — AUTH_USER, AUTH_PASSWORD, a persona, PGDSN, API_KEY — ask
+      the user to write INTO THE FILE. ⛔ Never ask for a password or a key in the chat, never type one, never
+      print the file.
+   c. The project is imported and its workflows are deployed (doc 30 §1) — an undeployed workflow fails every
+      process scenario on an empty queue, which is not a defect of the build. If it is not imported yet, the
+      import is yours to drive, but ⛔ only after the user's explicit yes: it REPLACES the project and its data
+      with the archive's — name the project, say so, and wait.
+   d. THE MCP CONNECTION — the channel the FIXES travel on. If `./.mcp.json` does not exist and this session has no
+      Dokie MCP tools, say so and give the user this, then STOP until they have done it:
+      *"To fix what the tests find I need an MCP connection to this project:
+        1. In the project: Settings → Developer → MCP tokens → create a token and copy its connection block.
+        2. Connect it to this folder — best run this here (it reads the clipboard, so the token never enters our
+           chat):
+              ! pbpaste | python3 ./builder/tools/mrjun.py handoff mcp --project ./work
+           (Linux: `wl-paste` or `xclip -o` instead of `pbpaste`.) It writes ./.mcp.json — mode 600, git-ignored.
+           Or register the server with `claude mcp add` (scope local); or paste the block here and I run it.
+        3. Restart Claude Code in this folder and approve the server — MCP servers connect at start-up."*
+      ⛔ Ask ONCE. If `./.mcp.json` exists, the connection is configured — never ask again (step 0).
+      Without MCP the loop still works, slower and coarser: fix the EXPORT, `validate`, `pack`, then
+      `test/start.sh reset` re-imports it — which REPLACES the project's data with the archive's, so ⛔ only with
+      the user's explicit yes (they may give it once for every reset of this test session) — and re-deploy the
+      workflows before the next run.
+   e. A BROWSER, for what the suite cannot see (the `{manual}` scenarios, a reproduction by hand during triage):
+      `python3 ./builder/tools/mrjun.py handoff browser --project ./work` declares it (doc 28 §8.1); the human
+      signs in to it — you never type a password.
+2. RUN the suite: `cd test && ./start.sh all` (the destructive scenarios create records in the real project —
+   say so before the first run). Never add `--run-sends` unless the user asked for real mail and messages to go
+   out — those scenarios then stay skipped and are named in the report. Keep the output; the coverage map and the
+   count of skipped tests at its end are part of the result.
+3. TRIAGE EVERY RED TEST BEFORE FIXING ANYTHING — group identical failures first (ten identical messages are one
+   harness fault), then classify each, reproducing the step by hand where it is not obvious:
+   - a DEFECT OF THE PRODUCT — the project does not do what the scenario (and the PRD behind it) says: record it
+     in the BUGLIST and fix the PROJECT;
+   - a DEFECT OF THE TEST — a locator, a wait, a caption, a wrong page path: fix the test; never touch an expected
+     value to do it;
+   - a DEFECT OF THE SCENARIO — its arithmetic or its reading of the PRD was wrong: correct `test-scenarios.md`
+     first, write down why, and only then the test;
+   - the TENANT DRIFTED — the seed rows a scenario starts from are not what the archive carries (edited by hand,
+     consumed by an earlier run): no defect of the build; with the user's yes, `./start.sh reset` and run again.
+   ⛔ Never make a red test green by changing what it expects to what the screen shows. That is the one move that
+   turns the suite from a check into a recording of the bugs.
+4. FIX over MCP — one change at a time, the export edited too (dual-write, doc 28 §4), `validate` before the live
+   write, the object read back — then re-run the failing file AND every file that touches what you changed.
+5. REPEAT 2–4 until the suite is green, or until what remains is recorded in the BUGLIST with its reason.
+6. REPORT — in `build-plan/test-report.md`, with the BUGLIST in `work-case/BUGLIST.md` (doc 30 §3) — a case
+   note, never inside `work/`: what ran,
+   what was red, what was a product defect and how it was fixed, what was a test or scenario defect, what is
+   still open — and the coverage map line. A scenario that is green only because it is
+   `{manual}` or skipped is not green: name each one.
 
 ======================================================================
 NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you hand-edit, obey them)
@@ -906,7 +1161,7 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   saving); if you hand-edit `bpmnContent`, keep every namespace declared + every tag closed + every
   `sequenceFlow` source/target pointing at a real element id. `validate` now ET-parses `bpmnContent` and ERRORs
   on malformed XML / missing `<process>` / dangling flow refs — but only an import proves Flowable accepts it,
-  so put "the project imports without an abort" as scenario 1 of `test-scenarios.md`.
+  so make "the project imports without an abort" a `{manual}` scenario of chapter 1 of `test-scenarios.md`.
 - ⛔ [BOTH] PAGES RENDER EMPTY IF YOU REGENERATE AN HTML-REFERENCED IDENTIFIER. (Live too: `nct_ui_clone_page` clones a laid-out page over MCP and the same anchors decide whether it renders.) An `html.plugin`/`nct.html.plugin`
   draws a child ONLY if its own `html` string contains `<plugin ... id="<child.identifier>">`. The baked page
   Layout addresses SEVEN children by name — `header`, `logo-plugin`, `breadcrumb`, `left-nav`, `parsis`,
@@ -920,8 +1175,8 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   `left-nav`+`parsis` strips the chrome off every page: shipped once as a whole project of blank pages
   while `validate`, `coverage` and `crud verify` were ALL green. `validate._check_html_plugin_refs` now ERRORs
   on the regenerated-id signature — but this whole class is invisible offline BY NATURE. You cannot catch it;
-  the tester can, in one pass, and only if you tell them to look. `test-scenarios.md` must therefore open with
-  "open every page and confirm it has its menu and header" BEFORE any functional scenario.
+  the tester can, in one pass, and only if you tell them to look. Chapter 1 of `test-scenarios.md` therefore
+  holds "open every page and confirm it has its menu and header" (§1.3) BEFORE any functional scenario.
 - ⛔ [BOTH] A GROOVY dynamic-CRUD method that reads `param` MUST declare `parameters[]`. `param` is assembled ONLY
   from `methods[].parameters` (DynamicMethodExecutor.executeGroovyMethod), so `parameters: []` means the whole
   payload is DROPPED: the document create/update writes NULL into every column ("null value in column ...

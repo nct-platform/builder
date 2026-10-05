@@ -301,7 +301,8 @@ for each MODULE (an epic's worth of tasks, in dependency order):
     T3 crud verify --db  (§3a — spin up a throwaway PG; then TRIAGE every FAIL)
     mrjun.py coverage --plan build-plan/plan.json          # §6a — MUST pass: every PRD item built + done
     T5 write test-scenarios.md + the independent re-derivation  # §5 — the hand-over IS the finish line
-    (the import + drive is the USER's step, from that file)
+    T6 autotest scaffold + one test per scenario; autotest check # contract step 7a — written, never run here
+    (the import + the run are the USER's, or TEST & BUGFIX when they ask)
 ```
 
 Why per-module validate matters: authoring 200 nodes then validating once means a single import-abort (a mis-typed
@@ -315,13 +316,15 @@ caused it ([23](23-distribution-and-known-gaps.md) §2). Validate after each uni
 > **In support mode you can drive this sweep yourself.** A session connected to a live project adds a
 > browser MCP server and works through the scenarios in a real browser, fixing what it finds over MCP —
 > [28](28-support-mode-over-mcp.md) §8. The order below is still the order; the difference is only who is
-> holding the mouse. ⛔ The login is not part of what you drive: the human authenticates, always (§8.2).
+> holding the mouse. ⛔ The login is not part of what you drive: the human authenticates, always ([28](28-support-mode-over-mcp.md) §8.2).
 >
-> The full loop around this sweep — import, deploy the workflows, drive, BUGLIST, fix, re-drive, and only
-> once it is green **ask the user whether to build an autotest project** — is
-> [30](30-live-test-bugfix-and-autotest.md). Two things there change what you do here: the `.mrjun` is
-> imported from the project's own `/settings` page **by you**, not handed back to the user; and an
-> autotest is written AFTER the scenarios pass, never while they are still red.
+> The full loop around this sweep — the automated suite written at BUILD time from these scenarios (the
+> contract's step 7a); then, when the user asks, import, deploy the workflows, run the suite and drive what it
+> cannot see, triage, fix, re-run — is [30](30-live-test-bugfix-and-autotest.md). Two things there change what
+> you do here: the `.mrjun` can be imported from the project's own `/settings` page **by you** — but only after
+> the user's explicit yes to that import, because it replaces the project's data (30 §1); and every scenario
+> below is ALSO a test in `test/` — written now, from the PRD's expectations, and run later against the live
+> project.
 
 `validate` never imports; it does not deserialize into the platform DTOs, and no offline gate opens a page. So
 the deliverable is proven by a live run — **but not by yours.** You do not have a platform and you do not ask
@@ -353,15 +356,31 @@ pass from fail ([23](23-distribution-and-known-gaps.md) §2 is the reference for
    their label from the FK instead of the target column. Found live with 12 of 12 List controls
    unwired and 400 green tests — the suite tested the create form and the saved registers, and the
    defect lives exactly between them.
+4b. **…then SAVE that same document and read its register row — still without sending it.** The
+   header total, the variance, the flag must already agree with the lines you just entered. A default
+   (`0`, `✗`) beside lines that say otherwise means the recompute is wired into `submit`/`post` only,
+   and the register lies for as long as the document sits in draft
+   ([19 Phase 1c](19-build-decision-procedure.md)). ⛔ This scenario is separate from 4a for the same
+   reason 4a is separate from 4: it is a *state*, not a screen. And it is the state your invariant
+   tests structurally cannot judge — they read registers, and a register holds seeded rows (the seeder
+   writes derived columns in Python) and posted rows (the engine ran). Clean up after yourself: the
+   draft you created is data on someone's tenant, and a test that leaves it behind makes the next run
+   judge its own litter.
 5. **Every workflow** — start an instance; user-task actions and service-task rules fire; the process table lists it.
    A workflow with **no start form** is started by running its EXECUTION rule by hand instead, and must be run
    **twice**: still exactly ONE case, and it must be visible to someone who is not an admin/author
    ([27 §8.3](27-event-driven-process-start.md)).
+5a. **Every public-API endpoint the handover lists** — only when another system calls the project
+   ([32](32-public-api.md)). Runnable only AFTER the person who imported it has created a key and bound it to the
+   endpoints in Settings → Developer → API ([32 §8](32-public-api.md)): until then every call answers `404`, which
+   is the missing binding, not a broken build — say so in the scenario. Then one call per operation plus the
+   refusals, with expected codes ([32 §9](32-public-api.md)); a call that writes is checked like a form — read the
+   item back.
 6. **Templates** — trigger a mail and a PDF; they render branded (logo, layout), placeholders substituted.
 7. **`log/ui.log`** — scan for the scattered import-aborts (Jackson `MismatchedInputException`/`InvalidFormatException`)
    that show as "No source selected" / empty context / "data gone" rather than a clean error.
 
-Every one of the eight is a scenario in `test-scenarios.md`, with its expected result written down. Your own
+Every one of them that applies is a scenario in `test-scenarios.md`, with its expected result written down. Your own
 finish line is the four offline gates (`validate`, `crud verify --db`, `coverage --plan`, the independent
 acceptance re-derivation) plus this file — and the hand-over must say, in one unambiguous sentence, that the
 export **has not been imported or run anywhere**. A build described as "done" that was never driven reads as
@@ -486,7 +505,8 @@ itself drive the browser — §5). A typical shape (what the harness encodes):
 phase 'Research'   : parallel readers → shapes for {db, cruds, forms/tables, rules, templates, workflow, charts}
 phase 'Build'      : SEQUENTIAL (main loop): decompose → author module by module, T1/T2 each unit
 phase 'Verify'     : parallel per-module T4 renders + independent re-checks; collect defects
-phase 'Handover'   : test-scenarios.md + independent re-derivation (§5). The user imports and drives.
+phase 'Handover'   : test-scenarios.md + independent re-derivation (§5) + test/ and autotest check (step 7a).
+                     The user imports and runs it — or asks for TEST & BUGFIX.
 ```
 
 Prefer a declarative **generator** (a small Python script that turns one schema/spec into DB + CRUDs + queries, or
@@ -574,6 +594,17 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       fault, not a data gap), and take each gateway branch at least once (a predicate that is silently false
       looks exactly like "the flow went that way"). `validate` must report 0 process-context findings before
       that scenario is worth anyone's time.
+- [ ] **`test-scenarios.md` covers every family** of the contract's step 7 — registers, forms field by field,
+      rules in action (each predicate both ways), every BPMN path, every calculation and dependency with exact
+      numbers, every studio component, access, prohibitions, locales, reports, printouts — opens with the
+      inventories and the traceability table, and cites every `plan.json` row as `plan:<id>` on the Covers line of
+      the scenario that proves it.
+- [ ] **`test/` has a test for every scenario** and **`mrjun.py autotest check` PASSES** — each scenario cited by a
+      test or `{manual: <reason>}`, every plan row cited on a scenario's Covers line, the code compiles, its imports,
+      fixtures and markers resolve, `.env` is git-ignored with every value empty. Written from the scenarios'
+      expected values, never run (there is no project during a build). ⛔ The gate counts CITATIONS: it cannot see
+      what a test asserts — re-read each test against its scenario ("what would fail if the feature were
+      deleted?", 30 §7).
 - [ ] An **independent re-check** found nothing missing vs the PRD.
 - [ ] **If the export WAS imported: the two inventories were put side by side and the numbers matched.**
       ⛔ The import reports DONE whether or not it applied everything. `importDynamicCruds` runs **last** and
@@ -587,9 +618,10 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
       inventory, read the live counts (MCP `nct_bl_findAll` / `nct_query_list_queries` / … , or the console's
       `/bl`, Rules, Queries, Workflows, Schedulers pages), and treat any collection that is 0 live and
       non-zero packed as a silent skip. Then open one register and see rows.
-- [ ] The user report states what was built, the result of each of the four offline gates, and — in one plain
-      sentence — that the export has not been imported or run anywhere, pointing at `test-scenarios.md` for
-      what to click first.
+- [ ] The user report states what was built, the result of each of the four offline gates and of
+      `autotest check`, and — in one plain sentence — that the export has not been imported or run anywhere and
+      the suite has not been run, pointing at `test-scenarios.md` for what to click first and at `test/start.sh`
+      (or "test and fix") for the automated run.
 
 If any box is unchecked, it is **not done** — say what remains rather than implying completion.
 

@@ -519,7 +519,7 @@ Fields of a single `ActionDto` (backing — `UserTaskActionsDto.ActionDto`, `Use
 | `localizedButtonNames` | map locale→string | submit-button label on the form (for non-direct). Empty → falls back to `localizedNames` | no | mirrors `localizedNames` |, `getLocalizedButtonName` |
 | `predicateIdentifier` | string (UUID) | predicate rule: whether to show the action on this task/row | no | `null` (the string `"null"` is also treated as null, getter) | rule of type `PREDICATE` |
 | `onBeforeUserTaskStartRuleIdentifier` | string (UUID) | EXECUTION rule when the task opens (for non-direct: before the form opens) | no | `null` | getter (`"null"`→null) |
-| `onBeforeUserTaskCompleteRuleIdentifier` | string (UUID) | EXECUTION rule before the task completes (on click/complete) | no | `null` | getter (`"null"`→null) |
+| `onBeforeUserTaskCompleteRuleIdentifier` | string (UUID) | EXECUTION rule before the task completes (on click/complete). It runs as the person who pressed the button — record the decision and `service.security.user().email` here; ⛔ a `service.access.*` change made here is DISCARDED: apply access in the service task that follows ("Stage-wise case access") | no | `null` | getter (`"null"`→null) |
 | `validationRuleIdentifiers` | string (CSV) | validation rules; all must pass | no | `null` | getter (`"null"`→null) |
 | `direct` | `"on"`/`"off"` | `"on"` = direct action (no form, execute + complete immediately); `"off"` = open the form | no | — | `isDirect()` = `direct=="on"` |
 | `formGroupIdentifier` | string (UUID) | the form group to open (for non-direct). May be the string `"null"` or `null` | no | — |; see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) |
@@ -1209,7 +1209,7 @@ prevent — and it is silent (no error, no log line the author sees). Three veri
 | **Process-group scoping** | The plugin puts `processGroupIdentifier` into the `ProcessFilter` **only if the group resolves** (`processGroupService.existsByIdentifier`, `initPluginContent`, `ProcessTablePlugin.java`), and the backend then requires equality on the joined group (`findAllProcesses`, `FlowableProcessServiceImpl.java`, nct-workflow). If the identifier is blank or dangling, the plugin **creates a brand-new group named after the node's `uniqueIdentifier` and rewrites the node's model** (`showProcessGroupSelectionDialog`, `ProcessTablePlugin.java`) — everything started under the previous group silently drops out, permanently. Two nodes over one workflow with two different groups likewise each show only their own rows. | ONE group per workflow, declared in `rep-objects.json.processGroups[]`, with the SAME `processGroupIdentifier` in the node model **and** in the mirror. Never ship a placeholder/dangling group id (Step 4). |
 | **Missing `columnSettings`** | `columnSettings` (null → `[]`) drives one `<th>` (`columnHeaders`) and one `<td>` (`columns`) each (`ProcessTablePlugin.java`). With `[]` the table still lists a row per process, but every row is just the Actions dropdown under no headers — which every reader reports as "the page is empty". A `scope:"CRUD"`/`"CONTEXT"` column additionally needs the process's context data (bulk-prefetched via `getContextDataBulk` in the data provider); a `contextIdentifier`/`crudAlias`/`fieldExpression` that doesn't match what the workflow actually writes yields blank cells. | Author ≥3 columns that identify the case to a human (who / what / when / state) and confirm at least one non-blank cell after the first real run. `validate` catches only the coarser version: a `workflowIdentifier` absent from `rep.workflows[]` (`validate_cmds.py::_check_process_table_workflow_exists`). |
 | **Per-process access rows** | `findAllProcesses` **INNER-JOINs** `accesses` and demands `access == true` plus one of USER == caller email / ROLE ∈ caller roles / ROLE_GROUP ∈ caller role groups (`FlowableProcessServiceImpl.java`, nct-workflow — the same block repeats on the `filterExpression` path). A form-started process writes exactly **one** access row — the starter, `type=USER`, `isOwner=true` (`startProcess`, same file) — and nothing in an export grants any other. The UI calls this with the **logged-in user's** token (`FeignClientInterceptor` forwards it for every non-`/internal/` URL), so a colleague who did not start the case matches no row: empty queue. | Grant on the start path: an `EXECUTION_RULE` on the workflow's first service task calls `service.access.addRoleGroupAccess("<Role Group>")` (or `addRoleAccess` / `addUserAccess`, [16](16-groovy-service-api.md) §2.7). `RuleTask` diffs `contextData.access` before/after and persists it via `processAccessService.updateAccesses` (`RuleTask.java`; the predicate path does the same, `PredicateSequenceFlowExecutor.java`). |
-| **A rule-started process has no BUSINESS starter** | A process started by `service.workflow.start(...)` (shape C) is owned by whoever the rule is running as — for a scheduler tick, the schedule's `serviceUserEmail`, which travels through both hops of the pipeline. It is **not ownerless on a stock deployment**: when that is blank too, the platform falls back to **the project's configured author account** and writes ONE USER row for it (`isOwner=true`), alongside the `admin` and `nct_author` ROLE rows every programmatic start grants unconditionally (`startProcess` / `grantProgrammaticStartAccess`, `FlowableProcessServiceImpl.java`, nct-workflow). ⚠️ That fallback is a **configuration value whose in-code default is EMPTY** — a deployment that blanks it disables the fallback (the field's own javadoc: *"Blank disables the fallback and leaves the process ownerless"*), so the case gets no owner USER row and no `owner` process variable, and is reachable only by admins and authors. You cannot see that from the export, which is the reason to pass an owner rather than inherit one. So the failure is not "no access rows" but "no BUSINESS user on the case" — and that owner is also the identity a service task of the case executes as **until the first user task is completed** — after that, `RuleTask` uses the last completed user task's assignee and falls back to `owner` only when there is none (`RuleTask.java`). | Pass `owner`, `roleGroups` or `emails` in the call's options ([16](16-groovy-service-api.md) §2.12) — they are written in the same transaction as the process, so there is no window in which the case is invisible. The first-service-task grant works too, but only from the moment that task runs. Recipe: [27](27-event-driven-process-start.md) §6. |
+| **A rule-started process has no BUSINESS starter** | A process started by `service.workflow.start(...)` (shape C) is owned by whoever the rule is running as — for a scheduler tick, the schedule's `serviceUserEmail`, which travels through both hops of the pipeline. It is **not ownerless on a stock deployment**: when that is blank too, the platform falls back to **the project's configured author account** and writes ONE USER row for it (`isOwner=true`), alongside the `admin` and `nct_author` ROLE rows every programmatic start grants unconditionally (`startProcess` / `grantProgrammaticStartAccess`, `FlowableProcessServiceImpl.java`, nct-workflow). ⚠️ That fallback is a **configuration value whose in-code default is EMPTY** — a deployment that blanks it disables the fallback (the field's own javadoc: *"Blank disables the fallback and leaves the process ownerless"*), so the case gets no owner USER row and no `owner` process variable, and is reachable only by admins and authors. You cannot see that from the export, which is the reason to pass an owner rather than inherit one. So the failure is not "no access rows" but "no BUSINESS user on the case" — and that owner is also the identity EVERY service task of the case executes as: `RuleTask` would prefer the last completed user task's assignee, but the platform never assigns a user task to whoever completes it, so there is none and `owner` wins for the whole case (unless the BPMN hard-codes an assignee). | Pass `owner`, `roleGroups` or `emails` in the call's options ([16](16-groovy-service-api.md) §2.12) — they are written in the same transaction as the process, so there is no window in which the case is invisible. The first-service-task grant works too, but only from the moment that task runs. Recipe: [27](27-event-driven-process-start.md) §6. |
 | **A rule-started process has no process group** | Same call, different column: the group comes from the starting NODE, and a rule is not a node. With no `groupIdentifier` the process is created with `group=null`, and the group filter above is an INNER join — so a group-scoped worklist excludes it for everyone, admins included, with nothing logged. | Pass `groupIdentifier` in the options, with the SAME identifier the `process.table` node uses. |
 
 > ⚠️ **`updateAccesses` deletes every access row of the process and recreates the submitted list**
@@ -1219,13 +1219,59 @@ prevent — and it is silent (no error, no log line the author sees). Three veri
 > additive. A rule that assembles a fresh `AccessDto` — or calls `clearAllAccess()` — wipes the owner row too,
 > and the case vanishes for its own starter.
 
-> ⛔ **Don't mistake this for per-user scoping.** It is a grant written per process instance, not a fetch rule
-> you can author, and nct-ui caches `findAllProcesses` per `(realm, client, filter)` with **no user in the key**
-> (`@Cacheable` on `nct-ui/.../service/FlowableProcessServiceImpl.java`) — so one browser session proves
-> nothing about what a second user sees, and you may be looking at their cached page.
-> [05](05-crud-tree-and-process-table.md) is
-> right that a process table **cannot** be scoped per user (use a `crud.table.plugin` with a scoped fetch rule
-> for "each `<actor>` sees only their own"); treat the access join purely as a failure mode to clear.
+> ⛔ **These rows ARE the case's access list — author them, do not just clear them.** The backend lists a case to
+> a caller only through a matching enabled row, so the rows decide, per person, which cases each queue shows:
+> grant the groups that work a case when it opens, move it from group to group as it advances, and hide it from
+> whoever no longer needs it — "Stage-wise case access" below. Two limits to design around: they are not a fetch
+> rule you can author (they are written by rules — [16](16-groovy-service-api.md) §2.7 — and by the start
+> options), and nct-ui keeps a list
+> page for a few seconds per `(realm, client, filter)` with **no user in the key** (`@Cacheable` on
+> `nct-ui/.../service/FlowableProcessServiceImpl.java`), so for that moment a second person with the same filter can
+> be shown the first person's page. Route queues with access rows; but where the PRD makes a list CONFIDENTIAL
+> ("an `<actor>` must never see another's `<cases>`"), build that list as a `crud.table.plugin` with a scoped
+> fetch rule ([05](05-crud-tree-and-process-table.md)), and gate every action by predicate either way — the rows
+> hide a case, they never refuse an action.
+
+### Stage-wise case access — moving a case from queue to queue
+
+Every ERP process hands its cases from people to people: a request waits for its approver, an approved order goes
+to finance, a closed claim disappears from the clerks' queue. On this platform that is the case's access rows
+([16](16-groovy-service-api.md) §2.7), and it follows one rule, because only two kinds of rule save an access
+change — a **service task**'s rule and a gateway's **sequence-flow predicate**: a user task's action can decide,
+but it can never change access itself.
+
+```
+start ─► [svc: open]  ─► (Approve / Reject) ─► [svc: route] ─► <decision?> ─► (Finance review) ─► [svc: close] ─► end
+          grant Requesters      action rule records            APPROVED:                           remove Finance,
+          + Approvers;          decision + decidedBy           -Approvers +Finance,                 owner stays
+          queue=APPROVAL                                       queue=FINANCE
+```
+
+1. **The first service task opens the case** to every group that works it at its first step, and writes the step
+   into the document (`queue`). A form-started case has ONE row — its starter — until this task runs; nobody else,
+   not even an admin, sees it. (A case started by `service.workflow.start(...)` takes its rows from the start
+   options instead — `owner`, `roleGroups`, `emails` — written together with the case.)
+2. **Every user task's action records the decision and the actor** in its complete rule —
+   `context.data.setAttr('decision', 'APPROVED')`, `context.data.setAttr('decidedBy',
+   service.security.user().email)`. It runs as the person who pressed the button, and that is the ONLY place that
+   person's identity is available: every later service task runs as the case's OWNER.
+3. **A service task right after the user task applies it**: removes the group whose part is done, adds the next
+   one, updates `queue` — and nothing else in between (a gateway may branch on the decision first; its predicates
+   stay pure).
+4. **Every action's visibility predicate admits its queue AND its role group** —
+   `context.data.getAttr('queue') == 'FINANCE' && service.security.hasAnyRoleGroup('<Finance>')`. The access rows
+   only hide a case; an action is refused by its predicate or not at all.
+5. **One worklist page per queue**, its process table filtered to the cases at that step — the table's filter
+   expression over an indexed column ([05](05-crud-tree-and-process-table.md)), so index the attribute that names
+   the step — and the access rows keep out the cases of other teams.
+6. **Whoever must stop seeing the case** loses it in the service task of the step that ends their part:
+   `removeRoleGroupAccess(...)` for a group, `removeOwnerAccess()` for the initiator (it keeps the row, so
+   `restoreOwnerAccess()` can bring it back — `removeUserAccess(<initiator>)` deletes it for good).
+
+Test it as the people, not as an author: the scenario file proves each step by having a member of the NEXT group
+open their worklist and find the case — and a member of the PREVIOUS group find it gone ([30](30-live-test-bugfix-and-autotest.md)
+§7, "access"). Testing as an author or an admin proves nothing here: a rule-started case always grants them, and
+the author account usually holds every group.
 
 > ⚠️ **Not machine-checkable in the direction that matters.** `validate` warns node→workflow (a process table
 > bound to a workflow that isn't in the project, `validate_cmds.py::_check_process_table_workflow_exists`) and page→nav (an unlinked
@@ -1355,8 +1401,8 @@ Four things are specific to shape C and easy to get wrong:
   owner row and no `owner` variable at all:
   the case is visible only to admins and authors, and every service task of it runs with **no user**. Either
   way the risk is not "nobody sees it" but "**nobody who should work it sees it**" — and with the fallback on,
-  that one account is also the identity a service task executes as until the first user task completes (after
-  that the last assignee wins - `RuleTask.java`), so
+  that one account is also the identity EVERY service task of the case executes as (no user task is ever
+  assigned to whoever completes it, so the engine's "last assignee" stays empty — `RuleTask.java`), so
   `service.security.user()` inside the case returns it, not the person the case is about. Pass `owner`,
   `roleGroups` or `emails` to put the case in front of the people who must act on it —
   see the per-process access table under *"Then prove it is not empty for anyone but you"* above, and

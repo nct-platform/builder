@@ -1153,7 +1153,7 @@ form and adding a line tells you.** Automate exactly that: add a line, then asse
 column is non-empty BEFORE saving the document. Asserting it on a SAVED document proves nothing —
 `json_agg` fills those columns on read whether the hook exists or not.
 
-Measured on a live project (Aslanyans, 2026-09-29): **12 of 12 List controls shipped without the
+Measured on a live project (2026-09-29): **12 of 12 List controls shipped without the
 hook**, across eleven document types. The owner found it by hand on the purchase-order form; every
 automated suite the project had — four hundred tests — was green, because they tested the create
 form (fields present, mandatory marked) and the registers of SAVED documents, and never the state in
@@ -1203,10 +1203,24 @@ non-empty means the grid has two columns a user cannot tell apart.
 Generating a nested column usually means generating TWO of them — `material.code` and
 `material.name` — and the obvious label source is the FK column (`material_id` → "Material"). Do
 that and the grid shows **two adjacent columns with the same heading**, and no one can tell which is
-the code and which is the name. Take the label from the TARGET column instead
-(`material.material_code` → "Material code", `material.material_name` → "Material name"). Same bug,
-same fix, for `suggested_roll_id` / `chosen_roll_id` pointing at one table: label them by their ROLE
-("Suggested roll (FIFO)", "Chosen roll"), never both by the target table's name.
+the code and which is the name.
+
+But the mirror choice is a bug too, and it bites later: label EVERY nested column by its target
+column and a grid with `suggested_roll_id` + `chosen_roll_id` — two references to ONE table — gets
+two columns both titled "Roll no.", which is the same unreadable grid arrived at from the other side.
+One project fixed the first and re-introduced the second the same day.
+
+**So decide per REFERENCE, by how many columns that reference contributes:**
+
+| the reference contributes | label each column by | example |
+|---|---|---|
+| BOTH `code` and `name` | the TARGET column | `material.code` → "Material code", `material.name` → "Material name" |
+| exactly ONE column | the REFERENCE's own role | `sourceRoll.code` → "Source roll", `suggestedRoll.code` → "Suggested roll (FIFO)", `chosenRoll.code` → "Chosen roll" |
+
+The rule is mechanical, so put it in the generator, not in a style guide — and keep the
+"no two columns share a heading" assertion from the script above, because it is what catches the day
+you get the rule backwards. ⛔ Changing these headings **breaks any test that names them**: the
+labels belong in ONE place the tests read from, generated, never re-typed in a test file.
 
 ### 7. List field — `dynaform.form.list.field.plugin`
 

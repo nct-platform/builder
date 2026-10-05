@@ -203,7 +203,9 @@ Statically contains **only methods** (returnType `ContextDataDto`):
 #### `context.currentData.*` — `buildCurrentDataHints` (`HintsService.java`)
 
 `put(Object value)`, `get()`, `setAttr(...)`, `getAttr(...)`. Relevant only in **nested forms** (list item);
-in the parent form `get()` returns null. `get()` here is method-details **without** `_returnFields`; System 2
+in the parent form `currentData` itself is null — the hint's "returns null" is wrong: `get()` throws a
+`NullPointerException` there, so guard with `if (currentData != null)`. `setAttr`/`getAttr` do not exist on it at
+all (see "Where the hints and the runtime disagree"). `get()` here is method-details **without** `_returnFields`; System 2
 fills in `_returnFields` with the real fields of the current element (`injectCurrentData`).
 
 > ⚠️ **`setAttr`/`getAttr` here are a hint-tree artefact — do not write them.** At runtime `currentData`
@@ -244,7 +246,7 @@ The same map is reused under `service.crud.<crudAlias>` (`HintsService.java`), s
 
 | Key | What | Backing |
 |---|---|---|
-| `service.access.*` | `addRoleAccess`, `removeUserAccess`, `hasRoleGroupAccess`, `getRoleAccesses()`, … | `buildAccessManagementMethods` |
+| `service.access.*` | `addRoleAccess`, `removeUserAccess`, `hasRoleGroupAccess`, `getRoleAccesses()`, … — offered in every rule kind, but an edit is SAVED only from a service task or a sequence-flow predicate ([16](16-groovy-service-api.md) §2.7) | `buildAccessManagementMethods` |
 | `service.rimm.*` | `query(...)`, `run(...)` (running saved queries by name) | `buildRimmServiceMethods` |
 | `service.security.*` | `user()` (navigable: `id/email/firstName/lastName`, all `{type:String}`), `hasAnyRole(String... roles)`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` (all `boolean`) | `buildSecurityMethods` |
 | `service.notification.push.*` | `sendText`, `sendAlert`, `sendWarning`, `sendError`, `sendReminder`, `*ToRole`, `*ToRoleGroup` (see full list below) | `buildPushNotificationMethods` |
@@ -530,6 +532,28 @@ def x = context.data.myFlag           // == context.data.getAttr("myFlag")
 That is, in the rule body you can write `context.data.<name>` even if the hints did not show it — the
 `DynamicRuleContext` engine resolves the property get/set into `getAttr/setAttr`. Name autocompletion is a matter of convenience, not
 correctness.
+
+## Where the hints and the runtime disagree
+
+The hint tree — in the rule editor, and the same tree the MCP `getRuleHints` tool hands an AI — is a CATALOGUE of
+what the editor knows about, not a contract of what runs. Where they disagree, the runtime wins, silently. Write
+against this table, not against the hint:
+
+| # | The hint offers | What runs | What you get | Write instead |
+|---|---|---|---|---|
+| H1 | `service.notification.*` in a PREDICATE or a VALIDATION rule | `service.notification` is not built there — it is `null` | `NullPointerException` | notify from an EXECUTION rule (a service task, an action rule) |
+| H2 | `service.report.pdf.*` in a predicate or validation rule | `null` there | `NullPointerException` | an EXECUTION rule |
+| H3 | `service.quota.*` in a predicate or validation rule | `null` there | `NullPointerException` | read quotas in an EXECUTION rule and pass the verdict on |
+| H4 | `service.rimm.query(...)` with `realmName`, `clientName` parameters | the proxy takes no realm/client | `MissingMethodException` from the inserted snippet | `service.rimm.query('<name>')` / `query('<name>', [k: v])` ([16](16-groovy-service-api.md)) |
+| H5 | `setAttr` / `getAttr` on a CRUD data node (`….data`, `currentData`) | those methods do not exist on CRUD data | `MissingMethodException` | attributes live on `context.<ctx>.data` and `context.data` |
+| H6 | `currentData.get()` "returns null in parent forms" | `currentData` itself is `null` there | `NullPointerException` | `if (currentData != null) { … }` |
+| H7 | `service.report.pdf.download(...)` returning `byte[]` | returns nothing; the file reaches the browser asynchronously | the variable is `null` | call it last and return nothing ([15](15-pdf-and-mail.md)) |
+| H8 | in the business-logic (CRUD GROOVY method) editor: `params.<name>` | the binding is `param` | "Context 'params' not found" | `param.<name>` |
+| H9 | mail-message write methods (`markRead()`, `reply(...)`, `forward(...)` …) in predicates and validation rules | refused there | `ServiceException` | act on mail from an EXECUTION rule ([31](31-email-integration-and-mailbox.md)) |
+| H10 | `service.access.add…` / `remove…` in every rule kind, described as acting "on the process" | saved only from a service task's rule or a sequence-flow predicate | returns `true`, nothing changes | decide in the action's complete rule, apply in the next service task ([07](07-workflows-and-tasks.md) "Stage-wise case access") |
+| H11 | the inserted snippet of `conversion.toSelectOptionsLocalized(...)` / `toAutoCompleteOptionsLocalized(...)` fills EVERY parameter — the optional `localeKey` and `localizationFieldName` as the literal strings `"localeKey"` and `"localizationFieldName"` | those literals are used as the locale and the field name | the labels silently stay in the base language | delete the two trailing arguments the snippet inserted: `toSelectOptionsLocalized(list, "<key>", "<display>")` |
+| H12 | nothing — the editor does not offer them | they work | completion stays silent | `attrs`, `userId`, `contextIdentifiers`, `contextDataMap`, `param` (rule editor), bare `data` / `currentData`, `service.access.accessDto`, `service.enums.names()`, the validation collector's `hasErrors()`/`getErrors()`/…, `RestResponse` helpers ([16](16-groovy-service-api.md)) |
+
 
 ## Gotchas
 

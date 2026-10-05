@@ -908,15 +908,20 @@ intake monitor:
 `ignoreNull(status=={filter_status})` means the table shows **all** processes until the user picks a status and
 submits — so the page works even before anyone touches the filter.
 
-> ⛔ **A process table CANNOT be scoped per user.** `process.table.pluin` has no fetch rule: its row set is
-> fixed by `workflowIdentifier` + `processGroupIdentifier` + `filterExpression` evaluated over the values the
-> FILTER FORM submitted — every input is either static config or client-supplied, and the result is cached per
-> (realm, client, filter), so the same filter yields the same rows for every user. If the PRD says "each
-> <actor> sees only their own <cases>", the queue must be a `crud.table.plugin` over the workflow's entity with
-> a scoped fetch rule ([04](04-crud-table-plugin.md#-who-sees-which-rows--decide-it-here-never-in-the-browser),
+> ⛔ **Who sees which case is decided by the case's ACCESS ROWS, not by the table.** `process.table.pluin` has no
+> fetch rule: its row set is `workflowIdentifier` + `processGroupIdentifier` + `filterExpression` over the values
+> the FILTER FORM submitted — and then the backend keeps only the cases that have an enabled access row matching
+> the caller (their e-mail, a role, a role group). Those rows are written by rules — open the case to its groups,
+> move it from group to group as it advances, hide it from whoever is done with it
+> ([07](07-workflows-and-tasks.md) "Stage-wise case access", [16](16-groovy-service-api.md) §2.7) — so routing
+> cases into the right people's queues is a process-table job. One limit: nct-ui keeps a list page for a few
+> seconds per (realm, client, filter) with no user in the key, so for that moment another person with the same
+> filter can be shown the same page. Where the PRD makes a list CONFIDENTIAL ("an <actor> must never see another's
+> <cases>"), build that list as a `crud.table.plugin` with a scoped fetch rule
+> ([04](04-crud-table-plugin.md#-who-sees-which-rows--decide-it-here-never-in-the-browser),
 > [19](19-build-decision-procedure.md) Phase 6) or a hand-built table in an HTML component
-> ([24c](24c-html-data-tables-and-paging.md)); keep the process table for group-wide monitoring and gate only
-> its ACTIONS by predicate.
+> ([24c](24c-html-data-tables-and-paging.md)). Either way, gate every ACTION by predicate: the rows hide a case,
+> they never refuse an action.
 
 > **Do not confuse with Query Builder.** `QueryBuilderDto`
 > (`nct-ui/.../component/querybuilder/QueryBuilderDto.java`) is a separate visual component for
@@ -1354,6 +1359,10 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 - [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) — the tree fetch-rule, action visibility
   predicates, `onBefore*RuleIdentifier`, `FormControlScope` GLOBAL/CONTEXT/CRUD and how rules
   read the context.
+- [32-public-api.md](32-public-api.md) — another system calling this node through the public API: its
+  `filterKey`s (with the `filter_` prefix) are the API's filter keys and must be `{token}`s the
+  `filterExpression` reads over indexed fields (§3.6); every global action needs a predicate that admits the
+  API identity (§3.3, §3.4); a start action that receives data is `direct:"off"` with a start form (§3.5).
 - [27-event-driven-process-start.md](27-event-driven-process-start.md) §6 — the other side of the column
   question: what a case started by a RULE (no start form) carries in its document, and therefore which of
   this node's columns and indexes have anything to show.

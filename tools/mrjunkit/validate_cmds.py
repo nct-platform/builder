@@ -58,6 +58,9 @@ def cmd_validate(args):
         core.out("\nFAIL — malformed export file; the remaining checks were not run.")
         return 1
 
+    # -- rep-objects.apiExposures: absent or null is the only value a build may carry (doc 32 §6) --
+    _check_api_exposures(p, r, getattr(args, "keep_api_exposures", False))
+
     ids = _collect_identifiers(rep)
     context_ids = ids["contexts"]
     query_ids = ids["queries"]
@@ -559,6 +562,30 @@ def cmd_validate(args):
         return 1
     core.out("\nOK — no errors (%d warnings)" % len(r.warnings))
     return 0
+
+
+def _check_api_exposures(p, r, keep):
+    """`apiExposures` is the one rep-objects key whose PRESENCE is destructive (doc 32 §6): on import a list makes
+    the target's API endpoints exactly that list and [] deletes every endpoint with its key bindings — bindings no
+    archive brings back. An export of a live project writes it, so a base taken from one carries it into the build
+    unless somebody removes it. Refused unless restoring exactly that list is the import's purpose."""
+    state, _count, words = core.api_exposures_state(p.rep)
+    if state in ("absent", "null"):
+        return
+    if state == "invalid":
+        r.err("rep-objects.apiExposures is %s. Remove the key — `mrjun.py api-exposures drop` — a build "
+              "leaves it out (doc 32 §6)." % words)
+    elif keep:
+        r.warn("rep-objects.apiExposures: %s — kept on purpose (--keep-api-exposures, doc 32 §6)." % words)
+        for slug, method, path, rule in core.api_exposure_missing_rules(p.rep):
+            r.warn("rep-objects.apiExposures: the rule call %s /%s%s runs rule %s, which rules[] does not have — "
+                   "after import that operation answers 404 endpoint_not_found until it exists (doc 32 §3.15)."
+                   % (method, slug, "/" + path if path else "", rule))
+    else:
+        r.err("rep-objects.apiExposures: %s. A build leaves this key out: it is what an export of a LIVE project "
+              "writes, never something to author. Remove it — `mrjun.py api-exposures drop` — or, only when "
+              "the import is MEANT to make the target's endpoints exactly this list, run validate with "
+              "--keep-api-exposures (doc 32 §6)." % words)
 
 
 def _prop_string_value(node, key):
@@ -7391,14 +7418,18 @@ def _check_orphan_validation_rules(p, r):
     for f in forms:
         for v in (f.get("validators") or []):
             wired.add(v if isinstance(v, str) else (v or {}).get("identifier"))
+    # A rule-call endpoint's operation is the other entry point (doc 32 §3.15) — visible here only when the
+    # archive keeps the endpoint list; a build never carries it, hence the wording below.
+    wired |= core.api_exposure_rule_identifiers(ro)
     for rule in rules:
         if rule.get("ruleType") != "VALIDATION_RULE":
             continue
         ident = rule.get("identifier")
         if ident and ident not in wired:
-            r.warn("validation rule %r is listed in no form's `validators` — a VALIDATION_RULE "
-                   "has no other entry point, so it can never fire. Add it to the form it was "
-                   "written for, or delete it." % rule.get("name"))
+            r.warn("validation rule %r is listed in no form's `validators` — it fires only from a form's "
+                   "validators or as a rule-call endpoint's operation (doc 32 §3.15). If a rule call on the live "
+                   "project runs it, keep it; otherwise add it to the form it was written for, or delete it."
+                   % rule.get("name"))
 
 
 
@@ -8273,7 +8304,7 @@ def _check_write_action_predicate(p, r):
 def _check_enum_column_shows_code(p, cruds, r):
     """LOCALISATION (WARN). The crud's SQL already joins `ref_label` for a field and publishes the
     translation under `localize['<field>Label']`, but the table column still points at the RAW field -
-    so the grid prints WAITING_MATERIALS / CHOCO_DRIED_FRUIT in every language while the translated
+    so the grid prints WAITING_MATERIALS / RAW_MATERIAL in every language while the translated
     twin sits unused one key away. Point the column at `<field>Label`. (20-localization.md)"""
     labelled = {}
     for crud in (cruds or []):

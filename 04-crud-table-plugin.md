@@ -629,6 +629,11 @@ return service.crud.inventoryCount.find(filter)
 ⚠️ The generated comment suggests `user().id`; prefer `user().email` as the ownership key — see the warning
 under "Who sees which rows" below.
 
+> **Another system will read this table's rows one by one** (a public-API endpoint over it — Get one, row
+> actions)? Then the CRUD needs a filter field that selects ONE row by its id, declared in `findAll` AND `count`,
+> and this fetch rule must pass it on — the endpoint proves each row by running this rule with that filter alone
+> ([32](32-public-api.md) §3.7). Its filter form is the API's filter list, verbatim ([32](32-public-api.md) §3.6).
+
 ### ⛔ Who sees which rows — decide it HERE, never in the browser
 
 This rule is the **only** place row visibility can be decided. An action visibility predicate hides a *button*;

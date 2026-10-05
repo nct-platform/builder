@@ -44,8 +44,9 @@ unpack a base, because the mode decides whether there is a base to unpack.
 }
 ```
 
-⚠️ It records the MCP **url** when one is known, and **never a token**: the credential is registered with the
-client, not with the folder (§2.2), so a copy of this file leaks nothing. And there is **no timestamp**, so
+⚠️ It records the MCP **url** when one is known, and **never a token**: the credential lives only in the
+git-ignored, mode-600 `./.mcp.json` (or with the client, `claude mcp add`), never in this file (§2.2), so a copy
+of this file leaks nothing. And there is **no timestamp**, so
 re-running the generator with nothing changed produces a byte-identical file and any diff means a real change.
 
 `mrjun.py handoff emit` writes it, and rewrites it on every run, so it cannot drift from the folder it describes.
@@ -55,7 +56,7 @@ re-running the generator with nothing changed produces a byte-identical file and
 
 | `mode` | token present | What you do |
 |---|---|---|
-| `build` | no | Today's contract, unchanged. Author files, gate offline, hand over two artifacts. |
+| `build` | no | Today's contract, unchanged. Author files, gate offline, hand over three deliverables: the `.mrjun`, `test-scenarios.md` and the automated suite `test/`. |
 | `build` | yes | Same, plus step 6b: import the finished export once, at the end. |
 | `support` | no | Scenario C on files only. You produce a `.mrjun` the user imports. |
 | `support` | yes | **Dual-write** — every change lands in the local export AND in the live project (§4). |
@@ -206,7 +207,9 @@ What that obliges you to do:
 |-- .dokie/project.json   the mode and the coordinates (§1)
 |-- CLAUDE.md             what a fresh session reads first
 |-- project.mrjun         in support mode this is the AUDIT RECORD, not the deliverable
-`-- test-scenarios.md
+|-- .mcp.json             the MCP connection — written by `handoff mcp`; git-ignored, mode 600, holds the token
+|-- test-scenarios.md     the scenarios: the build's, plus those of every change request since
+`-- test/                 the automated suite (30 §6) — its .env is git-ignored, mode 600, filled by the owner
 ```
 
 ⚠️ **`CLAUDE.md` is merged with any `CLAUDE.md` in a PARENT directory.** If this folder was unpacked inside
@@ -289,6 +292,38 @@ the row is reading a copy, and on an old build a copy that may lag.
 
 ---
 
+### 4c. ⛔ A payload copied from your fresh BUILD points at ids the tenant does not have
+
+The settings of a table, a tree, a form control or a List sub-grid are one long JSON string full of
+**identifiers** — the context, the predicates behind each action, the before-complete rule. Copy that
+string out of your freshly built export, paste it into `nct_ui_set_plugin_properties`, and the write
+**succeeds**: the platform stores the string as given and validates nothing inside it. What you have
+then shipped is a control whose actions reference rules and predicates that exist only in your build.
+The gate that would have caught it (`no dangling references`) runs over the ARCHIVE, where every id
+resolves — so it stays green while the tenant is broken. On screen: a grid that renders, buttons that
+do nothing, columns that stay blank.
+
+**Why the ids differ at all.** Only some are content-addressed. A rule you CREATE over MCP is
+assigned an identifier by the platform — not the one your generator chose — and a rule created in a
+different order, or in a different build, gets a different one. Measured on a live project: all 12
+before-complete rules had tenant identifiers unrelated to the export's, while the action ids and
+column ids in the same payload matched byte for byte (those are derived from content).
+
+**The protocol — substitute by NAME, never by position:**
+
+1. `nct_rule_findAll` (and the predicate equivalent) on the tenant; build `name → identifier`.
+2. Walk the payload and replace every `*RuleIdentifier` / `predicateIdentifier` /
+   `contextIdentifier` with the tenant's value **looked up by the object's NAME**. Ids are opaque;
+   names are the only thing both sides agree on.
+3. **Assert before sending**: every id left in the payload is either one you substituted or one you
+   can point at in a tenant listing. An unexplained uuid is a defect, not a detail.
+4. **Read back** and diff the stored string against what you sent.
+
+⛔ Do not "fix" this by re-importing the project: on a tenant with real records an import is a data
+loss event ([§7](#7-when-a-re-import-is-the-only-channel)). And do not assume the tenant's ids are
+stale copies of yours — on a project built over MCP, the TENANT's ids are the originals and your
+export is the copy.
+
 ### 4b. Four write tools that do not do what their name suggests
 
 **`nct_repository_execute_ddl` is also the DATA-repair channel.** `execute_query` cannot write — it wraps
@@ -353,6 +388,7 @@ a role inside a section that is not granted stays invisible.
 | A page LAYOUT — the shell a page renders into, and building a page from one | MCP `nct_ui_*_layout*` tools | available — see §5b |
 | A mail template | MCP messaging tools | available — but see §6: a re-IMPORT of templates is delete-all-then-insert, so never mix the two channels |
 | A PDF template | — | **no channel** (§6) |
+| A public API endpoint, an API key, a key's binding to an endpoint ([32](32-public-api.md)) | — a person, in Settings → Developer → API | **no MCP channel.** Keys and bindings have no other channel at all; endpoint DEFINITIONS also arrive by a re-import whose archive carries `rep-objects.apiExposures` — which then REPLACES the whole list, and `[]` deletes every endpoint with its bindings ([32](32-public-api.md) §6). An MCP write to a table, form or rule changes what API callers get at once ([32](32-public-api.md) §10) |
 
 
 ### 5a. The project's own files — `nct_globalresource_*`
@@ -728,57 +764,55 @@ a real browser, driven by you — and the two together are the only way to say "
 ⛔ **This is an OFFER, not a default.** Driving the live project performs real actions on a running tenant.
 Propose it, say what it will do, and wait for a yes:
 
-> *"I can test this live: I'll drive the running project in a browser, work through the scenarios, and fix
-> what I find over MCP. It will create test records — and test roles if the scenarios need them — in the
-> real project. Want me to?"*
+> *"I can test this live: I'll run the automated suite in test/ against the running project, drive in a
+> browser what it cannot see, and fix what I find over MCP. It will create test records — and test roles if
+> the scenarios need them — in the real project. Want me to?"*
 
-### 8.0 ⛔ The order of the first three questions — ask, then connect, then restart
+### 8.0 ⛔ The order of the first three steps — connect, restart, then offer
 
-Everything below costs the user something: real records in a running tenant, a token pasted, a session
-restarted. So the session does not begin by wiring anything. It begins by asking, and it asks in this
-order, one step at a time — never all three at once, and never the second before the first is answered.
+Everything below costs the user something: a token copied, a session restarted, real records in a
+running tenant. So it happens in the order the contract gives (`system_prompt.txt` steps 0 and 0b), one
+step at a time — never all at once, and never the offer before the connection is up.
 
-**1. Does the user want a live test at all?** One question, with the cost in it:
+**1. The connection — only when `./.mcp.json` does not exist.** In support mode every change travels over
+MCP, so this comes before any other question, and it is asked ONCE:
 
-> *"Before I change anything else — do you want me to test this live? I would drive the running project
-> in a browser, work through the scenarios end to end, and fix what I find. It creates real records in
-> the real tenant (documents, and test roles if the scenarios need them). Yes or no — if no, I stay
-> offline and you get the findings from the export alone."*
-
-A **no** is a complete answer. Offline work still has `validate`, `crud verify --db` and `coverage`, and
-the hand-over then says plainly which claims were never opened in a browser. Do not re-ask later in the
-session, and do not smuggle the test in as "just checking one page".
-
-**2. Only after a yes — ask for the credentials.** Ask for exactly what §2.2 needs and nothing more:
-
-> *"Then I need the MCP block for this tenant: Settings → Developer → MCP tokens → copy the block.
-> Paste it here and I'll wire it into this folder's own config."*
-
-Then wire it yourself — the user pastes, you configure:
-
-```
-<the pasted block> | python3 ./builder/tools/mrjun.py handoff mcp --project ./work
-python3 ./builder/tools/mrjun.py handoff browser --project ./work      # the browser driver
-```
+> *"This folder has no MCP connection yet. In the project: Settings → Developer → MCP tokens → create a
+> token and copy its connection block. Then run this here — it reads the clipboard, so the token never
+> enters our chat:*
+> `! pbpaste | python3 ./builder/tools/mrjun.py handoff mcp --project ./work`
+> *(Linux: `wl-paste` or `xclip -o`). Or paste the block here and I run it for you."*
 
 ⛔ **The token belongs in the CLIENT's per-folder config, never in a file you commit.** `handoff mcp`
-writes `./.mcp.json`, which is git-ignored for exactly this reason — check that it is, and if the project
-keeps its config elsewhere (`claude mcp add --scope local`), use that instead. A token pasted into a note,
-a case file, a commit message or a reply is a leak, and it is a leak even in a private repo. If the user
-pastes a token into the chat, use it, wire it, and do not repeat it back.
+writes `./.mcp.json`, mode 600 and git-ignored for exactly this reason — check that it is, and if the
+project keeps its config elsewhere (`claude mcp add --scope local`), use that instead. A token pasted into
+a note, a case file, a commit message or a reply is a leak, and it is a leak even in a private repo. If the
+user pastes a token into the chat, use it, wire it, and do not repeat it back.
 
-**3. Then tell the user to restart — and say why.** MCP servers connect at session start, so the session
+**2. Then tell the user to restart — and say why.** MCP servers connect at session start, so the session
 that writes the config can never use it. The sentence has to be unambiguous, because an unrestarted
 session looks exactly like a broken token:
 
 > *"Configured. Now quit Claude (Ctrl-C twice, or `/exit`) and start it again in this same folder — MCP
 > servers only connect at startup, so this session cannot see the one it just created. When you're back,
-> say «continue» and I'll start the live test."*
+> say «continue»."*
 
 Pre-approve the servers first (§2.2) so the restart asks nothing. Then **stop**. Do not keep working in
 the dead session: anything you do there has to be re-verified after the restart anyway.
 
-⛔ **Skip all three steps when the folder is already connected.** §2.2 says it and it bears repeating here:
+**3. With the connection up — offer the live test, once, with its cost in it:**
+
+> *"Before I change anything else — do you want me to test this live? I would run the automated suite
+> in test/ against the running project, drive in a browser what it cannot see, and fix what I find. It
+> creates real records in the real tenant (documents, and test roles if the scenarios need them). Yes or
+> no — if no, I work over MCP and the export only, and say which claims were never opened."*
+
+A **no** is a complete answer. Offline work still has `validate`, `crud verify --db` and `coverage`, and
+the hand-over then says plainly which claims were never opened in a browser. Do not re-ask later in the
+session, and do not smuggle the test in as "just checking one page". On a **yes**, add the browser driver
+(§8.1) — one more restart — and follow TEST & BUGFIX.
+
+⛔ **Skip steps 1 and 2 when the folder is already connected.** §2.2 says it and it bears repeating here:
 if `./.mcp.json` already names a working server, the session's job is to CALL it. Asking a connected user
 for a token is the single clearest signal that the session did not read its own configuration.
 
@@ -797,32 +831,41 @@ it; **run that line yourself and re-run the command.** Installing the driver is 
 question for the user. Then ⚠️ **restart Claude Code once** — MCP servers connect at session start, so the
 session that wrote the file cannot use it.
 
-### 8.1b ⛔ Correction — the re-import is YOURS to drive when you have a browser
+### 8.1b ⛔ The re-import — yours to DRIVE, never yours to decide
 
-Earlier revisions of this document said the import channel "is a re-import the human
-drives". That is only true without a browser. **The project's own Settings page takes
-the archive**, and the session you drive is already signed in:
+With a browser you need no human hands for an import: **the project's own Settings page takes the
+archive**, and the session you drive is already signed in:
 
 ```
 <root>/<realm>/<client>/settings      <- import / export the .mrjun
 ```
 
-So the support loop closes without handing work back: edit the export -> `validate` ->
-`pack` -> import at `/settings` -> re-drive the scenario. Ask the user only if that page
-refuses you, or if they asked to perform the change themselves.
+But an import REPLACES the live project — content, rules, business logic and, with "Replace the
+business logic and its database", its DATA, back to the archive's dump. In support mode that is a
+customer's working project. So it is never a silent step of the loop:
+
+* **prefer MCP.** Everything that has a live channel (§4) is fixed over MCP and mirrored into `work/`
+  — no import at all;
+* **an import only for what has no live channel** (the honest-limits list: PDF templates, locales,
+  assets, free enums, seed data), and **only after the user's explicit yes to that import, in this
+  session** — name the project (`<root>/<realm>/<client>`), say that its data goes back to the dump,
+  and wait. A yes covers the import it was given for — or every reset of this test session, when the
+  user says so — and never another project;
+* the user may prefer to import by hand — then hand over the archive and wait.
 
 ⚠️ **After every import, re-deploy the workflows.** They come back `deployed: false`
 and `service.workflow.start` throws until they are deployed again. And anything you
 changed live over MCP but never mirrored into the export is REVERTED by the import —
 which is the practical reason every fix must land in `work/` as well.
 
-The full order of work — import, deploy, drive, buglist, fix, re-drive, and only then
-the autotest project — is [30-live-test-bugfix-and-autotest.md](30-live-test-bugfix-and-autotest.md).
+The full order of work — the suite written at build time; then (with the user's yes) import, deploy,
+run the suite and drive what it cannot see, triage, fix, re-run — is
+[30-live-test-bugfix-and-autotest.md](30-live-test-bugfix-and-autotest.md).
 
 ### 8.2 Where to test, and ⛔ who logs in
 
 **Open the PROJECT, not the installation.** The platform serves every project under
-`<root>/<realm>/<client>` — `http://host:8077/saas/ardshin2`. Opening the bare root instead bounces to the
+`<root>/<realm>/<client>` — `http://host:8077/saas/acme`. Opening the bare root instead bounces to the
 login form and leaves you on `…/auth;jsessionid=…`: a URL that loads, renders none of this project, and
 looks enough like a working page to be reported as one.
 
@@ -877,32 +920,41 @@ through the platform's own MCP tools, and you do not ask again.
 
 ### 8.4 The scenario file and the plan
 
-The scenarios live where the rest of the run log lives — the working folder of
-[26](26-orchestration-and-testing.md) §6, beside the workdir, never inside it:
+The scenarios and the suite are deliverables of the build, beside the export, never inside it; the run log
+lives in the working folder of [26](26-orchestration-and-testing.md) §6:
 
 ```
+test-scenarios.md     # INPUT  — what a person is supposed to be able to do (the contract's step 7 format)
+test/                 # the automated suite of every scenario (step 7a)
 build-plan/
-  test-scenarios.md   # INPUT  — what a person is supposed to be able to do, in their words
-  test-report.md      # OUTPUT — what you drove, what you saw, what you fixed
+  test-report.md      # OUTPUT — what ran, what you drove, what you saw, what you fixed
   plan.json           # the coverage ledger; a scenario that fails becomes a row
 ```
 
-If `test-scenarios.md` does not exist, **write it before you drive anything**, from the plan rows and the
-case notes, and show it to the user. A scenario is one sentence of intent plus the role it is performed as:
+If `test-scenarios.md` or `test/` does not exist — a folder built before they were deliverables, or a
+project that was never built here — **write them before you run or drive anything**, in the contract's
+format (steps 7 and 7a), and show both to the user. ⛔ **In a support session, scope them to the change
+request**: the scenarios the change touches, plus its NEIGHBOURS — every screen, number and process that
+reacts to what changed (the dependency map of chapter 0) — not the whole existing project. A full suite of
+a project you did not build is a large piece of work of its own: offer it in one line, and write it only on
+a yes. Each scenario names the role it is performed as:
 
 ```
-- [Initiator]        raise a procurement request, save it as a draft, and see it in my worklist
-- [ProcurementAdmin] open that request, approve it, and see the status change
-- [Initiator]        try to approve my own request — and be refused
+## 4. Purchase requests
+### 4.1 · The initiator raises a request, saves it as a draft and sees it in the worklist
+- **Role:** Initiator · **Covers:** plan:wf-purchase-request · PRD 3.1
+### 4.2 · The approver opens that request, approves it, and the status changes
+### 4.3 · The initiator may not approve their own request — and is told why
 ```
 
 That last shape matters as much as the first two. **A scenario set with no negative cases cannot detect a
 permission bug** — it only ever proves that the people who should get in, get in.
 
 ⛔ **You decide the plan, and you write it down before driving.** Nobody hands you an ordered list of
-checks. Order the scenarios so that each one leaves the project in a state the next one can use, put the
-cheapest disproof first, and say in one line why that order. A plan invented mid-drive is a plan nobody can
-review and you cannot re-run identically after a fix.
+checks. Put the cheapest disproof first and say in one line why that order — but **every scenario stands
+alone**: it starts from the seed rows or creates its own records, never from what an earlier one left
+behind, because the suite runs a single test, or a file, in any order — and a chain turns one red into ten.
+A plan invented mid-drive is a plan nobody can review and you cannot re-run identically after a fix.
 
 ### 8.5 The loop
 
@@ -985,44 +1037,42 @@ service logs, read them; if it does not, say what you would have looked for. ⛔
 the rendered page alone and then fix on that inference. A guess that happens to fix the symptom leaves the
 cause in place, and it comes back in the next scenario as something that looks unrelated.
 
-### 8.8 The automated test project — built after the live test, not instead of it
+### 8.8 The automated test suite — written at build time, run in the live test
 
-A live test finds bugs. It cannot stop them coming back. The drive is manual, it is slow, and the next
-session repeats it from memory — so the session that drove it leaves behind a project that re-drives it
-**by command**, and every scenario it proved becomes a test that fails the day someone breaks it again.
+A live drive finds bugs. It cannot stop them coming back: it is manual, it is slow, and the next session
+repeats it from memory. So every build ships `test/` — the automated suite of every scenario, laid down by
+`mrjun.py autotest scaffold` and written in the same session as the project (the contract's step 7a,
+[30](30-live-test-bugfix-and-autotest.md) §6–§7) — and the live test RUNS it, then drives what it cannot see.
+A support folder that has no `test/` gets one first, the same way — scoped to the change request and its
+neighbours (§8.4); the whole project's suite only on request.
 
-⛔ **Order matters and is not negotiable: live test and bug-fixing FIRST, the automated project after.**
-Writing tests against a broken build encodes the breakage — you spend the effort teaching the suite that
-`total = 0,00` is the expected value. Drive the scenarios by hand, fix what they surface, re-drive them,
-and only then automate what you have already watched pass.
+⛔ **Why it is written before anything ran — and why that does not encode the breakage.** A suite written
+by WATCHING a broken screen learns `total = 0,00` as the expected value. This one is written from the
+scenario file, whose numbers come from the PRD; it has never seen a screen to copy. Its first run against
+the live project is red wherever the build is wrong — that is the finding — and wherever one of its
+locators guessed wrong, which [30](30-live-test-bugfix-and-autotest.md) §5 triages before anything is fixed.
+The one forbidden repair is changing an expected value to what the screen shows.
 
-**Ask before building it**, the same way §8.0 asks about the live test:
-
-> *"The live test is done and the findings are fixed. I can also leave you an automated test project —
-> one command re-runs every scenario we just went through, so a regression shows up the same day. It
-> lives in `test/`, needs no token of its own beyond the login, and takes me a while to write. Want it?"*
-
-**A yes means ALL the scenarios, not a smoke test.** The value of the suite is that it covers what the
+**ALL the scenarios, not a smoke test.** The value of the suite is that it covers what the
 scenario file covers: every calculation with its expected number, every refusal that must stay a refusal,
 every localisation that must stay translated, every report that must keep rendering. A suite that checks
 the login and two pages is worse than none — it is green while the system is broken, and people trust it.
 
 #### ⛔ What "ALL the scenarios" means — the coverage map, and the gate that enforces it
 
-"All" is the whole point of the offer, and it is the promise an AI quietly breaks: writing eight
-easy files feels like finishing. So the suite starts from a **map**, not from a blank `tests/`
-folder. Read the scenario file, list every numbered section, and write the map down before the
-first test — in the suite's own README, as a table:
+"All" is the whole point of the suite, and it is the promise an AI quietly breaks: writing eight
+easy files feels like finishing. So nobody keeps the map by hand — **the scenario file IS the map**.
+Every numbered scenario of `test-scenarios.md` is a row; a test claims a row by citing its number
+(`§6.1`) in its docstring; `tools/coverage_map.py` prints the map after every run, and
+`mrjun.py autotest check` refuses a build with a row nobody claims — unless the scenario says
+`{manual: <reason>}`, which then appears in the hand-over with its reason
+([30](30-live-test-bugfix-and-autotest.md) §6).
 
-| Scenario § | What it proves | Test file | Watched pass live |
-|---|---|---|---|
-| §4.1 | the inbound document posts and its total recalculates | `tests/test_05_inbound.py` | yes |
-| §6.1 | the bill of materials scales by order quantity — every number | `tests/test_12_full_cycle.py` | yes |
-| … | … | … | … |
-| §9.2 | the rework order carries its loss cost component | `tests/test_14_…py` | **no — never opened** |
-
-A row with no test file is not an omission to discover later; it is a line in the hand-over. A
-row whose "watched pass live" is *no* is the honest version of §8.8's closing rule.
+What a hand-kept table used to add — whether a test was ever seen passing against the live
+project — belongs to the run, not to the map: the first live run's report
+(`build-plan/test-report.md`, TEST & BUGFIX step 6) names every scenario that is red, skipped or
+manual. Until that run exists, the honest answer to "was this ever watched passing?" is *no* for
+every row, and the hand-over says so in one sentence.
 
 **The ten families every map must account for**, because each one hides a different class of
 regression and skipping any of them makes the suite green on a broken system:
@@ -1068,20 +1118,25 @@ Then make the map machine-checkable: the runner's last line prints how many scen
 at least one test and names the ones that do not. A number the user can read beats a claim they
 cannot check — and a suite that knows its own holes is trusted where an unlabelled one is not.
 
-**Shape**, whatever the language:
+**Shape** — `mrjun.py autotest scaffold` lays it down as the library's proven harness (every file is
+described in [30](30-live-test-bugfix-and-autotest.md) §6); you write `tests/`:
 
 ```
 test/
   start.sh          # THE entry point — one command, no arguments needed
-  .env.example      # BASE_URL, AUTH_USER, AUTH_PASSWORD — and .env git-ignored
-  pages/            # page objects: one per screen, so a moved button is one edit
-  tests/            # one file per scenario section, named after the section it covers
-  tools/            # reset helpers (re-import the archive, redeploy the workflows)
-  test-results/     # screenshots of failures — git-ignored
+  .env.example      # BASE_URL (<root>/<realm>/<client>), AUTH_USER, AUTH_PASSWORD (+ optional PGDSN, API_KEY,
+                    # personas) — .env git-ignored, mode 600; the one place the project's link and the
+                    # credentials live (30 §6)
+  pages/            # page objects: one per screen, so a moved button is one edit; the project's own in
+                    # pages/project_<name>.py
+  tests/            # one file per chapter of the scenario file; tests/conftest.py for the project's fixtures
+  tools/            # coverage_map.py, and import_project.py — the reset (re-import the archive)
+  test-results/     # junit.xml and screenshots of failures — git-ignored
 ```
 
 `start.sh` carries the whole ceremony so the user never has to know it: create the virtualenv, install the
-dependencies, download the browser, check that `.env` is filled (⛔ **without printing the password**),
+dependencies, download the browser, check that `.env` is filled (⛔ **without printing the password** — the
+user writes the credentials into the file, never into the chat; [30](30-live-test-bugfix-and-autotest.md) §6),
 then run. It ends with a plain-language summary and, on failure, the likely innocent causes — a dropped
 session, an import that never landed — so that a red run is diagnosable by someone who did not write it.
 
@@ -1091,7 +1146,8 @@ Give it modes, and make the safe one the default:
 ./start.sh              # everything that does not write to the tenant
 ./start.sh all          # including the scenarios that create records
 ./start.sh smoke        # "is it up and am I logged in"
-./start.sh reset        # re-import the archive, redeploy the workflows, seed back to a known state
+./start.sh reset        # re-import the archive: data back to the seed rows (ERASES the tenant's data —
+                        # only with the user's yes, 30 §1); it does NOT deploy the workflows — do that next
 ./start.sh -k lot_code  # any argument passes straight through to the runner
 ```
 
@@ -1105,9 +1161,10 @@ Give it modes, and make the safe one the default:
 3. **the trace in the data**: after an action, read the row the action was supposed to write. The UI can
    report success over a swallowed exception; the database cannot.
 
-**Then run it, and run it against the project it tests.** The suite is not delivered until you have
-watched it go green on the live tenant — and a test that fails on its first honest run has found either a
-bug you missed or a wrong expectation you wrote. Both matter; both get recorded and fixed before hand-over.
+**In the live test, run it against the project it tests.** The loop is not finished until you have
+seen the suite go green on the live tenant — and a test that fails on its first honest run has found
+either a bug in the build or a wrong expectation in the suite or the scenario. All three matter; all three
+get recorded and fixed ([30](30-live-test-bugfix-and-autotest.md) §5).
 
 **A red run is a suspicion about the TEST first, and about the product second.** The first
 full run of a freshly written suite reported 24 failures on a delivered project, and not one
@@ -1387,8 +1444,9 @@ had been green for days:
 The general rule: for each test ask *what would fail if the feature were deleted?* If the
 answer is "nothing", the test is decoration. That question found both of these in one reading.
 
-⛔ **The suite is the second proof, never the first.** If a scenario passed only in the suite and you never
-watched it in the browser, say so. Automation inherits every blind spot of the person who wrote it.
+⛔ **The suite proves what it asserts — nothing more.** Say which scenarios were proven only by the suite
+and which you also watched in the browser; a layout, a skin, the look of a printout are `{manual}` and are
+watched. Automation inherits every blind spot of the person who wrote it.
 ---
 
 ## 9. Finishing a support session
@@ -1412,10 +1470,12 @@ person cannot reconstruct from the diff:
 
 * **the scenario outcome** — which scenarios passed on a re-drive you watched, which failed, and which you
   never got to. ⛔ "Fix applied" is not an outcome; only a re-drive is;
-* **what you created in the live project** — every `zz-test-*` role group, user and record, and whether it
-  is safe to delete. A test identity nobody knows about is a permission hole nobody is looking for;
+* **what you created in the live project** — every `zz-test-*` / `zz-at-*` role group, user and record, and
+  whether it is safe to delete. A test identity nobody knows about is a permission hole nobody is looking for;
 * **findings you did NOT fix**, each with its evidence and why — no live channel (§6), out of scope, or
   needing a decision that is not yours.
-* **the automated suite, if one was built** (§8.8) — the one command that re-runs it, what a red run means,
-  and which scenarios it does NOT cover. ⛔ Hand it over green or not at all: a suite the user first sees
-  failing is a suite the user never runs again.
+* **the automated suite** (§8.8) — the one command that re-runs it, the last run's result, and which
+  scenarios it does NOT cover (manual, skipped). ⛔ Never hand over a red test unexplained: every red is
+  either fixed and re-run green, or named in the BUGLIST with its triage class and the reason it is still
+  open ([30](30-live-test-bugfix-and-autotest.md) §5) — a red nobody explained is a suite nobody runs again.
+  And never make it green for the hand-over by changing an expected value to what the screen shows.

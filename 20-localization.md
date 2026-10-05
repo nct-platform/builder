@@ -285,7 +285,7 @@ Two more places the same blindness hits:
 
 ### ⛔ An enum column shows its raw CODE unless you point at the translated twin
 
-`WAITING_MATERIALS`, `CHOCO_DRIED_FRUIT`, `BOX` — the same text in every language. Enum localisation
+`WAITING_MATERIALS`, `RAW_MATERIAL`, `BOX` — the same text in every language. Enum localisation
 is **three** edits and the middle one is the one that gets skipped:
 
 1. join the vocabulary in the crud's SQL and select the code as `<field>_label`;

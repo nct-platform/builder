@@ -16,19 +16,21 @@
 //      (doc 26 §2/§6) — OR let the Plan phase below draft plan.json from the PRD.
 //   2. Workflow({ scriptPath: ".../build-project.workflow.js",
 //                 args: { prd: "<PRD path>", workdir: "<unpacked dir>", plan: "<build-plan/plan.json>" } })
-//   3. Read the returned report; drive the live-run checklist it prints (Phase 5, doc 26 §5).
+//   3. Read the returned report. The harness builds the EXPORT; the main loop then writes the other two
+//      deliverables — test-scenarios.md (contract step 7) and test/ (step 7a, `autotest scaffold` + the tests,
+//      without asking) — and runs `autotest check`. Nothing here imports or drives a project.
 // Requires the builder present at doc/builder (system_prompt.txt + docs + tools/mrjun.py).
 // =====================================================================================
 
 export const meta = {
   name: 'build-project',
-  description: 'Replit-style: decompose a PRD into small tasks, build+validate EACH, then gate coverage + live-run',
+  description: 'Replit-style: decompose a PRD into small tasks, build+validate EACH, then gate coverage',
   phases: [
     { title: 'Plan',     detail: 'decompose the PRD into plan.json (one testable row per unit)' },
     { title: 'Research',  detail: 'parallel: mine shapes from the builder docs + any unpacked project you have, per kind' },
     { title: 'Build',     detail: 'SEQUENTIAL: one agent per plan task, in dep order, each gated by validate' },
     { title: 'Verify',    detail: 'parallel: independent re-checks per module vs the PRD' },
-    { title: 'Gate',      detail: 'coverage gate + whole-project validate + the live-run checklist' },
+    { title: 'Gate',      detail: 'coverage gate + whole-project validate + what the main loop still owes' },
   ],
 }
 
@@ -136,10 +138,12 @@ const gate = await agent(
   `  ${MRJUN} validate --project ${args.workdir}     (must be 0 errors)\n` +
   `  ${MRJUN} coverage --project ${args.workdir} --plan ${args.plan} --show-orphans   (must PASS: no MISSING, no non-done)\n` +
   `Report both results verbatim. If coverage FAILS or validate has errors, LIST exactly which tasks are missing/incomplete ` +
-  `(those go back to the Build phase). Then print the REQUIRED live-run checklist the human/main-loop must drive next ` +
-  `(doc 26 §5): Home renders charts; nav resolves in EACH selected language; every form opens with populated dropdowns; ` +
-  `actions + workflow starts run; mail/PDF render branded; log/ui.log clean. Conclude with DONE (gates pass, live-run pending) ` +
-  `or NOT-DONE (list the blockers).`,
+  `(those go back to the Build phase). Then say what the main loop still owes before the build is done — the other two ` +
+  `deliverables of the contract (system_prompt.txt steps 7 and 7a): test-scenarios.md beside the export, covering every ` +
+  `family (registers, forms field by field, rules in action, every BPMN path, calculations and dependencies, studio ` +
+  `components, access, prohibitions, locales, reports, printouts), and test/ automating every scenario, gated by ` +
+  `\`${MRJUN} autotest check --project ${args.workdir}\`. Conclude with EXPORT-GATES-PASS (the scenarios, the suite ` +
+  `and autotest check still to come; nothing has been imported or run) or NOT-DONE (list the blockers).`,
   { label: 'gate:coverage', phase: 'Gate', effort: 'high' })
 
 return {
@@ -148,5 +152,6 @@ return {
   blocked: built.filter(b => b && b.status !== 'done').map(b => b && b.id),
   gaps: rechecks.filter(Boolean),
   gate,
-  note: 'Gates are offline. The build is NOT done until the printed live-run checklist is driven (doc 26 §5).',
+  note: 'Gates are offline. The build is done when test-scenarios.md and test/ exist and autotest check passes ' +
+        '(contract steps 7/7a); the live run comes later, when the user asks to test and fix (doc 30).',
 }

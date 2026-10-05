@@ -57,15 +57,15 @@ The Groovy script from `rule.ruleScriptStr` is spliced into the template's `exec
 | `context` | `DynamicRuleContext` (via `def context = this` in the template) | The entry point into the context model: `context.<ctxAlias>.<crudAlias>.data.get()`, `context.<ctx>.data.getAttr(...)`, `context.data.*` (global attrs). Full breakdown — [08](08-groovy-rules-and-context.md). | `ExecutionRuleTemplate.groovy`; `propertyMissing` delegation → `dynamicContext` |
 | `service` | `ServiceWrapper` | The main capability namespace — all of Part 2. | `GroovyExecutionRule.java` |
 | `param` | `Map<String,Object>` | Parameters of a **delegated** GROOVY method of a CRUD. Populated from the `__methodParams` marker, which `ReactorServiceImpl.executeDelegatedRule` places (`ReactorServiceImpl.groovy`). Outside delegation — an empty map `[:]`. | `GroovyExecutionRule.java` |
-| `attrs` | `Map<String, JsonNode>` (Jackson) | Arbitrary attributes passed by the caller: CRUD-table pagination/filters (`rowsInPage`, `pageNumber`, filter keys), `processIdentifier`, `__actionId`/`__actionName`, `filterBy`, etc. **Values are `JsonNode`**, so they are read as `attrs.get('rowsInPage')?.asInt()`, `attrs.get('filterBy')` (text). | `GroovyExecutionRule.java` |
+| `attrs` | `Map<String, JsonNode>` (Jackson) | Arbitrary attributes passed by the caller: CRUD-table pagination/filters (`rowsInPage`, `pageNumber`, filter keys), `processIdentifier`, `__actionId`/`__actionName`, `filterBy`, etc.; in a rule the workflow engine runs (a service task, a sequence flow) also EVERY process variable (`owner`, `processEntityId`, `userActionId`, …). **Values are `JsonNode`**, so they are read as `attrs.get('rowsInPage')?.asInt()`, `attrs.get('filterBy')` (text). ⛔ Never WRITE `attrs.put('k', 'v')`: a value that is not a `JsonNode` makes `getAttr` fail and the rule fail AFTER it ran. Write through `context.data.setAttr('k', v)`. | `GroovyExecutionRule.java` |
 | `contextIdentifiers` | `List<String>` | Identifiers of the contexts bound to the rule (`rule.contextIdentifiers`). | `GroovyExecutionRule.java` |
 | `contextDataMap` | `Map<String, ContextData>` | Low-level access to context-data (normally you use `context.*` instead). | `GroovyExecutionRule.java` |
-| `userId` | `String` | ID of the current user (see also `service.security.user()`). realm/client are **hidden** deliberately. | base — `GroovyExecutorHelper.createBaseContextDataMap` |
+| `userId` | `String` | Whoever the CALLER says the user is — and callers say different things: a row id from a screen, the owner's e-mail in a service task, the authentication name on a REST call, the acting e-mail in a delegated CRUD method. ⛔ Never use it as an identity: the person is `service.security.user().email`. realm/client are **hidden** deliberately. | base — `GroovyExecutorHelper.createBaseContextDataMap` |
 | `data` | `GlobalDataWrapper` | Alias for `context.data`: `data.getAttr("k")`, `data.setAttr("k", v)`, `data.foo` (read) / `data.foo = v` (write). | `ExecutionRuleTemplate.groovy` → `dynamicContext.data` (`DynamicRuleContext.groovy`) |
-| `currentData` | `CrudDataDto` \| `null` | The current item of a **nested** form (List-item): `currentData.get()`, `currentData.put(obj)`, `currentData.setField('a.b', v)`, `currentData.getField('col', Type.class)`, `currentData.hasField('col')`. In the parent form — `null`. ⚠️ `currentData.getAttr(...)`/`setAttr(...)` are offered by the editor's autocomplete but do **NOT** exist on `CrudDataDto` — calling them throws `MissingMethodException`. Attributes live on the context/global scopes (`context.<ctx>.data.getAttr` / `context.data.getAttr`), never on a CRUD-data node. | `ExecutionRuleTemplate.groovy` |
+| `currentData` | `CrudDataDto` \| `null` | The current item of a **nested** form (List-item): `currentData.get()`, `currentData.put(obj)`, `currentData.setField('a.b', v)`, `currentData.getField('col', Type.class)`, `currentData.hasField('col')`. In the parent form `currentData` ITSELF is `null` — so `currentData.get()` throws a `NullPointerException` there (the editor's hint says "returns null in parent forms"; it does not): guard with `if (currentData != null)`. ⚠️ `currentData.getAttr(...)`/`setAttr(...)` are offered by the editor's autocomplete but do **NOT** exist on `CrudDataDto` — calling them throws `MissingMethodException`. Attributes live on the context/global scopes (`context.<ctx>.data.getAttr` / `context.data.getAttr`), never on a CRUD-data node. | `ExecutionRuleTemplate.groovy` |
 | `validation` | `ValidationResultCollector` | **Only in VALIDATION_RULE.** Accumulator of errors/warnings. | `ValidationRuleTemplate.groovy` (the `validation` field) |
 | `addError` / `addWarning` / `addFieldError` / `addFieldWarning` | template methods | **Only in VALIDATION_RULE.** Delegate to `validation.*` (see Part 3). | `ValidationRuleTemplate.groovy` |
-| `inject(String beanName)` | template method | Restricted access to Spring beans. **Security-gated**: `contextService/reactorService/ruleService/crudReactor` are blocked in `inject` itself (`realm`/`client` are not beans, and are not accessible separately via `propertyMissing`, see the Security invariant below); a whitelist is allowed (`emailService`, `notificationService`, `validationService`, `calculationService`, `formatterService`, `dateService`) + any bean matching `*Helper`/`*Util`; `rimmService` → returns `service.rimm`. | `ExecutionRuleTemplate.groovy` |
+| `inject(String beanName)` | template method | A Spring bean by name — **not a sandbox**. `rimmService` returns `service.rimm`; `contextService`, `reactorService`, `ruleService` and `crudReactor` throw `SecurityException`; a short list (`emailService`, `notificationService`, `validationService`, `calculationService`, `formatterService`, `dateService`) and any `*Helper`/`*Util` bean are returned; ANY OTHER name prints a warning and is returned too. Do not use it: everything a rule needs is on `service.*`, and a raw bean bypasses the realm/client the proxies add. | `ExecutionRuleTemplate.groovy` |
 
 > **Security invariant.** `realm` and `client` are **inaccessible** to the script: accessing them throws
 > `SecurityException` (`ExecutionRuleTemplate.groovy`). All `service.*` proxies (rimm/security/notification/crud)
@@ -299,6 +299,23 @@ is taken from `LocaleContext` (the session).
 Further built-in limits (response size, blocked private/link-local addresses) live in
 `RestClientConfig`; treat the numbers as shipped defaults, not a contract.
 
+⛔ **A non-2xx answer does NOT throw** — it comes back with `ok == false` and the status. Only a timeout, an I/O
+error or a refused (private / link-local) host throws. So every call checks `ok` (or `status`) itself, and a rule
+that must stop on a failed call says so: `if (!r.ok) { throw new RuntimeException("<words for the user>") }`.
+A Map or List `body` is sent as JSON. Helpers on the response: `getHeader(name)` (case-insensitive),
+`getHeaderValues(name)`, `isRedirect()`, `isClientError()`, `isServerError()`.
+
+**Numbers, money and lists — the traps of the utility library:**
+
+| Call | Trap | Do instead |
+|---|---|---|
+| `formatting.number.round(x, n)` | returns a `Double` — binary floating point — not a `BigDecimal` | money and quantities: `(x as BigDecimal).setScale(2, java.math.RoundingMode.HALF_UP)` (half away from zero, as the database's `ROUND` on numeric) |
+| `context.data.getAttr('k')` on a decimal | returns a `Double` | `getAttr('k') as BigDecimal` before any arithmetic that must be exact |
+| `formatting.number.formatCurrency(x, code)` | formats with the SERVER's locale, not the user's | format in the screen or the template where the locale is known |
+| `collection.transform.sortBy(list, …)`, `unique(list)` | sort / de-duplicate the list you pass IN — the caller's list changes | pass a copy: `sortBy(new ArrayList(list), …)` |
+| `collection.aggregate.sum(list, field)` over text values | concatenates the strings | convert first: `list.collect { it.amount as BigDecimal }.sum()` |
+| `formatting.date.*` | `java.util.Date` + `SimpleDateFormat` only | for dates in SQL and documents, pass ISO text and let the query cast it |
+
 **Worked example** (`invoice statuses dropdown`):
 
 ```groovy
@@ -323,7 +340,7 @@ Backing — `SecurityHelper` (`SecurityHelper.java`), realm/client/userId alread
 | `service.security.hasAnyRoleGroup(...)` | `boolean hasAnyRoleGroup(String... roleGroups)` | true if they have **at least one** role-group. |
 | `service.security.hasAllRoleGroups(...)` | `boolean hasAllRoleGroups(String... roleGroups)` | true if they have **all** role-groups. |
 
-> All checks are **fail-closed**: if securityClient/userId/realm/client are not set — they return `false`
+> All checks are **fail-closed** and ask about the user's E-MAIL (never `userId`): with no e-mail, or no securityClient/realm/client — they return `false`
 > (`SecurityHelper.java`) rather than throwing.
 
 > **You cannot list a user's roles.** `SecurityHelper` exposes only `user()` + the four `hasAny/All*` boolean
@@ -498,30 +515,129 @@ The form from hints (`HintsService.java`): attachments are built as a list of `P
 
 ---
 
-### 2.7 `service.access.*` — process access management
+### 2.7 `service.access.*` — who sees a case (process access)
 
-Backing — `AccessManager` (`AccessManager.java`); operates on the `AccessDto` of the current process (processId from
-`attrs.processIdentifier`, `GroovyExecutionRule.java`). Relevant for the workflow/process context
-([07-workflows-and-tasks.md](07-workflows-and-tasks.md)).
+Every case — a process instance — carries **access rows**: `type` = `USER` (an e-mail), `ROLE` or `ROLE_GROUP`, a
+value, an `isOwner` flag and an `access` (enabled) flag. A process table lists a case to a caller when ONE enabled
+row matches them: their e-mail (exact, case-sensitive), one of their roles, or one of their role groups. Those rows
+are the case-level access list of every queue an ERP has — who sees a purchase request while it waits for approval,
+who sees it once it moved on to finance, whether the requester still sees it afterwards. `service.access.*` edits
+them. Backing: `AccessManager`, over the rows loaded into the rule's document.
 
-| Method | Signature | Purpose |
+⛔ **WHERE an edit is saved — read this before writing one.** The rows are copied into the rule's document before
+the rule runs; the methods edit that copy, and exactly two places write it back:
+
+| the rule runs as… | access edits are |
+|---|---|
+| a BPMN **service task**'s rule (`${ruleTask}`) — and any `service.rule(...)` it calls | **saved**, after all the task's rules succeeded |
+| a gateway's **sequence-flow predicate** | **saved** (a predicate may run once per conditional flow — keep access edits out of predicates anyway) |
+| a user-task ACTION's complete or start rule (the form's submit) | discarded |
+| a process-table action — a task or a global action — pressed without a form | discarded |
+| a start form's rules; `service.workflow.complete(...)`; a CRUD table / tree / form rule; a scheduler; a CRUD GROOVY method; any predicate or validation rule outside a sequence flow | discarded |
+
+Everywhere in the lower rows the calls **return `true` and change nothing**. Hence the one rule of every access
+change: **the user task's action DECIDES, the service task right after it APPLIES** — the action's complete rule
+records the decision (and who took it) in the document, the next service task reads it and edits the access. The
+only other writer is `service.workflow.start(…, [owner:, roleGroups:, emails:])`, which writes the new case's rows
+together with the case (§2.12).
+
+How the save works: the service task's rules run in order and the task stops at the first one that fails — then
+NOTHING is saved; otherwise, when the list differs from what was loaded, every row of the case is deleted and the
+edited list is written back (a new item is `isOwner=false`, `access=true`). A failed save is only logged; the task
+still completes.
+
+| Method | Effect | Pitfall |
 |---|---|---|
-| `addRoleAccess` | `boolean addRoleAccess(String roleName)` | Grant access to a role. |
-| `removeRoleAccess` | `boolean removeRoleAccess(String roleName)` | Revoke. |
-| `hasRoleAccess` | `boolean hasRoleAccess(String roleName)` | Check. |
-| `getRoleAccesses` | `List<String> getRoleAccesses()` | All roles with access. |
-| `addRoleGroupAccess`/`removeRoleGroupAccess`/`hasRoleGroupAccess`/`getRoleGroupAccesses` | as above, for a role-group |. |
-| `addUserAccess`/`removeUserAccess`/`hasUserAccess`/`getUserAccesses` | `String userEmail` |. |
-| `removeOwnerAccess`/`restoreOwnerAccess` | `int (…)()` | Disable/enable owner access. |
-| `clearAllAccess` | `void clearAllAccess()` | Remove all entries. |
-| `getAccessCount` | `int getAccessCount()` | Number of entries. |
-| `hasAnyAccess` | `boolean hasAnyAccess()` | Whether there are any entries. |
+| `addRoleGroupAccess(name)`, `addRoleAccess(role)`, `addUserAccess(email)` → `boolean` | appends `{type, value (trimmed), isOwner:false, access:true}` unless an ENABLED row of that type and value exists (then returns `false`) | exact, case-sensitive matching: `Anna@acme.com` and `anna@acme.com` are two rows, and the person whose identity provider says the other spelling sees nothing; a DISABLED row of the same value does not count, so a second row is added |
+| `removeRoleGroupAccess(name)`, `removeRoleAccess(role)`, `removeUserAccess(email)` → `boolean` | deletes EVERY row of that type and value, whatever its flags | `removeUserAccess(<the owner's e-mail>)` deletes the OWNER row — `restoreOwnerAccess()` then has nothing to restore |
+| `hasRoleGroupAccess`, `hasRoleAccess`, `hasUserAccess(…)` → `boolean`; `getRoleGroupAccesses()`, `getRoleAccesses()`, `getUserAccesses()` → `List<String>` | read ENABLED rows only (the owner row counts) | meaningful only where the rows were loaded — service tasks, sequence flows, a case's action rules and visibility predicates; empty in CRUD, scheduler and start-form rules |
+| `removeOwnerAccess()` / `restoreOwnerAccess()` → `int` | `access=false` / `true` on the owner row(s), which are KEPT; returns how many changed | the owner still sees the case through any OTHER matching row — a role group they belong to |
+| `clearAllAccess()` | empties the list — saved as "delete every row" | the case is then invisible to everyone; a form-started case has no admin/author rows to fall back on |
+| `getAccessCount()`, `hasAnyAccess()` | count rows, disabled ones included | |
+| `accessDto` (not offered by the editor) | the live list: `accessDto.accesses`, items with `type`, `accessValue`, `isOwner`, `access` | the only way to move the `isOwner` flag (recipe 4) |
 
+There is no `setOwner`, and no method reaches ANOTHER case: a rule edits the case it runs in.
+
+**Who the rule is.** A service task runs as the case's OWNER — its starter, or the `owner` passed to
+`service.workflow.start` — for the whole life of the case: the platform never assigns a user task to the person who
+completes it, so the "last assignee" the engine would prefer is always empty (unless the BPMN hard-codes one).
+`service.security.user()` inside a service task is therefore NOT the approver. Capture the actor in the action's
+complete rule — it runs as the person who pressed the button: `context.data.setAttr('decidedBy',
+service.security.user().email)`.
+
+**Access rows decide what is LISTED, not what may be DONE.** Executing an action checks that the caller is signed in
+and that the action's visibility predicate passes — never the access rows. Every action therefore needs a predicate
+that admits exactly the people who may press it: their role group and, where the case moves between queues, the
+queue attribute the service tasks maintain (recipe 2c). A predicate on a case can read the rows too:
+`service.access.hasRoleGroupAccess('<Finance>')`.
+
+**Who is on a new case.** A case started from a form gets ONE row — its starter, `USER`, `isOwner=true` — and
+nothing else: no colleague, no admin, no author sees it until a rule grants it. A case started by
+`service.workflow.start(...)` gets its `owner`, the `roleGroups`/`emails` passed, and always the ROLE rows
+`admin` and `nct_author` (§2.12). Grant the groups that work the case in the workflow's FIRST service task — or in
+the start options.
+
+**Recipes** — the full pattern, with its BPMN and its worklists, is [07](07-workflows-and-tasks.md) "Stage-wise case
+access".
+
+```groovy
+// 1. Open the case to the groups that work it — the workflow's FIRST service task
+service.access.addRoleGroupAccess('<Requesters>')
+service.access.addRoleGroupAccess('<Approvers>')
+context.data.setAttr('queue', 'APPROVAL')
+return null
+```
+
+```groovy
+// 2a. The Approve action's complete rule — runs as the APPROVER; an access call here would be discarded
+context.data.setAttr('decision', 'APPROVED')
+context.data.setAttr('decidedBy', service.security.user().email)
+return null
+```
+
+```groovy
+// 2b. The service task right after that user task — runs as the OWNER; its access edits ARE saved
+if (context.data.getAttr('decision') != 'APPROVED') { return null }
+service.access.removeRoleGroupAccess('<Approvers>')
+service.access.addRoleGroupAccess('<Finance>')
+context.data.setAttr('queue', 'FINANCE')
+return null
+```
+
+```groovy
+// 2c. The visibility predicate of every Finance action — the rows hide the case, this is what refuses the press
+return context.data.getAttr('queue') == 'FINANCE' && service.security.hasAnyRoleGroup('<Finance>')
+```
+
+```groovy
+// 3. Hide the case from its initiator once submitted (a service task) — the row is kept, so it can come back
+service.access.removeOwnerAccess()            // NOT removeUserAccess(<initiator>): that deletes the owner row
+return null
+```
+
+```groovy
+// 4. Make another person the case's owner (a service task). There is no setOwner: edit the live list.
+def to = (context.data.getAttr('newOwnerEmail') ?: '') as String
+if (!to) { return null }
+service.access.addUserAccess(to)
+service.access.accessDto.accesses.each { a ->
+    if (a.isOwner && a.accessValue != to) { a.isOwner = false; a.access = false }   // drop `a.access = false` to keep the old owner seeing it
+    if (a.type?.name() == 'USER' && a.accessValue == to) { a.isOwner = true; a.access = true }
+}
+return null
+// This moves the owner ROW. The `owner` process variable — the identity every service task runs as — stays the starter.
+```
+
+⛔ **The anti-pattern:** `service.access.addRoleGroupAccess('<Finance>')` in the Approve action's complete rule. It
+returns `true`, the toast says the request was approved, and nobody in Finance ever sees it.
 ---
 
 ### 2.8 `service.quota.*` — project limits (read-only)
 
-Backing — `QuotaProxy` (`QuotaProxy.java`). Read-only; `allowed*` may be `null` (no limit).
+Backing — `QuotaProxy` (`QuotaProxy.java`). Read-only; `allowed*` may be `null` (no limit). Available in EXECUTION
+rules, service tasks and CRUD methods; in a PREDICATE or a VALIDATION rule `service.quota` is `null` (the editor
+offers it there anyway — [09](09-groovy-hints-and-live-context.md) "Where the hints and the runtime disagree"). The
+values are refreshed at most every ten seconds per project; when they cannot be read, the numbers are `null` / `0`.
 
 ```
 service.quota.mail.allowedPerDay      // Integer | null
@@ -577,10 +693,11 @@ return service.rule("Is Author") && !service.rule("Document is Unlocked")
 ```
 
 > Resolution is **by name only** (not by identifier) — rule names must be unique in the project, otherwise
-> behavior depends on `findByName`. The invoked rule sees the same `contextData` (context.*), but
-> `attrs`/`param` are **NOT passed** — it is executed with an empty `executionVariables`
-> (`new HashMap<>()`, `ServiceWrapper.java`). Do not rely on `attrs`/`service.actionId` inside the
-> invoked rule.
+> behavior depends on `findByName`. The invoked rule runs on the **same document object**, both ways: it sees and
+> can change the caller's `attrs`, CRUD data and access rows, and whatever it changes the caller sees after the
+> call (in a service task its access edits are saved with the task's, §2.7). `param` is NOT passed — the caller
+> consumed it — and no process variables are merged in. The callee runs with ITS OWN kind's surface (a predicate
+> called from an execution rule still has no `service.workflow`), as the same user.
 
 ---
 
@@ -620,6 +737,12 @@ CRUD GROOVY method, a service task), the order the workflow / process group / wo
 built in, the rule that gathers rows from business logic and shapes them into the document below, and the
 idempotency without which a scheduler opens the same case on every tick. Read `27` before authoring one; read
 this section for what each argument means.
+
+**A case another SYSTEM opens through the project's public API needs no new `start` call.** The API presses a
+button that already exists, exactly as a person would: the worklist's start action — the case is then created
+by its start form, owned by the caller, and no rule calls `start` — or a document's create/row action, whose
+lifecycle rule calls `start` as it does for a person ([32](32-public-api.md) §1,
+[27](27-event-driven-process-start.md) §2.0).
 
 ```groovy
 String start(String workflowIdentifier, Map contextData)
@@ -818,8 +941,9 @@ def pid = service.workflow.start("a3f2c1de-…", ctx, [
   the case is then reachable only through the admin / author ROLE grants, and its service tasks run with no
   user. Nothing in the export shows you which deployment you are on, which is the argument for passing `owner`
   rather than inheriting one. With the fallback on, the thing to guard against is not "nobody sees it" but
-  "**one wrong account** owns it": that same account is the identity a service task executes, until the first user task completes,
-  as, so `service.security.user()` inside the case answers the author, not the person the case is about. Admins
+  "**one wrong account** owns it": that same account is the identity EVERY service task of the case executes as — the
+  platform never assigns user tasks, so no completed task ever takes over (§2.7) — so `service.security.user()`
+  inside the case answers the author, not the person the case is about. Admins
   and authors have access whatever is passed — which also means testing a worklist as an author proves nothing.
   Pass `roleGroups`/`emails` for the people who must actually work it. A warning naming the rule is logged only
   when the call carried no acting user, no role groups and no emails.
@@ -840,9 +964,9 @@ def pid = service.workflow.start("a3f2c1de-…", ctx, [
   `startedByRuleName`, plus `startedByCrudAlias` and `startedByMethodName` when a CRUD Groovy method started
   it. They are readable as `context.data.startedByRuleName`. Setting those keys yourself does nothing — they
   are written last, after the supplied document.
-- **`service.access.*` cannot reach the new process.** It operates on `attrs.processIdentifier`, which is the
-  process the rule is IN. Grant access through the options above, or from the new process's own first service
-  task.
+- **`service.access.*` cannot reach the new process.** A rule edits the access of the case it runs IN — and saves
+  it only from a service task or a sequence flow (§2.7). Grant the new case's access through the options above,
+  or from the new process's own first service task.
 
 ---
 
@@ -862,6 +986,12 @@ Map    complete(String processIdentifier, String actionId, Map contextData[, Map
 Map    cancel(String processIdentifier[, String reason])
 String currentProcessIdentifier()
 ```
+
+**The same backend, called from outside.** A partner system working a process table through the project's
+public API ([32](32-public-api.md)) reaches what `list`, `actions` and `complete` reach — the same worklist, the
+same action resolution, the same Start and Complete rules — plus the chosen form's mandatory fields and
+validators, as the acting user. Your rules need no API branch, with two exceptions that make them headless for
+that call: `service.store.session` holds nothing and `service.redirectPage` is not delivered (§2.14, §2.15).
 
 #### `cancel(...)` — ending a case
 
@@ -1462,6 +1592,11 @@ in [02](02-form-controls-reference.md).
 In hints these 4 methods live under the `validation` key (`HintsService.java`, `buildValidationMethods`) —
 but **only** when `ruleType == VALIDATION_RULE`. For EXECUTION/PREDICATE there is no `validation` key in hints.
 
+The collector also answers questions — not offered by the editor, but there: `validation.hasErrors()`,
+`hasWarnings()`, `hasMessages()`, `getMessageCount()`, `getErrors()`, `getWarnings()`, `getAllMessages()`,
+`clear()`. Use them instead of counting by hand — e.g. add a summary warning only when field errors were found.
+The field argument of `addFieldError` / `addFieldWarning` is the control's `settings.name`.
+
 The canonical form:
 
 ```groovy
@@ -1612,8 +1747,8 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   `getProcess(...)`, no `raiseMessage(...)` — those appear in older notes and were never implemented; use
   `list(...)` to find a case and `contextData(...)` to read one. `cancel` and `currentProcessIdentifier` are recent: on an older platform build they are absent, and the whole namespace is offered
   only to EXECUTION rules and CRUD Groovy methods.
-  Process-access mutation is `service.access.*` (§2.7, operating on `attrs.processIdentifier` — i.e. the
-  process the rule is ALREADY in, never one it just started).
+  Process-access mutation is `service.access.*` (§2.7: on the case the rule is ALREADY in, never one it just
+  started — and saved only from a service task or a sequence flow).
 - **`service.mail` (bare)** — must be `service.notification.mail.<alias>(...)` (§2.5); neither `service.mail` nor
   `service.notification` alone (without `.push`/`.mail`) resolves anything.
 - **`service.redirect` / `service.navigate` / `service.goToPage` / `service.setResponsePage`** — none of these

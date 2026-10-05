@@ -34,6 +34,7 @@ hand JSON, then `validate`.
 | Detect scenario, set project name/alias/domain/locales/schema | **0** | [00](00-export-format-and-import.md), [13](13-master-playbook-empty-to-dynamic-project.md) |
 | Decompose PRD → entity/actor/document/status/report/notify/process inventory (**+ the chart list: derive beyond it, challenge what it names**) | **1** | this doc, [22](22-charts-params-and-filters.md) "## 2A. The specified charts are a FLOOR" |
 | Database (schema, tables, PK, FK, CHECK, lines, audit cols) | **2** | [10](10-database-management.md) |
+| **WHEN each derived column is computed** — one row per column no human types; a column a register shows must be recomputed on SAVE, not only on submit/post | **1c, 5** | this doc §Phase 1c, [08](08-groovy-rules-and-context.md) |
 | Business logic — dynamic CRUD, SQL + Groovy methods, sources | **3** | [11](11-business-logic-dynamic-crud.md), [18](18-existing-schema-to-dynamic-wiring.md) |
 | Contexts — which context, which crud aliases inside | **4** | [08](08-groovy-rules-and-context.md) |
 | Rules — predicates / execution / validation, Groovy `service.*` | **5** | [08](08-groovy-rules-and-context.md), [09](09-groovy-hints-and-live-context.md), [16](16-groovy-service-api.md) |
@@ -43,6 +44,7 @@ hand JSON, then `validate`.
 | Pages, page map, access, `crud.table` / `crud.tree` / `process.table`, **multiple CRUDs in tabs** | **9** | [01](01-content-model-and-pages.md), [04](04-crud-table-plugin.md), [05](05-crud-tree-and-process-table.md), [14](14-plugin-catalog-all.md), [22](22-charts-params-and-filters.md) |
 | Mail templates, PDF templates, the PDF→mail flow | **10** | [15](15-pdf-and-mail.md) |
 | **Mail the project SENDS AS ITSELF, and mail it READS** — "from our domain", "the support inbox", "when a customer emails us". ⛔ The accounts are configured LIVE, not authored: what you build is the `nct.mailbox.plugin` page, the rules, and a handover step | **10** (+ **5, 9, 12**) | [31](31-email-integration-and-mailbox.md) |
+| **Another system CALLS the project** — "the partner's system submits …", "our app shows the customer …", "approve from the mobile app", "integrate with `<system>` over an API". ⛔ The keys and the endpoints are configured LIVE, not authored: what you build is the tables, actions, forms and rules the endpoints expose — written API-friendly — and a handover | **1, 1a** (+ **5, 6, 7, 9, 11, 14**) | [32](32-public-api.md) |
 | Workflows, tasks, user-task actions, process tables — **one worklist page per workflow, always** | **11** | [07](07-workflows-and-tasks.md), [05](05-crud-tree-and-process-table.md) |
 | Schedulers — which, on what cron, calling which rule | **12** | [12](12-queries-sources-schedulers-and-rest.md) |
 | **What STARTS each process** — a start form, or the SYSTEM itself: a scheduler tick / a written row / a step in another process, running a rule that gathers rows, shapes a context data document, calls `service.workflow.start` and does not re-open the same case every tick (its claim/write-back COLUMNS are Phase 2, its candidate/claim METHODS Phase 3) | **1, 1a, 2, 3, 5, 9, 11, 12** | [27](27-event-driven-process-start.md), [07](07-workflows-and-tasks.md), [16](16-groovy-service-api.md) |
@@ -67,6 +69,9 @@ before the thing it references exists** — that is the whole reason for the ord
  1. Decompose PRD → inventory  (entities, actors, documents, statuses, reports, notifications, processes,
                                TRIGGERS — see 1a)
  1a. TRIGGER inventory         → what STARTS each process: FORM / SCHEDULER / CRUD METHOD / SERVICE TASK   [27]
+ 1b. BUSINESS pass             → what each number MEANS: money/qty invariants, the schema it changes   [10]
+ 1c. DERIVED-COLUMN inventory  → one row per column no human types: formula, engine method, and WHEN
+                               it runs — a column a register shows is recomputed on SAVE           [08]
  2. DATABASE                   → tables, PK, FK, CHECK(status sets), line tables, audit cols        [10]
  3. BUSINESS LOGIC             → dynamic CRUD + SQL/Groovy methods (+paired queries) + source        [11][18]
  4. CONTEXT                    → one context listing every crud alias                                [08]
@@ -162,6 +167,7 @@ downstream phases are mechanical. Read the PRD and extract, into a table you kee
 | A **notification** ("email the customer", "notify on approval") | a **mail template** (exported) + a rule calling `service.notification.mail.*` | 10 |
 | Mail that must **come FROM the customer's own address** ("from our domain", "customers reply to us", "we already pay for SendGrid") | nothing extra to author — the same templates and the same `service.notification.mail.*` calls. What changes is a LIVE setting the recipient makes after import, so the deliverable is a **handover step** ([31](31-email-integration-and-mailbox.md) §8) | 10 |
 | Mail the project must **READ** ("the support inbox", "suppliers send the invoice by email", "when the signed copy comes back") | a mailbox the customer connects live, plus what you author: a page with `nct.mailbox.plugin` if a PERSON works the queue, and an EXECUTION rule on a scheduler using `service.mailbox.unread(...)` + `markRead()` if a RULE does. ⛔ The `markRead()` is not optional — without it every tick reprocesses the same message | 10, 9, 12 ([31](31-email-integration-and-mailbox.md)) |
+| **Another system** reads the project's lists or presses its buttons ("the partner's system submits …", "our app shows the customer their requests", "approve from the mobile app") | nothing extra beyond the process/records tables, actions, forms and rules it calls — written API-friendly ([32](32-public-api.md) §3). The keys and the endpoints are LIVE settings the recipient makes after import, so each list or button a named caller needs is a **handover row** ([32](32-public-api.md) §8); a process it opens is recorded `+ API CALL` in Phase 1a | 1a, 5, 9, 14 ([32](32-public-api.md)) |
 | A **multi-step process with human hand-offs / approvals** | a **workflow** (BPMN: userTask/serviceTask/gateway) + **its worklist page — a `process.table.pluin` surfacing the instances, always, not "if the PRD asks"** ([07](07-workflows-and-tasks.md) "### Step 5 — the worklist page (NOT optional)") **+ a named STARTER** (Phase 1a: `FORM` / `SCHEDULER` / `CRUD METHOD` / `SERVICE TASK`) | 11, 13 |
 | A **recurring / time-based job** ("nightly expiry check", "send reminders") | a **scheduler** (cron → predicate → action rule). ⛔ **If what the job produces is a CASE and not a message** ("escalate", "open a review", "raise an incident"), the action rule STARTS A WORKFLOW — that is a trigger row, not a mail ([27](27-event-driven-process-start.md)) | 12 (+ 11, 5) |
 | A **dashboard / KPI / chart** | a `chart.js.plugin` node (config in `properties.Javascript`) — `$$()` data binding to query columns; **plus, always: query params + a `global.replacement` filter bar + ≥1 click-to-cross-filter chart + a palette read off the axis's meaning** | 9 ([22](22-charts-params-and-filters.md) "### 4.6 Designing the filter SET for a dashboard", §6.1) |
@@ -235,8 +241,8 @@ that something else started — they are gateway conditions and service tasks (P
 a sentence about the BEGINNING of the work belongs in this inventory.
 
 Carry the result into the process inventory as one column — **"what starts it"**, exactly one of
-`START ACTION` / `DOCUMENT ACTION` / `SCHEDULER` / `CRUD METHOD` / `SERVICE TASK` — which Phase 11 turns into a
-start shape.
+`START ACTION` / `DOCUMENT ACTION` / `SCHEDULER` / `CRUD METHOD` / `SERVICE TASK`, with `+ API CALL` after a
+`START ACTION` or a `DOCUMENT ACTION` that another system presses — which Phase 11 turns into a start shape.
 
 ⛔ **A blank row does not fall back to anything. It ships a process that CANNOT BE STARTED** — the BPMN
 deploys, the worklist renders, the task buttons work, and the case list is empty forever. Nothing builds a
@@ -247,6 +253,7 @@ which is this column, mechanised.
 |---|---|---|
 | `START ACTION` | **a person opens the case itself** — the case IS the unit of work, there is no document before it | one entry in `userStartProcessActions` on the worklist's `process.table` (Phase 9), `direct:"off"` + a `formGroupIdentifier` for its start form, and a PREDICATE saying who may press it. ⛔ A `direct:"on"` start action starts the case with **no context data at all** |
 | `DOCUMENT ACTION` | **a person acts on a business DOCUMENT and the case tracks it** — "the employee submits the request". The commonest case in a document-driven PRD, and the one most often left off this list because it feels like an ordinary CRUD action | the lifecycle EXECUTION rule behind that row action (Phase 5) calls `service.workflow.start` after it writes the status — plus the claim column that stops a second case (Phase 2) |
+| `API CALL` | **another SYSTEM presses the button** through the project's public API — "the partner's system submits the application", "the mobile app files the request". ⛔ **Never written alone:** it names a CALLER, not a starter, so it follows the button it presses — `START ACTION + API CALL` or `DOCUMENT ACTION + API CALL` — whether people press that button too or only the other system does. One button is one starter, however many callers | everything the row of that button needs, in full — for a start action that means `direct:"off"` and a start form, because a direct start takes no data. Then author it API-friendly (a predicate that admits the API identity, field keys that are bindings) and put the endpoint in the handover — the endpoint itself is configured live after import, never in the `.mrjun` ([32](32-public-api.md) §1, §3, §8) |
 | `SCHEDULER` | a clock | Phase 12's schedule + the §5 idempotency plumbing, which is **mandatory** here |
 | `CRUD METHOD` | a row was written | a GROOVY method on that CRUD (Phase 3) |
 | `SERVICE TASK` | another process reached a step | `flowable:rule` on the task (Phase 11) |
@@ -317,6 +324,98 @@ may produce it (Phase 1a);
 extra chart candidates are listed** ([22](22-charts-params-and-filters.md) §2A).
 Nothing in the PRD is unmapped; nothing is invented that the PRD did not ask for — **charts are the one
 exception, and only as a PROPOSAL: you may go beyond the list, you may not silently build past it.**
+
+---
+
+### Phase 1c — the WHEN of every derived column (one line per column; do it with 1b)
+
+Phase 1b decides WHAT a derived column means. This asks WHEN it is computed, and it is a separate
+pass because the two failures look nothing alike: a wrong formula is wrong everywhere and gets
+noticed, while a formula that runs *late* is right on every document a walkthrough opens and wrong
+on the one the user just saved.
+
+**The table.** One row per column that no human types — header totals, variances, flags, "expected"
+quantities, `*_snapshot` columns:
+
+| column | formula (from 1b) | the engine method that writes it | called from | is the register showing it? |
+|---|---|---|---|---|
+
+**The rule this table enforces:** a derived column that a REGISTER or a read-only form field shows
+must be recomputed **at save**, not only at submit/post. The register renders a row the moment it is
+saved; if the number is computed later, the row contradicts itself in the meantime and the person
+reading it cannot tell which of the two states they are looking at.
+
+So the `called from` cell must name the **persist rules** (`Action Create` / `Action Update`), not
+only a lifecycle action. Wire it as a tail after `service.create(...)` / `service.update(...)`:
+
+```groovy
+def created = context.<ctx>.<alias>.service.create(context.<ctx>.<alias>.data.get())
+context.<ctx>.<alias>.data.put(created)
+def _sid = ID(created)                  // ID() also copes with a JsonNode — see 08
+if (_sid != null) {
+    service.crud.<alias>.computeLineAmounts([id: _sid])
+    service.crud.<alias>.recomputeTotals([id: _sid])
+}
+```
+
+**Four constraints, each one paid for:**
+
+1. **Derive the list of calls from the engine's own method registry**, never from a hand-written
+   list in the rule generator. A typo in a method name compiles, ships, and fails at a user.
+2. **Only STATUS-NEUTRAL recomputes go in the tail.** Not `refreshSettlement` (it moves the document
+   to CLOSED), not `allocateLandedCost` (that is an approval step), nothing that writes stock
+   movements. Saving a draft may not change a status or a balance.
+3. **Do not swallow the exception.** If the engine failed, the row IS inconsistent; a silent `catch`
+   restores the exact defect the tail exists to close.
+4. **Idempotence is the precondition.** These calls now run on every save AND on submit AND on post.
+   If a method is not idempotent, fix the method — do not thin out the tail.
+
+**The mechanical check** (put it in the gate, not in a review checklist): for every crud that has a
+`recomputeTotals`/`computeLineAmounts`-shaped method, assert the string `<alias>.<method>(` appears
+in the body of BOTH persist rules. Prove the check is not vacuous by deleting one call from the
+export and watching it fail — a check nobody has ever seen fail is a comment.
+
+Run it over your own export before you call the build done — stdlib only, and it derives the
+requirement from `dynamic-cruds.json` rather than from a list you keep in your head:
+
+```python
+import json, re
+cruds = json.load(open("dynamic-cruds.json", encoding="utf-8"))["cruds"]
+rules = json.load(open("rep-objects.json", encoding="utf-8"))["rules"]
+
+SAFE = ("computeLineAmounts", "recomputeTotals")     # status-neutral only — see the constraints above
+SPECIAL = {}   # e.g. {"cutMarker": ("stampLines","stampConversion","computeMarker","recomputeSizes")}
+
+methods = {c["alias"]: {m["methodName"] for m in (c.get("methods") or [])} for c in cruds}
+persist = {}
+for r in rules:
+    m = re.search(r"persist \u00b7 (create|update) (\w+)", r.get("description") or "")
+    if m:
+        persist[(m.group(2), m.group(1))] = (r.get("rule") or {}).get("ruleScriptStr") or ""
+
+missing = []
+for alias, have in sorted(methods.items()):
+    needs = SPECIAL.get(alias) or tuple(n for n in SAFE if n in have)
+    if not needs:
+        continue
+    for kind in ("create", "update"):
+        body = persist.get((alias, kind))
+        if body is None:
+            missing.append((alias, kind, "NO PERSIST RULE"))
+            continue
+        for name in needs:
+            if "%s.%s(" % (alias, name) not in body:
+                missing.append((alias, kind, name))
+
+print("recompute missing from a persist rule:", missing)
+```
+
+The list must be empty. ⛔ If your persist rules are not described `persist · create <alias>`,
+match them however your generator names them — but match them by something the generator CONTROLS,
+never by the localized rule name: that name is business text and it will be edited.
+
+**Done when:** every derived column has a `called from` cell that names a rule which actually
+contains the call, and every column a register shows names the persist rules among them.
 
 ---
 
@@ -933,7 +1032,12 @@ rule/action; the PDF→mail rule uses the verified `service.report.pdf`/`service
 
   **How to choose — one question:** at the moment the case begins, is a human doing something? **If the PRD
   names no click, no submit, no screen and no actor at that instant — a clock, a threshold, an arriving row,
-  another process — it is shape C**, and a start form is the wrong answer however natural it looks. A workflow
+  another process — it is shape C**, and a start form is the wrong answer however natural it looks.
+  ⛔ **`+ API CALL` is not "no human".** The API presses a person's button, as a signed-in person or a service
+  account, so the shape is that button's: `START ACTION + API CALL` is **A or B** (a start form, `direct:"off"`),
+  and `DOCUMENT ACTION + API CALL` is **C** whose trigger is that records action, exactly as without the API.
+  Never answer an API caller with a headless C — triggered by a scheduler, a CRUD method or a service task —
+  which leaves the API nothing to press ([32](32-public-api.md) §1). A workflow
   has exactly ONE starter: a start form *and* a rule that starts it is a contradiction, not belt-and-braces.
   Shape C is also the only shape whose case can be **invisible** (no group ⇒ excluded from every group-scoped
   worklist) and the only one that can open the **same case on every tick** — both are the author's job, and
@@ -953,6 +1057,15 @@ rule/action; the PDF→mail rule uses the verified `service.report.pdf`/`service
   with no worklist is a process the user can start and never see again: the instance runs, the task sits in the
   engine, and nothing on any screen says so. Recipe → [07](07-workflows-and-tasks.md) "### Step 5 — the worklist
   page (NOT optional)".
+- ⛔ **The access plan — who SEES the case at each step — decide it with the BPMN, not after.** A form-started
+  case is visible to its starter ALONE until a rule grants more, and a case only reaches the next team's queue
+  when a rule moves it there. Write a table per workflow: step → the role groups that must see the case → who
+  stops seeing it → the queue attribute the actions' predicates check. Then author it the only way it persists:
+  the first SERVICE task opens the case to its first groups; every user task's action records its decision and
+  its actor in the complete rule; a SERVICE task after it moves the access ([07](07-workflows-and-tasks.md)
+  "Stage-wise case access", [16](16-groovy-service-api.md) §2.7). An access change in an action's complete rule
+  returns `true` and is thrown away — and a PRD with hand-offs between teams that ships without this plan ships
+  queues that are empty for everyone but the person who started each case.
 - ⛔ **The binding contract — decide it BEFORE you author a single task.** Inside a running process nothing
   files a CRUD row, so anything that reaches its subject through `context.<ctx>.<alias>.data` reads empty
   there — or, when the starting document seeded that alias, reads the copy taken when the case OPENED and
@@ -1151,15 +1264,17 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
 > This is the WHOLE-PROJECT close-out. It does not replace per-module testing: you should have `validate`d each
 > unit as you built it ([26](26-orchestration-and-testing.md) §4) — this phase is the final offline gate **plus
 > the hand-over that lets someone else prove it works.** You do not drive the UI; the person who ran you does,
-> with the `test-scenarios.md` this phase produces.
+> with the `test-scenarios.md` this phase produces — and the suite in `test/` this phase writes runs it by
+> command.
 > **Import is the one part that now has two branches** (`system_prompt.txt` step 6 / 6b): with no MCP token it
 > is theirs, exactly as before and as the rest of this phase assumes. With a token it becomes yours — and as of
 > CONTRACT-VERSION 2 the tools for it do not exist on any platform yet, so in practice it is still theirs and
 > the AI says so. Nothing else in this phase changes either way, and step 7b's handoff files are written in
 > both. See [28](28-support-mode-over-mcp.md) for the connected channel and its honest limits, and
-> [30](30-live-test-bugfix-and-autotest.md) for the order of work once it IS live: import at
-> `/settings`, re-deploy the workflows, drive every scenario in the browser, keep a BUGLIST, fix and
-> re-drive — then, only when it is green, offer to build the Playwright autotest project.
+> [30](30-live-test-bugfix-and-autotest.md) for the order of work once the user asks to test and fix: the
+> suite already exists (step 5a below writes it now, from the scenarios); then — with the user's yes to the
+> import — import at `/settings`, re-deploy the workflows, run the suite and drive what it cannot see,
+> triage every red, keep a BUGLIST, fix over MCP and in the export, re-run.
 
 1. `mrjun.py validate --project <dir>` → **0 errors** (warnings about pre-existing platform orphans are ok). It
    also runs the schema-aware dynamic-CRUD checks (CHECK-literal coverage, field-expression coverage incl. list
@@ -1198,6 +1313,12 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    container ([26](26-orchestration-and-testing.md) §3a).
 3. Eyeball the [13 §5](13-master-playbook-empty-to-dynamic-project.md) checklist (localization coverage, model
    vs settings, explicit `return`, `id=null`, typos, settings mirror).
+3b. **A build with an inbound public API** ([32](32-public-api.md)) — the endpoints are configured live, so what
+   you deliver for them is paper, and it is easy to forget because no gate asks for it: the **endpoint table and
+   the handover note** beside the export ([32 §8](32-public-api.md)), and **one call per operation plus the
+   refusals** in `test-scenarios.md` ([32 §9](32-public-api.md); runnable only after the recipient has bound a
+   key). `validate` (step 1) already refuses a `rep-objects.apiExposures` key a base exported from a live project
+   brought along — remove it with `mrjun.py api-exposures drop`, never with `--keep-api-exposures` on a build.
 4. `mrjun.py pack <dir> <out.mrjun>`.
 5. ⚠️ **WRITE `test-scenarios.md` BESIDE THE EXPORT — the second deliverable, and the only acceptance that
    exists.** You cannot drive the UI, so the file has to make someone else's first pass exhaustive rather than a
@@ -1222,8 +1343,20 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    data-shaped import-aborts). What you CAN do offline for that last class is make it impossible to ship: `validate`
    ERRORs on a blank mandatory field and on a rep-object field serialized as a string, which is where those aborts
    come from.
+5a. ⚠️ **WRITE `test/` — THE AUTOMATED SUITE OF EVERY SCENARIO, the third deliverable, without asking**
+   (`system_prompt.txt` step 7a, [30](30-live-test-bugfix-and-autotest.md) §6–§7). Before you write the
+   scenarios, check they cover every family of the contract's step 7 — every register; every form field by field;
+   every rule in action, each predicate both ways; every PATH through every BPMN diagram, walked as the role that
+   owns each task; every calculation with exact numbers and every dependency forward and backward; every custom
+   HTML Studio component; access; prohibitions; locales; reports; printouts — with the inventories and the
+   traceability table in chapter 0, and every plan row cited as `plan:<id>` on the Covers line of the scenario
+   that proves it (the gate reads the Covers lines, not the table). Then:
+   `mrjun.py autotest scaffold --project ./work`, one test file per chapter written from the scenarios' EXPECTED
+   values (never from a screen — you have none), and `mrjun.py autotest check --project ./work` green. You do not
+   run it: there is no project during a build.
 5b. ⚠️ **`mrjun.py livediff --db "<platform conninfo>" --tenant <alias>` is for the person who imported it, not
-   for you** — put it in `test-scenarios.md` as the FIRST thing to run after the import, before any clicking. It
+   for you** — put it in chapter 1 of `test-scenarios.md` as a `{manual: run by whoever imported — it needs the
+   platform's database}` scenario, to run right after the import, before any clicking. It
    diffs what the platform actually stored against what was packed, and catches two classes that emit **no log
    line** anywhere: a symbolic layout anchor regenerated on a cloned page (the platform builds a fresh EMPTY node
    under that name, renders it, and the real subtree becomes an unrendered orphan → a BLANK page), and a
@@ -1232,18 +1365,22 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    `initAllObjects` order for the second — it cannot read live rep-objects, so those counts have to be compared
    against the platform by hand; its exit code covers the content-tree checks only. Run first, it turns "the page
    is empty" from an hours-long hunt into a one-liner.
-6. Tell the user what changed, which docs/commands you used, the result of EACH of the four offline gates, and
-   — in one plain sentence — **that the export has not been imported or run anywhere**, pointing at
-   `test-scenarios.md` for what to click first.
+6. Tell the user what changed, which docs/commands you used, the result of EACH of the four offline gates and of
+   `autotest check`, and — in one plain sentence — **that the export has not been imported or run anywhere and
+   the suite has not been run**, pointing at `test-scenarios.md` for what to click first and at `test/start.sh`
+   (or "test and fix") for the automated run.
 
 **Done when:** `validate` = 0 errors; **`mrjun.py coverage --plan build-plan/plan.json` PASSES** (every PRD item
 built and marked done — the anti-skip gate, [26](26-orchestration-and-testing.md) §6a); `crud verify --db` all green; **every per-locale map (`localizedNames`/`localizedButtonNames`/`localizedStringValue`/nav
 `localizedMap`/enum `displayName`/validation-message maps) and every entity `localize` jsonb covers all
 `tenant.json.locales` with DISTINCT per-locale values** (no auto-translate on import; single-language ⇒ none of
 these exist — [20](20-localization.md)); **every automatic start carries its idempotency guard in the rule body
-and has a run-twice scenario written for the tester** ([27](27-event-driven-process-start.md) §8.3);
-`test-scenarios.md` written beside the export; the independent acceptance re-derivation found nothing missing;
-packed — and the hand-over says plainly that nothing has been imported or run.
+and has a run-twice scenario written for the tester** ([27](27-event-driven-process-start.md) §8.3); **an inbound
+public API has its endpoint table, handover note and API calls in the delivery, and `validate` passed without
+`--keep-api-exposures`** ([32](32-public-api.md) §6, §8, §9, §12);
+`test-scenarios.md` written beside the export, covering every family of the contract's step 7; **`test/` written
+and `mrjun.py autotest check` PASSES**; the independent acceptance re-derivation found nothing missing; packed —
+and the hand-over says plainly that nothing has been imported or run.
 
 ---
 

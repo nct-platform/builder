@@ -12,16 +12,18 @@ Groovy rules, workflows, mail and PDF templates — **directly as a `.mrjun` exp
 You then import that file into a running Dokie/NCT project and get a working system.
 
 ```
-PRD  →  Claude Code + this library  →  project.mrjun + test-scenarios.md   ← the AI stops here
-                                    →  YOU import  →  drive it  →  fix  →  re-import
+PRD  →  Claude Code + this library  →  project.mrjun + test-scenarios.md + test/   ← the AI stops here
+                                    →  YOU import  →  fill test/.env  →  run test/start.sh
+                                    →  or ask the AI to "test and fix"  →  it runs the suite, fixes over MCP
 
-              with an MCP token:    →  the AI imports too  →  YOU still drive it
+              with an MCP token:    →  the AI imports too  →  the suite still runs only when you say so
 ```
 
-**By default the AI hands you two files and stops.** It has no access to your platform, does not ask for one, and
-never imports anything — so what you get is an export whose FILES are gated four ways, plus a `test-scenarios.md`
-telling you what to click. Importing and driving it is your half, and it is where most of the remaining
-quality lives — see §7.
+**By default the AI hands you three deliverables and stops.** It has no access to your platform, does not ask for
+one, and never imports anything — so what you get is an export whose FILES are gated four ways, a
+`test-scenarios.md` telling you what to click, and `test/`, an automated suite of every one of those scenarios that
+it wrote without being asked and checked offline but has NOT run. Importing and running it is your half, and it is
+where most of the remaining quality lives — see §7.
 
 **Optionally, you can let it do the import.** Paste an **MCP token** for the target project on the `MCP:` line of
 `prmpt.txt` (§1, §4) and the AI imports the finished export itself — snapshot first, push, all three import flags
@@ -68,7 +70,8 @@ myproject/
 ├── work-case/          ← case notes (the AI creates it)
 ├── build-plan/         ← plan.json, the coverage ledger (the AI creates it)
 ├── project.mrjun       ← THE OUTPUT
-└── test-scenarios.md   ← ships with it: what to click and what should happen (§7)
+├── test-scenarios.md   ← ships with it: what to click and what should happen (§7)
+└── test/               ← ships with it: the automated suite of every scenario (§7) — you fill test/.env
 ```
 
 If `myproject/` is inside a git repo, add `/builder/` to that repo's `.gitignore`. Re-run the same `curl` command any time to refresh the library — it downloads to a file first, so a
@@ -182,7 +185,7 @@ python3 ./builder/tools/mrjun.py crud verify --db "host=… dbname=… user=… 
 
 ### What the build leaves in the folder
 
-Besides `project.mrjun` and `test-scenarios.md`, a finished build now writes three small things so that a NEW
+Besides `project.mrjun`, `test-scenarios.md` and `test/`, a finished build now writes three small things so that a NEW
 session opened in that folder knows where it is: `CLAUDE.md`, one skill under `.claude/skills/`, and
 `.dokie/project.json`. They are GENERATED — regenerate them any time with
 `python3 builder/tools/mrjun.py handoff emit --project ./work`, and never edit them by hand, because the next
@@ -229,13 +232,40 @@ open **Contexts** in the UI and just re-save the context — the export is corre
 
 ---
 
-## 7. Drive it — this is the finish line, not the gates
+## 7. Test it — this is the finish line, not the gates
 
 The AI writes a **`test-scenarios.md`** next to `project.mrjun`: numbered scenarios with role, precondition,
-steps and expected result, covering every role, every branch of every process, the prohibitions, the empty
-states, the notifications and the dashboard numbers — and a separate section listing what it could **not**
-verify itself. Test from that file; the order below is the sweep to do first, because these items are
-load-bearing and fail in ways no offline gate can see:
+steps, expected result and what else must have changed, covering every register, every form field by field,
+every rule in action, every path through every process diagram, every calculation and dependency with exact
+numbers, every custom HTML Studio component, every role and its prohibitions, the empty states, the
+notifications and the dashboard numbers — and a separate section listing what it could **not** verify itself.
+
+Beside it, **`test/`** automates every one of those scenarios (Python + Playwright + pytest). It was written from
+the scenarios' expected values before the project ran anywhere, so where the build is wrong it is red — that is
+its job. To run it:
+
+```bash
+cd test
+# fill BASE_URL (<root>/<realm>/<client>), AUTH_USER and AUTH_PASSWORD (an Author) in .env — in the file
+python3 ../builder/tools/mrjun.py autotest env --project ../work   # which keys are set — it never shows a value
+./start.sh            # everything that does not write; ./start.sh all includes the writing scenarios
+```
+
+`test/.env` and the folder's `.mcp.json` hold credentials: both are git-ignored and mode 600 — never commit, mail
+or paste them. The run ends with the coverage map and the number of SKIPPED tests: a skipped scenario was not
+verified (a persona or `PGDSN` missing from `.env`, or the project drifted from its seed data — `./start.sh reset`).
+
+Or ask the AI to **"test and fix"**: it runs the suite against the project, sorts every red test into a defect of
+the product, of the test or of the scenario, fixes the project and re-runs. To fix a LIVE project it needs the
+project's MCP connection: Settings → Developer → MCP tokens → create a token and copy its block, then in the
+project folder run `! pbpaste | python3 ./builder/tools/mrjun.py handoff mcp --project ./work` inside Claude Code
+(or paste the block to the AI), and restart Claude Code once. Without it the AI fixes the export and the project is
+re-imported. ⚠️ An import — by you, by `./start.sh reset`, or by the AI — REPLACES the project's data with the
+archive's; the AI drives one only after you said yes to it.
+
+What the suite cannot see — a page that lost its menu, a skin that hides text, the look of a printout — still needs
+eyes; the scenario file marks those `{manual}`. The order below is the sweep to do first by eye, because these items
+are load-bearing and fail in ways no offline gate can see:
 
 1. **Home** renders real content, **charts visible**
 2. **Every nav link** resolves, in the **currently selected language** — then switch locale and check again
@@ -249,8 +279,8 @@ load-bearing and fail in ways no offline gate can see:
    invisible on dark
 8. **The project log** — look for `MismatchedInputException` / `InvalidFormatException`
 
-Fix in `./work` → `validate` → re-pack → re-import (**Rebuild**) → re-drive the fixed screens **and their
-neighbours**. Repeat until clean.
+Fix in `./work` → `validate` → re-pack → re-import (**Rebuild**) → re-run the suite and re-drive the fixed
+screens **and their neighbours**. Repeat until clean.
 
 This loop is yours, and the AI knows it: `test-scenarios.md` opens by saying that none of its scenarios has
 been executed — and with a token it says exactly what the import did instead, which is still not a run. Hand it back the specific failures (screen, what you pressed, what you saw, and the
