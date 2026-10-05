@@ -138,6 +138,14 @@ That matters to you when a rule sends: **a send is queued, not performed.** The 
 message leaves, so a rule cannot branch on whether delivery worked, and should not try. If a project needs
 to know, the answer is the Outbox, not a return value.
 
+⛔ **Addresses on reserved names are never mailed.** An address under a name RFC 2606 / 6761 reserves —
+`*.invalid`, `*.test`, `*.example`, `*.localhost`, `example.com` / `.net` / `.org` — can never receive mail,
+so the outbox drops it before any provider is asked: not a failure, not an attempt, no Outbox row; the
+message's other recipients still get it. These are the addresses TEST ACCOUNTS live on (the automated suite
+creates its users on `@autotest.invalid`, 30 §2.4), which is why a notification rule firing for a test user
+costs no bounce and no sender reputation. The integration's "send a test message" refuses such an address —
+proving delivery needs a real inbox.
+
 ### 3.3a The master switch is a CHOICE OF SENDER, not an on/off for mail
 
 Worth saying plainly because the screen used to say it badly: switching the integration off does not switch

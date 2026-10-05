@@ -1481,7 +1481,7 @@ says the screen does — and a red one is fixed like any other defect (30 §5):
 | a control does <action> | the action's effect — the record written, the number moved — read back after re-opening, and ONE click = ONE effect, also after an ajax re-render re-mounted the component (§6.2) | `click(...)` is a real click, never a synthetic event; `count_effect(...) == 1` |
 | it pages, sorts, filters | across the server's pages, not within the first one ([24c](24c-html-data-tables-and-paging.md)) | read page 2 after paging; a filter value that matches nothing shows zero rows |
 | empty, loading, error | each state drawn — the bridge REJECTS on a broken rule (§4.4), and the component must show that | provoke each (a filter that matches nothing, a role with no data) and `wait_text(...)` the state |
-| role X sees / may do Y (§9a) | the flags come from the rule; a role without the right sees no control AND is refused by the rule if it calls anyway | as the author holding the role, and as a `persona(...)` without it |
+| role X sees / may do Y (§9a) | the flags come from the rule; a role without the right sees no control AND is refused by the rule if it calls anyway | as a test user holding the role (`as_user(...)`), and as one without it |
 | it is localized (§9) | each locale's labels; no text of one language in another | the test file's `LOCALE` and the captions in `helpers/locales.py` |
 | it works on a dark skin ([24a](24a-theming-and-dark-mode.md)) | readable on `Standard` and on a dark skin | `{manual}` — a person looks; the suite cannot judge contrast |
 | always | no page error, no console error, no failed request while it works | `problems()` is empty at the end of each test |

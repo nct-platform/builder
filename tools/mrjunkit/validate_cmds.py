@@ -347,6 +347,8 @@ def cmd_validate(args):
     _check_persist_rule_role_guard(p, r)
     # -- a write action with no predicate -> the button shows for every role and fails only on Save --
     _check_write_action_predicate(p, r)
+    # -- ANY action whose own rule refuses by role group, with no predicate -> offered to roles it refuses --
+    _check_action_refused_by_role(p, r)
     # -- a grid column over a raw enum whose translated *Label twin already exists in localize --
     _check_enum_column_shows_code(p, cruds, r)
     # -- a rule showing the user a message in ONE language while the project is multilingual --
@@ -8299,6 +8301,82 @@ def _check_write_action_predicate(p, r):
                       "(04-crud-table-plugin.md)"
                       % (alias, label, alias, "+".join(sorted(roles)),
                          ", ".join('"%s"' % x for x in sorted(roles))))
+
+
+_ACTION_GROUPS = ("createActions", "editActions", "deleteActions", "createNewActions", "globalActions",
+                  "userStartProcessActions")
+_ACTION_RULE_KEYS = ("onBeforeStartRuleIdentifier", "onBeforeCompleteRuleIdentifier",
+                     "onBeforeUserTaskStartRuleIdentifier", "onBeforeUserTaskCompleteRuleIdentifier")
+_ROLE_CHECK_RE = re.compile(r"has(?:Any)?RoleGroups?\s*\(([^)]*)\)")
+_REFUSAL_RE = re.compile(r"\bthrow\b|\badd(?:Field)?Error\s*\(")
+
+
+def _iter_all_actions(p):
+    """yield (where, group, crud_alias, action) for every action a user can press: crud table / tree / process
+    table action groups and every BPMN user task's actions (group "userActions", no crud alias)."""
+    for n, pn, md in _iter_table_models(p):
+        for grp, a in _actions(md, *_ACTION_GROUPS):
+            yield "%s %r" % (pn, n.get("name")), grp, md.get("crudAlias"), a
+    for wf in (p.rep.get("workflows") or []):
+        for el in (wf.get("elements") or []):
+            settings = el.get("settings") or {}
+            if settings.get("type") != "bpmn:UserTask":
+                continue
+            props = {x.get("name"): x.get("value") for x in (settings.get("properties") or [])}
+            try:
+                payload = json.loads(props.get("userActions") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for a in (payload.get("actions") or []) if isinstance(payload, dict) else []:
+                if isinstance(a, dict):
+                    yield "workflow %r task %r" % (wf.get("name"), props.get("id")), "userActions", None, a
+
+
+def _check_action_refused_by_role(p, r):
+    """UX (WARN). An action whose own rule refuses by ROLE GROUP, while the action has no predicate, is offered to
+    every role the rule then turns away: the user presses it — or fills its whole form — and only then learns it was
+    never theirs. WHO may do something is known before the click, so it belongs in the action's PREDICATE, which
+    hides it from everyone else; the rule keeps its check as the server-side guard (a hidden button is a courtesy,
+    the rule is the authorisation). Covers every action a user can press: crud table and tree actions, process
+    table start and global actions, BPMN user-task actions. A refusal that depends on the DATA rather than on the
+    role is not this check's business — that one is a design decision per action (system_prompt OP 5e: hide,
+    explain in the form, or refuse a direct action in the business's words). (25 "An action that cannot run")"""
+    rules_by_id = {x.get("identifier"): x for x in (p.rep.get("rules") or []) if isinstance(x, dict)}
+    # crud tables' create/edit actions over a role-guarded entity are already an ERROR (_check_write_action_predicate)
+    guarded = _persist_role_guards(p.rep)
+
+    def role_refusal(rule_id):
+        """None when the rule does not refuse by role; else the role groups it names (maybe none, if computed)."""
+        body = _strip_groovy_comments(_rule_script(rules_by_id.get((rule_id or "").strip()) or {}))
+        if not (_REFUSAL_RE.search(body) and _ROLE_CHECK_RE.search(body)):
+            return None
+        roles = set()
+        for g in _ROLE_CHECK_RE.findall(body):
+            roles.update(re.findall(r"[\"']([^\"']+)[\"']", g))
+        return roles
+
+    seen = set()
+    for where, grp, alias, a in _iter_all_actions(p):
+        if a.get("predicateIdentifier"):
+            continue
+        if grp in ("createActions", "editActions") and where.startswith("crud.table.plugin") and alias in guarded:
+            continue
+        rule_ids = [a.get(k) for k in _ACTION_RULE_KEYS if a.get(k)]
+        rule_ids += [x.strip() for x in str(a.get("validationRuleIdentifiers") or "").split(",") if x.strip()]
+        found = [x for x in (role_refusal(rid) for rid in rule_ids) if x is not None]
+        if not found:
+            continue
+        roles = sorted(set().union(*found))
+        label = str((a.get("localizedNames") or {}).get("en_US") or a.get("name") or a.get("id") or "?")
+        if (where, grp, label) in seen:
+            continue
+        seen.add((where, grp, label))
+        r.warn("%s %s action %r refuses by role group in its own rule (%s) but has NO predicate - every other role "
+               "is offered it and turned away only after pressing it. Give it a PREDICATE over the same role groups "
+               "(`service.security.hasAnyRoleGroup(%s)`); keep the rule's check as the server-side guard. "
+               "(25 \"An action that cannot run\")"
+               % (where, grp, label, ", ".join(roles) or "a computed role-group check",
+                  ", ".join('"%s"' % x for x in roles) or '"<Role>"'))
 
 
 def _check_enum_column_shows_code(p, cruds, r):

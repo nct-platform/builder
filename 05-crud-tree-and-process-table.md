@@ -931,6 +931,8 @@ submits — so the page works even before anyone touches the filter.
 
 ## Process actions: `UserTaskActionsDto.ActionDto` — DIFFERENT from a CRUD action
 
+> ⛔ **Decide, per action, what a user meets when it cannot run** — not offered (this predicate), explained before submit (a validation in its form), or refused in words (a direct action) — and never the rule's or the database's error underneath. The decision table and the order of questions: [25](25-form-settings-validation-and-events.md) "An action that cannot run".
+
 Backing: `UserTaskActionsDto.java`
 (nested `class ActionDto`). This is a **different** type than `CrudTableActionsDto.ActionDto`
 the key differences:

@@ -5,13 +5,15 @@ the nav group the baseline calls `Pages` (a project may rename that group), and
 they are only visible while the signed-in user has the Author role AND author mode is
 switched ON.
 
-Author mode is a toggle in the "Site" header menu («Сайт», «Կայք»).  Its label states
-the ACTION, not the current state:
-    "Я не являюсь автором." / "I am not an author"  -> author mode is currently ON
-    "Я автор" / "I'm author"                        -> author mode is currently OFF
+Author mode is a toggle in the "Site" header menu. Its caption states the ACTION, not the
+current state ("I am author" while it is off, "I am not author" while it is on), and it is
+written in the session's language — so this module reads neither caption. The menu is the
+header dropdown whose toggle carries the `pe-7s-tools` icon; the switch is its item with the
+`pe-7s-user` icon; and the STATE is judged by its effect: the inherited admin links are in the
+navigation exactly while author mode is on.
 
-The same menu holds "Редактировать сайт" / "Edit site" — the authoring page builder.
-That is author tooling, not an end-user scenario; the suite never drives it.
+The same menu holds "Edit site" — the authoring page builder. That is author tooling, not an
+end-user scenario; the suite never drives it.
 """
 from __future__ import annotations
 
@@ -39,13 +41,10 @@ ADMIN_QUICKLINKS = {
 }
 
 # Present for every signed-in user, author or not.
-COMMON_LINKS = {"profile": "My profile — also the locale switch"}
+COMMON_LINKS = {"profile": "My profile"}
 
-# The platform's own captions in each UI language (Russian, English, Armenian) — data,
-# not prose. Extend the tuples if a project runs the UI in another language.
-AUTHOR_MODE_ON_LABELS = ("Я не являюсь автором", "I am not an author", "Ես հեղինակ չեմ")
-AUTHOR_MODE_OFF_LABELS = ("Я автор", "I'm author", "I am author", "Ես հեղինակ եմ")
-EDIT_SITE_LABELS = ("Редактировать сайт", "Edit site", "Խմբագրել կայքը")
+# The header's "Site" menu, and the author-mode switch inside it — located by their icons, in every language.
+SITE_MENU_TOGGLE = "a.dropdown-toggle:has(i.pe-7s-tools), button.dropdown-toggle:has(i.pe-7s-tools)"
 
 
 class Nav(BasePage):
@@ -60,122 +59,87 @@ class Nav(BasePage):
         )
 
     def visible_admin_links(self) -> set[str]:
-        paths = set(self.link_paths())
+        """The inherited admin links the LEFT NAVIGATION shows — only there: a page's own breadcrumb or buttons may
+        link to /users or /settings whatever the mode is."""
+        rc = CONFIG.realm_client
+        paths = set(self.page.evaluate(
+            """(rc) => [...document.querySelectorAll('.vertical-nav-menu a[href]')]
+                 .map(a => a.getAttribute('href'))
+                 .filter(h => h && h.startsWith(rc))
+                 .map(h => h.slice(rc.length).replace(/^\\//, ''))""",
+            rc))
         return {p for p in ADMIN_QUICKLINKS if p in paths}
 
     # ---------- author mode ----------
-    # The "Site" header menu's caption in each UI language (the platform's own captions).
-    SITE_MENU_LABELS = ("Сайт", "Site", "Կայք")
-
     def _open_site_menu(self) -> bool:
-        """Open the "Site" menu in the header. Its caption depends on the locale, so all
-        three are tried.
+        """Open the "Site" menu in the header — the dropdown whose toggle carries the `pe-7s-tools` icon.
 
-        ⛔ A synthetic `element.click()` from JS does NOT open this menu: its handler
-        waits for real user input, not for a programmatically created event. Verified
-        on a live page: the element is found (`a.nav-link.dropdown-toggle`), the click
-        runs without an error, and the menu stays closed. So the click goes through a
-        Playwright locator — it sends input through the browser protocol.
+        ⛔ A synthetic `element.click()` from JS does NOT open this menu: its handler waits for real user input,
+        not for a programmatically created event. So the click goes through a Playwright locator — it sends input
+        through the browser protocol.
         """
-        def menu_open() -> bool:
-            return self.page.evaluate(
-                """() => [...document.querySelectorAll('.dropdown-menu')]
-                     .some(m => m.offsetParent !== null && m.innerText.trim().length > 0)"""
-            )
-
-        for cap in self.SITE_MENU_LABELS:
-            loc = self.page.locator("a.dropdown-toggle, button.dropdown-toggle").filter(
-                has_text=cap)
-            if not loc.count():
-                continue
+        toggle = self.page.locator(SITE_MENU_TOGGLE).first
+        if not toggle.count():
+            return False
+        # ⛔ Seen live: the first click after a page (re-)render sometimes leaves the menu closed, and a second one
+        # opens it. So click until its items are visible — never more than three times, and never on a menu that
+        # is already open (a click would close it).
+        for _ in range(3):
+            if self._site_menu_open():
+                return True
             try:
-                loc.first.click(timeout=5000)
+                toggle.click(timeout=5000)
             except Exception:
-                continue
+                return False
             self.page.wait_for_timeout(700)
-            if menu_open():
-                return True
-            # Fallback: some builds open the menu on mousedown rather than on click.
-            # Send the full pointer sequence, not a bare .click().
-            self.page.evaluate(
-                """(cap) => {
-                     const el=[...document.querySelectorAll('a.dropdown-toggle,button.dropdown-toggle')]
-                       .find(e=>e.offsetParent && e.innerText.trim().startsWith(cap));
-                     if(!el) return;
-                     for (const type of ['pointerdown','mousedown','pointerup','mouseup','click']) {
-                       el.dispatchEvent(new MouseEvent(type, {bubbles:true, cancelable:true, view:window}));
-                     }
-                   }""",
-                cap,
-            )
-            self.page.wait_for_timeout(700)
-            if menu_open():
-                return True
-        return False
+        return self._site_menu_open()
 
-    def _visible_menu_text(self) -> str:
-        """The text of the VISIBLE items of the open menu, and only of those.
-
-        ⛔ `body.inner_text()` is no use here: the menu items are in the DOM at all times,
-        so they cannot tell whether the menu is open — let alone which mode the site is in.
-        """
-        return self.page.evaluate(
-            """() => [...document.querySelectorAll('a,button,span')]
-                 .filter(e=>e.offsetParent)
-                 .map(e=>e.innerText.trim()).join(String.fromCharCode(10))"""
-        )
+    def _site_menu_open(self) -> bool:
+        return bool(self.page.evaluate(
+            """() => { const t = document.querySelector('.dropdown-toggle:has(i.pe-7s-tools)');
+                       const li = t && t.closest('li,.dropdown,.nav-item');
+                       return !!li && [...li.querySelectorAll('a')].some(a => a !== t && a.offsetParent !== null); }"""))
 
     def author_mode_is_on(self) -> bool:
-        """Whether author mode is on — judged by its OBSERVABLE EFFECT, not by a caption.
-
-        ⛔ Reading the state from the toggle's caption is doubly unreliable: the menu has
-        to be opened (and not every event opens it), and the caption states the ACTION,
-        not the state. But author mode shows itself precisely by the inherited admin
-        links appearing in the navigation — so judge by those. That is also exactly
-        what the mode is switched on for.
-        """
-        if self.visible_admin_links():
-            return True
-        # No links — but this may be a page on which the navigation is not rendered.
-        # Then check the menu, if it opens.
-        if not self._open_site_menu():
-            return False
-        txt = self._visible_menu_text()
-        self.page.keyboard.press("Escape")
-        self.page.wait_for_timeout(300)
-        return any(lbl in txt for lbl in AUTHOR_MODE_ON_LABELS)
+        """Whether author mode is on — judged by its OBSERVABLE EFFECT: the inherited admin links are in the
+        navigation exactly while it is on. A page without the navigation is judged on the front door."""
+        for attempt in (1, 2):
+            try:
+                if self.page.locator(".vertical-nav-menu a").count() == 0:
+                    self.goto("")
+                return bool(self.visible_admin_links())
+            except Exception:
+                if attempt == 2:
+                    raise
+                self.page.wait_for_timeout(1500)     # the page was re-rendering under the question
+        return False
 
     def set_author_mode(self, on: bool) -> "Nav":
-        """Author mode is sticky and lives IN THE SESSION — set it explicitly before any
-        check of what a role can see, or the previous test leaks into the current one.
-
-        ⛔ Do not take the item as `get_by_text(...).first`: the same text sits hidden in
-        the DOM, Playwright waits 30 seconds for it to become visible and fails on the
-        timeout — and that looks like "toggle not found". Take the first VISIBLE one.
-        """
+        """Author mode is sticky and lives with the user on the server — set it explicitly before any check of what
+        a role can see, or the previous test leaks into the current one."""
         if self.author_mode_is_on() == on:
             return self
         if not self._open_site_menu():
-            raise AssertionError("the header has no 'Site' menu — author mode cannot be switched")
-        self.page.wait_for_timeout(700)
-        wanted = AUTHOR_MODE_OFF_LABELS if on else AUTHOR_MODE_ON_LABELS
-        clicked = self.page.evaluate(
-            """(labels) => {
-                 const el=[...document.querySelectorAll('a,button,span')]
-                   .filter(e=>e.offsetParent)
-                   .find(e=>labels.some(l=>e.innerText.trim().startsWith(l)));
-                 if(!el) return false;
-                 el.click(); return true;
-               }""",
-            list(wanted),
-        )
-        if not clicked:
-            seen = [x for x in self._visible_menu_text().splitlines() if x.strip()][:14]
-            raise AssertionError(
-                f"the open 'Site' menu has no visible item {wanted}. "
-                f"Visible: {seen}. If the user does have the Author role, the toggle's "
-                "caption has changed — update AUTHOR_MODE_*_LABELS"
-            )
-        self.page.wait_for_timeout(3000)
-        self.settle()
-        return self
+            raise AssertionError("the header has no 'Site' menu (the dropdown with the pe-7s-tools icon) — the "
+                                 "signed-in account is not an author of this project")
+        # ⛔ A REAL click (Playwright input), not element.click() from JS: seen live, the switch ignores a synthetic
+        # click — nothing happens and nothing says so.
+        item = self.page.locator("li:has(.dropdown-toggle i.pe-7s-tools) a:has(i.pe-7s-user)").first
+        if not item.count() or not item.is_visible():
+            raise AssertionError("the 'Site' menu has no author-mode switch (the item with the pe-7s-user icon) — "
+                                 "the switch is offered only to a real author of a REPORT project")
+        item.click()
+        # The switch re-renders the page; the admin links arrive with it — wait for the state, not for a clock.
+        deadline = CONFIG.grid_timeout_ms
+        waited = 0
+        while waited < deadline:
+            self.page.wait_for_timeout(1000)
+            waited += 1000
+            try:
+                if self.page.locator(".vertical-nav-menu a").count() and bool(self.visible_admin_links()) == on:
+                    self.settle()
+                    return self
+            except Exception:
+                continue                             # the re-render is still under way
+        raise AssertionError(f"pressed the author-mode switch, but author mode is still "
+                             f"{'off' if on else 'on'} (judged by the inherited admin links in the navigation)")

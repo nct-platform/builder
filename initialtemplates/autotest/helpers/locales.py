@@ -14,12 +14,11 @@ project, so they are known before the project ever runs.
 LOCALES = ("en_US",)
 DEFAULT_LOCALE = "en_US"
 
-# The language picker in the header shows each language by its own name. These are the platform's labels for its
-# three UI languages; add the label of any other language the project declares exactly as the picker renders it.
-LOCALE_MENU_LABEL = {
-    "hy_AM": "հայերեն",
-    "ru_RU": "русский",
-    "en_US": "English",
+# The language picker is driven by each item's FLAG (the locale's country), so no caption is needed for any
+# language. Only when two of the project's locales share a country (say en_US and es_US) does the picker need the
+# item's caption — the language's own name, as the picker renders it — to tell them apart:
+LOCALE_MENU_LABEL: dict = {
+    # "es_US": "español",
 }
 
 # Left-nav section headings per locale, in nav order — the navigation and i18n tests assert them.

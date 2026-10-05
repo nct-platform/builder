@@ -11,10 +11,17 @@ Design notes that matter:
 * Scenarios that SEND something out of the tenant — a mail to a real inbox, a message,
   a call to another system — are marked `sends` and gated behind `--run-sends`, which
   `./start.sh all` does not imply: a write can be cleaned up, a sent mail cannot.
-* A scenario that needs a DIFFERENT person — an approver who may not be the
-  initiator, a role that must NOT see a page or a case — signs in as a persona from
-  .env in its own browser context (`persona`), so nothing of its session leaks into
-  the author's. The author account itself never loses the Author group.
+* People are made, not configured. Every step a person performs in the PRD is
+  performed by a TEST USER the suite creates for it, through the application, as the
+  author account — holding exactly the role groups the scenario names, as many people
+  as the scenario has (`as_user("Clerk")`, `accounts.user("Approver", label="second")`).
+  Each signs in in a browser context of its own; all are removed when the session ends.
+  The author account itself performs only what the PRD gives an administrator: it holds
+  Author, and Author sees what no ordinary role sees.
+* No user is ever shown a TECHNICAL error. Every message the platform shows, in every
+  context, is recorded as it appears (`pages/feedback_watch.py`); a test during which a
+  user saw an exception, a database constraint, a stack trace or a 500 fails — an action
+  was offered, or a form accepted, where it should have been hidden or explained.
 * Nothing opens a browser before .env can point the suite at a project
   (`CONFIG.require()`), so `pytest --collect-only` works without any .env at all —
   wherever pytest and Playwright are installed, that is the quickest proof that every
@@ -23,10 +30,14 @@ Design notes that matter:
 from __future__ import annotations
 
 import os
+import warnings
+
 import pytest
 from playwright.sync_api import sync_playwright
 
+from helpers.accounts import TestAccounts
 from helpers.env import CONFIG
+from pages.feedback_watch import FeedbackWatch
 from pages.login_page import LoginPage
 from pages.nav import Nav
 
@@ -71,7 +82,13 @@ def browser(playwright_instance):
 
 
 @pytest.fixture(scope="session")
-def context(browser):
+def feedback() -> FeedbackWatch:
+    """Every message the platform showed, in every browser context of the session."""
+    return FeedbackWatch()
+
+
+@pytest.fixture(scope="session")
+def context(browser, feedback):
     ctx = browser.new_context(
         viewport={"width": 1600, "height": 1000},
         # Follows the configuration (DEFAULT_LOCALE in .env) instead of a hard-coded
@@ -81,6 +98,7 @@ def context(browser):
         ignore_https_errors=True,
     )
     ctx.set_default_timeout(CONFIG.timeout_ms)
+    feedback.install(ctx)
     yield ctx
     ctx.close()
 
@@ -146,55 +164,47 @@ def at_locale(request, page, logged_in):
         lp.switch_locale(CONFIG.default_locale)
 
 
+@pytest.fixture(scope="session")
+def accounts(browser, context, logged_in, feedback) -> TestAccounts:
+    """The session's test users — created through the application by the author account, on demand, and removed
+    from the project when the session ends. See helpers/accounts.py."""
+    factory = TestAccounts(browser, context, feedback)
+    yield factory
+    left = factory.close()
+    if left:
+        warnings.warn(f"test users could not be removed from the project — delete them in Users: {', '.join(left)}")
+
+
 @pytest.fixture
-def persona(request, browser):
-    """Sign in as a SECOND person, in a browser context of its own: `pg = persona("approver")`.
+def as_user(request, accounts):
+    """A page signed in as a test user holding exactly the given role groups, in the file's LOCALE:
 
-    For the scenarios a different person must perform — an approver who may not be the
-    initiator (four eyes), a role that must NOT see a page, a case or an action. The
-    account is the owner's PERSONA_<NAME>_USER / PERSONA_<NAME>_PASSWORD in .env (a
-    project user holding exactly the role groups the scenario names). When .env does not
-    provide it, the test SKIPS and names the persona it needs — a skip, never a pass.
+        clerk_page = as_user("Clerk")
+        approver_page = as_user("Approver", label="second")   # a DIFFERENT person in the same role
 
-    ⛔ Each persona gets its own context: its session, its locale and its author mode
-    live on the server per USER, so sharing the author's page would make each identity
-    inherit the other's state. For the same reason the persona's locale is SET after
-    signing in (the file's LOCALE, else DEFAULT_LOCALE) — a persona keeps whatever
-    language it last chose, and captions are part of what the scenarios check.
+    The same role groups and label give the same user for the whole session — one sign-in, not one per test.
     """
-    opened = []
+    def _as(*role_groups: str, label: str | None = None):
+        account = accounts.user(*role_groups, label=label)
+        return accounts.page(account, locale=getattr(request.module, "LOCALE", CONFIG.default_locale))
+    return _as
 
-    def _open(name: str):
-        account = CONFIG.persona(name)
-        if account is None:
-            key = name.strip().upper()
-            pytest.skip(f"needs the persona {name!r}: set PERSONA_{key}_USER and PERSONA_{key}_PASSWORD "
-                        "in test/.env — a project user holding the role groups this scenario names")
-        ctx = browser.new_context(
-            viewport={"width": 1600, "height": 1000},
-            locale=CONFIG.default_locale.replace("_", "-"),
-            ignore_https_errors=True,
-        )
-        ctx.set_default_timeout(CONFIG.timeout_ms)
-        opened.append(ctx)
-        pg = ctx.new_page()
-        key = name.strip().upper()
-        lp = LoginPage(pg).login(account.user, account.password,
-                                 who=f"the persona {name!r} (PERSONA_{key}_USER / PERSONA_{key}_PASSWORD)")
-        want = getattr(request.module, "LOCALE", CONFIG.default_locale)
-        try:
-            lp.switch_locale(want)
-        except Exception as exc:
-            raise AssertionError(f"the persona {name!r} signed in, but its language could not be set to "
-                                 f"{want}: {exc}") from exc
-        return pg
 
-    yield _open
-    for ctx in opened:
-        try:
-            ctx.close()
-        except Exception:
-            pass
+@pytest.fixture(autouse=True)
+def _no_technical_error(request, feedback):
+    """Fail the test during which any user was shown a technical error (see pages/feedback_watch.py)."""
+    mark = feedback.mark()
+    yield
+    if request.node.get_closest_marker("technical_error_expected"):
+        return
+    shown = feedback.technical_since(mark)
+    if shown:
+        pytest.fail(
+            "a user was shown a TECHNICAL error — an action was offered, or a form accepted, that should have been "
+            "hidden (a predicate) or explained before it was submitted (a validation in its form), or a direct "
+            "action's refusal is not in the business's own words:\n  "
+            + "\n  ".join(m.replace("\n", " ")[:400] for m in shown),
+            pytrace=False)
 
 
 @pytest.fixture(autouse=True)

@@ -238,6 +238,26 @@ a red flag, not an achievement.
       one (doc 02, the event-mapping prefill recipe).
    h. IF IT RENDERS, IT MUST WORK. Any control, action or setting visible in the UI must have a runtime
       consequence. Ship nothing whose only behaviour is being drawn.
+   i. EVERY ACTION KNOWS WHEN IT CANNOT RUN — AND THE USER LEARNS IT BEFORE THE BUSINESS LOGIC SAYS SO. Every
+      action a user can press — a CRUD table or tree action, a process table's start or global action, a user
+      task's action in a BPMN diagram, a form button — has situations in which it cannot succeed: the wrong role,
+      the wrong state, data that does not allow it (not enough in stock, a closed period, a missing prerequisite —
+      examples, never a list to stop at). The business logic refusing it (a rule's `throw`, a database constraint)
+      is the LAST line of defence and stays; it must never be how the user FINDS OUT. Decide per action, from the
+      PRD, the role model and the UX — not by habit — what the user meets instead:
+      • NOT OFFERED — a visibility PREDICATE: when the action is not this user's business at all (they hold no
+        role group for it — the usual case) or the state makes it meaningless (Approve on what is approved).
+      • EXPLAINED BEFORE SUBMIT — a VALIDATION rule on its form, on the field that causes it where there is one:
+        when the user should see the action and can fix the cause, or must learn what blocks it (doc 25
+        "Business preconditions belong in a VALIDATION rule").
+      • REFUSED WITH A REASON — a DIRECT action (no form) may stay visible and refuse in the business's own words,
+        when knowing that it exists and why it is blocked right now helps the user.
+      Combine them where the PRD needs it (hidden from the wrong role, explained to the right one in the wrong
+      state). Never on screen: a raw rule error, a constraint violation, "Form submission failed: Could not execute
+      rule(s) '<uuid>'…" — each means an action was offered, or a form accepted, where it should not have been.
+      `validate` warns when an action's own rule refuses by role group while the action has no predicate; the
+      suite proves every action is offered exactly to the roles and states the PRD says (family t), and fails any
+      test during which a user was shown a technical error.
 
 6. DIVIDE THE WORK BY ARTIFACT, NOT BY JOB TITLE. Do NOT role-play a team ("as the PM I will now…", a business
    analyst, four Groovy developers, a dashboard specialist). A title adds no capability, costs context you need
@@ -805,11 +825,17 @@ HOW TO WORK (do this for every task)
       step, and every rule that changes that — access granted, revoked, handed to a role group, a new owner —
       each proven by the person who gained or lost access opening the list. For every register whose rows are
       scoped by role: what each role sees, and what it does not.
+   t. EVERY ACTION'S AVAILABILITY (Operating Principle 5i) — for each action of the build: the roles and states
+      in which it is OFFERED, and each situation in which it cannot run with what the user meets there — not
+      offered, explained in its form (the validation's own words), or refused with a reason (a direct action) —
+      both ways: offered where it must be, absent where it must not be, and the refusal provoked by exactly the
+      condition that should provoke it. A user who meets a technical error anywhere is a defect of this family.
 
    ⛔ THE INVENTORIES COME BEFORE THE SCENARIOS. Chapter 0 holds them — registers, forms, rules by type and where
-   each is wired, processes with their path lists, calculations, dependencies, studio components, reports,
-   templates, triggers, roles, the role groups the suite's author account must hold and the personas the
-   scenarios need — and the TRACEABILITY table: every PRD requirement → the scenarios that prove it,
+   each is wired, every action with its decided availability (5i), processes with their path lists,
+   calculations, dependencies, studio components, reports, templates, triggers, roles, and THE PEOPLE: for each
+   scenario, every person in it by role — the suite creates each one as a test user holding exactly that
+   role's groups — and the TRACEABILITY table: every PRD requirement → the scenarios that prove it,
    every `plan.json` row → the same. A requirement no scenario proves is a requirement nobody will ever test,
    and step 7a's gate refuses a plan row that no scenario's Covers line cites as `plan:<id>` (the table is for
    the reader; the gate reads the Covers lines, and refuses an id the plan does not have).
@@ -882,9 +908,11 @@ HOW TO WORK (do this for every task)
    application's own actions in a `finally`, and re-reads the register to prove the cleanup happened. A test that
    SENDS something out of the project — a mail to a real inbox, a message, a call to another system — is ALSO
    `@pytest.mark.sends`, which runs only with `--run-sends`: a write can be cleaned up, a sent mail cannot.
-   ⛔ A PROCESS PATH IS ONE TEST, start to end event — step-tests lie at the joins. Each step acts as the role that
-   owns it (the author account holding that role group, or a persona from `.env` when the PRD forbids one person
-   doing both); each step asserts the task arrived in the right queue, the status after it, and the ripple.
+   ⛔ A PROCESS PATH IS ONE TEST, start to end event — step-tests lie at the joins. Each step is performed by a
+   TEST USER the suite creates for it, holding exactly the role groups the PRD gives that person (`as_user(...)`,
+   `helpers/accounts.py` — as many people as the path has; two people in one role are two labels) — never by the
+   author account, which sees what no ordinary role sees; each step asserts the task arrived in the right queue,
+   the status after it, and the ripple.
    ⛔ ASSERT MOVEMENT, REFUSAL AND TRACE: what must CHANGE (not what survived), a refusal by its own words (not
    "some feedback appeared"), and the row read back — from the screen after re-opening, and from the database
    through `helpers/db.py` when `PGDSN` is set (`db.query()` when the database IS the assertion — it skips without
@@ -903,7 +931,10 @@ HOW TO WORK (do this for every task)
    literal address in the code (`CONFIG.url(...)`, `CONFIG.api_url(...)`). ⛔ You do NOT run the suite during a
    build — there is no project to run it against (OP 0). It runs when the user runs `test/start.sh`, or when
    they ask you to test and fix (TEST & BUGFIX, after step 8). ⛔ You never write a credential into `test/.env` —
-   not AUTH_USER/AUTH_PASSWORD, not a persona's, not PGDSN, not an API key; its owner fills it, in the file.
+   not AUTH_USER/AUTH_PASSWORD, not PGDSN, not an API key; its owner fills it, in the file. Nothing else needs
+   one: every other person is a test user the suite creates for the run, signing in with the author's own
+   AUTH_PASSWORD (an author may set the password of a user they create; the address is on a name no mail can
+   reach, so nothing is ever sent to it).
    The one key you may write is BASE_URL, and only through `mrjun.py autotest env --base-url <origin>`, when the
    folder knows where the project is served.
 
@@ -964,8 +995,8 @@ tests and fix the bugs"), do this — the full loop is doc 30.
    b. `test/.env` is filled — `python3 ./builder/tools/mrjun.py autotest env --project ./work` says which keys are
       set and never shows a secret's value (exit 1 while BASE_URL, AUTH_USER or AUTH_PASSWORD is empty). BASE_URL
       is yours to write when the folder knows the project's address (`.dokie/project.json` → `project.liveUrl`):
-      `autotest env --base-url <it>`. Everything else — AUTH_USER, AUTH_PASSWORD, a persona, PGDSN, API_KEY — ask
-      the user to write INTO THE FILE. ⛔ Never ask for a password or a key in the chat, never type one, never
+      `autotest env --base-url <it>`. Everything else — AUTH_USER, AUTH_PASSWORD, PGDSN, API_KEY — ask the user to
+      write INTO THE FILE (no other account is needed: the suite creates its own test users). ⛔ Never ask for a password or a key in the chat, never type one, never
       print the file.
    c. The project is imported and its workflows are deployed (doc 30 §1) — an undeployed workflow fails every
       process scenario on an empty queue, which is not a defect of the build. If it is not imported yet, the

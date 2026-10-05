@@ -60,7 +60,7 @@ class LoginPage(BasePage):
 
     def login(self, user: str | None = None, password: str | None = None, *,
               who: str = "the author account (AUTH_USER / AUTH_PASSWORD)") -> "LoginPage":
-        """Sign in; `who` names the account in every failure message (a persona's keys, not the author's)."""
+        """Sign in; `who` names the account in every failure message (a test user, not the author)."""
         user = user or CONFIG.auth_user
         password = password or CONFIG.auth_password
         if not user or not password:
@@ -101,93 +101,84 @@ class LoginPage(BasePage):
         return self
 
     def logout(self) -> "LoginPage":
-        """Sign out of the session.
+        """Sign out of the session — through the platform's own sign-out button, found by its class.
 
-        ⛔ Do NOT click the profile link: it sits in the collapsed user menu and is
-        invisible, so `click()` waits the full 30 seconds for it to become visible and
-        fails on the timeout — "the page is not responding" about a page that works.
-        Open the project's front door instead, open the USER menu in the header (it is
-        captioned with the user's name) and press its sign-out item; when that menu does
-        not open, try once more through the menu's icon.
+        ⛔ Not by caption: the button is labelled in the session's language, and a caption list only ever covers
+        the languages somebody thought of. Every sign-out button of the header carries `nct-logout-btn`, and its
+        handler is bound to that class — so the click is the same in every language, with the user menu open or
+        closed.
         """
-        # ⛔ The profile page can be empty — it carries only the navigation; the sign-out
-        # item lives in the USER menu in the header (captioned with the user's name).
-        # Verified with a probe: /profile contained neither "Logout" nor "Выход".
-        self.goto("")
-        self.settle()
-        self.page.evaluate(
-            """() => {
-                 const els=[...document.querySelectorAll('a,button,span,div')]
-                          .filter(e=>e.offsetParent!==null);
-                 // the user's name in the header: a short text near the top of the page
-                 const cand=els.filter(e=>{
-                    const t=(e.innerText||'').trim();
-                    // ⛔ a real line break inside a JS literal is a SyntaxError
-                    if(!t || t.length>40 || t.includes(String.fromCharCode(10))) return false;
-                    const r=e.getBoundingClientRect();
-                    return r.top < 90 && r.width < 320 && r.width > 40;
-                 });
-                 for (const e of cand.reverse()) { e.click(); return true; }
-                 return false;
-               }"""
-        )
-        self.page.wait_for_timeout(900)
-        # The platform's own sign-out captions in each UI language (Russian, English,
-        # Armenian) — data, not prose; extend if a project runs the UI in another language.
-        for name in ("Выход", "Logout", "Sign out", "Ելք"):
-            link = self.page.get_by_text(name, exact=False)
-            for i in range(link.count()):
-                el = link.nth(i)
-                try:
-                    if el.is_visible():
-                        el.click()
-                        self.settle()
-                        return self
-                except Exception:
-                    continue
-        # Fallback: open the user menu in the header and click sign-out in it
-        for sel in ("header [class*='user']", "header img", "[class*='user-menu']"):
-            loc = self.page.locator(sel)
-            if loc.count():
-                try:
-                    loc.first.click()
-                    self.page.wait_for_timeout(800)
-                except Exception:
-                    pass
-                for name in ("Выход", "Logout", "Sign out", "Ելք"):
-                    link = self.page.get_by_text(name, exact=False)
-                    for i in range(link.count()):
-                        el = link.nth(i)
-                        try:
-                            if el.is_visible():
-                                el.click()
-                                self.settle()
-                                return self
-                        except Exception:
-                            continue
-        raise AssertionError(
-            "found no visible sign-out item in the header's user menu (opened by the user's "
-            "name, then by the menu icon)"
-        )
-
-    # ---------- locale ----------
-    def switch_locale(self, locale: str) -> "LoginPage":
-        """Pick a language in the header's flag menu.
-
-        ⛔ Do not return right after the click: a language change re-renders the whole
-        page, so the next `goto` aborts a navigation that has not finished yet
-        (`net::ERR_ABORTED`), and reading `body` hits a half-empty skeleton — the test
-        then reports "the navigation did not switch" although it did.
-        Wait until the left menu appears again.
-        """
-        label = LOCALE_MENU_LABEL[locale]
-        self.page.locator("header img, [class*='flag']").first.click()
-        self.page.wait_for_timeout(600)
-        self.page.get_by_text(label, exact=False).first.click()
-        self.settle()
+        self.goto("", expect_chrome=False)
+        clicked = self.page.evaluate(
+            """() => { const b = document.querySelector('.nct-logout-btn');
+                       if (!b) return false; b.click(); return true; }""")
+        assert clicked, ("the header has no sign-out button (.nct-logout-btn) — the session is not signed in, or "
+                         "the page is not one of the project's")
         try:
-            self.page.wait_for_selector(".vertical-nav-menu a", timeout=CONFIG.grid_timeout_ms)
+            self.page.wait_for_url(lambda url: "/auth" in url, timeout=CONFIG.grid_timeout_ms)
         except Exception:
             pass
-        self.page.wait_for_timeout(800)
+        self.settle()
+        assert not self.is_logged_in(), "pressed sign-out, but the project's chrome is still on screen"
+        return self
+
+    # ---------- locale ----------
+    def current_locale_country(self) -> str:
+        """The country of the language the session shows — the flag on the header's language button."""
+        return self.page.evaluate(
+            """() => { const f = document.querySelector('.language-icon.flag');
+                       if (!f) return '';
+                       return [...f.classList].find(c => /^[A-Z]{2}$/.test(c)) || ''; }""")
+
+    def switch_locale(self, locale: str) -> "LoginPage":
+        """Pick a language in the header's language menu — by its FLAG, not by its caption.
+
+        Each item of that menu carries the flag of its locale's country (`<span class="flag … US">` for en_US) and
+        the language's own name as Java spells it. The flag needs no list of captions, so it works for every
+        locale a project declares; LOCALE_MENU_LABEL (helpers/locales.py) is consulted only when two of the
+        project's locales share a country.
+
+        ⛔ Do not return right after the click: a language change re-renders the whole page, so the next `goto`
+        aborts a navigation that has not finished yet (`net::ERR_ABORTED`), and reading `body` hits a half-empty
+        skeleton — the test then reports "the navigation did not switch" although it did. Wait until the left
+        menu appears again.
+        """
+        country = locale.split("_", 1)[1].upper() if "_" in locale else ""
+        if country and self.current_locale_country() == country:
+            return self                              # already there — a switch would only re-render the page
+        opener = self.page.locator("button:has(.language-icon)").first
+        if not opener.count():
+            raise AssertionError("the header has no language button — the page is not one of the project's")
+        # ⛔ Seen live: right after a re-render the first click sometimes leaves the menu closed — click until its
+        # items show, at most three times, and never on an open menu (a click would close it).
+        items_shown = ".dropdown-menu .dropdown-item:has(.flag)"
+        for _ in range(3):
+            if self.page.evaluate(f"() => [...document.querySelectorAll('{items_shown}')]"
+                                  f".some(e => e.offsetParent !== null)"):
+                break
+            opener.click()
+            self.page.wait_for_timeout(700)
+        items = self.page.locator(f".dropdown-menu .dropdown-item:has(.flag.{country})") if country else None
+        if items is None or items.count() != 1:
+            label = LOCALE_MENU_LABEL.get(locale)
+            if not label:
+                raise AssertionError(
+                    f"cannot tell which language item is {locale}: "
+                    + ("no item carries the flag " + country if items is not None and not items.count()
+                       else "several of the project's locales share the flag " + country)
+                    + " — add its caption to LOCALE_MENU_LABEL in helpers/locales.py")
+            items = self.page.locator(".dropdown-menu .dropdown-item").filter(has_text=label)
+        items.first.click()
+        # Wait for the STATE — the header's flag showing the new country — not for a selector the old page also
+        # has: the language change re-renders the whole page, and a navigation started before it ends is aborted.
+        waited = 0
+        while country and waited < CONFIG.grid_timeout_ms:
+            self.page.wait_for_timeout(500)
+            waited += 500
+            try:
+                if self.current_locale_country() == country and self.page.locator(".vertical-nav-menu a").count():
+                    break
+            except Exception:
+                continue                             # the page is being replaced under the question
+        self.settle()
         return self

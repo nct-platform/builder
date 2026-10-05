@@ -212,8 +212,14 @@ class Driver:
         from the page — the test then reports "the rejection did not name the parameter"
         about a correct rejection.
         """
-        # Да / Yes / Այո: the platform's own "Yes" caption in Russian, English and Armenian.
+        # The platform's confirmation carries its "yes" as the button with the pe-7s-check icon, in every language;
+        # Да / Yes / Այո by caption is only the fallback for a dialog drawn some other way.
         r = self.page.evaluate("""() => {
+             const d=[...document.querySelectorAll('.modal-content,[role=dialog],.modal-dialog')]
+                 .filter(e=>e.offsetParent!==null).pop();
+             const i=d && d.querySelector('i.pe-7s-check');
+             const yes=i && i.closest('a,button');
+             if(yes){ yes.click(); return true; }
              const b=[...document.querySelectorAll('a,button')].filter(e=>e.offsetParent && /^(Да|Yes|Այո)$/.test(e.innerText.trim()));
              if(!b.length) return false; b[0].click(); return true;
            }""")

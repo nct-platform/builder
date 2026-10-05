@@ -414,6 +414,8 @@ type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08
 
 ### 2. User Task (`bpmn:UserTask`) — a human step with action buttons
 
+> ⛔ **Decide, per action, what a user meets when it cannot run** — not offered (this predicate), explained before submit (a validation in its form), or refused in words (a direct action) — and never the rule's or the database's error underneath. The decision table and the order of questions: [25](25-form-settings-validation-and-events.md) "An action that cannot run".
+
 The full node (long UUIDs/localizations trimmed):
 
 ```json

@@ -3,8 +3,8 @@
 Calculations are the heart of an ERP, and a calculation test fails for three reasons that have nothing to do with
 the calculation. This module removes all three:
 
-* **Reading.** A cell is "1 500,00", "1,500.00", "−3.0", "92.16 %", "֏ 12 000" — and a code such as
-  `RM-A12-003` contains `-003`. ⛔ A pattern that takes "the first number in the row" read that code as −3 and
+* **Reading.** A cell is "1 500,00", "1,500.00", "−3.0", "92.16 %", "֏ 12 000", "AED 1,250.00", "12 kg" — and a
+  code such as `RM-A12-003` contains `-003`. ⛔ A pattern that takes "the first number in the row" read that code as −3 and
   reported a calculation defect over a row the database stored correctly. `parse_number` therefore reads a WHOLE
   cell and refuses one that is not a number, instead of fishing a number out of it. Locate the cell by its column
   caption, then parse it.
@@ -19,13 +19,23 @@ the calculation. This module removes all three:
 from __future__ import annotations
 
 import re
+import unicodedata
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-# Everything that may decorate a number in a cell without being part of it.
+# Everything that may decorate a number in a cell without being part of it — in ANY currency and any language: every
+# currency symbol Unicode knows (category Sc), percent and per-mille signs, and whole WORDS standing apart from the
+# number before or after it ("AED 1 500", "12 kg", "15 шт."). A word GLUED to digits is never stripped: that is how
+# codes look ("A12", "RM-A12-003"), and a code is not a number.
 _SPACES = "    '"            # NBSP, narrow NBSP, thin space, space, Swiss apostrophe
 _MINUS = "−–-"                    # the minus sign, an en dash, a hyphen
-_DECOR = re.compile(r"[%‰֏$€£₽¥]|\b(?:AMD|USD|EUR|RUB|GBP)\b", re.I)
+_LEADING_WORDS = re.compile(r"^(?:[^\W\d_]+\.?\s+)+")
+_TRAILING_WORDS = re.compile(r"(?:\s+[^\W\d_]+\.?)+$")
 _NUMBER = re.compile(r"^[+-]?(?:\d+(?:[.,]\d+)*)?(?:[.,]\d+)?$")
+
+
+def _undecorated(text) -> str:
+    s = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Sc" and ch not in "%‰").strip()
+    return _TRAILING_WORDS.sub("", _LEADING_WORDS.sub("", s)).strip()
 
 
 def parse_number(text: str | None) -> Decimal | None:
@@ -50,7 +60,7 @@ def parse_number_in(text: str | None, decimal: str) -> Decimal | None:
 def _parse(text, decimal):
     if text is None:
         return None
-    s = _DECOR.sub("", str(text)).strip()
+    s = _undecorated(text)
     for ch in _SPACES:
         s = s.replace(ch, "")
     if not s:

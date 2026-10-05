@@ -253,7 +253,7 @@ python3 ../builder/tools/mrjun.py autotest env --project ../work   # which keys 
 
 `test/.env` and the folder's `.mcp.json` hold credentials: both are git-ignored and mode 600 — never commit, mail
 or paste them. The run ends with the coverage map and the number of SKIPPED tests: a skipped scenario was not
-verified (a persona or `PGDSN` missing from `.env`, or the project drifted from its seed data — `./start.sh reset`).
+verified (`PGDSN` missing from `.env`, or the project drifted from its seed data — `./start.sh reset`).
 
 Or ask the AI to **"test and fix"**: it runs the suite against the project, sorts every red test into a defect of
 the product, of the test or of the scenario, fixes the project and re-runs. To fix a LIVE project it needs the

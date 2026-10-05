@@ -34,7 +34,7 @@ them: deploy every workflow (its BPMN editor → Deploy, or `nct_workflow_deploy
 process scenario fails on an empty queue.
 
 A **skipped** test is not a passed one: the run's summary counts the skips and `-ra` prints each reason. A missing
-persona, `PGDSN` or `API_KEY` is a gap in `.env`; "no data" means the project drifted from the seed rows the
+`PGDSN` or `API_KEY` is a gap in `.env`; "no data" means the project drifted from the seed rows the
 scenarios start from — `./start.sh reset`, then run again.
 
 Watch one test in a visible browser — for a short look only, never for a long run:
@@ -48,13 +48,12 @@ HEADLESS=0 SLOW_MO_MS=250 ./start.sh -k <test name>
 | Key | Meaning |
 |---|---|
 | `BASE_URL` | **always** `<root>/<realm>/<client>`. The bare installation root redirects to `…/auth;jsessionid=…` and renders none of the project. `mrjun.py autotest env --base-url <origin>` writes it |
-| `AUTH_USER` / `AUTH_PASSWORD` | one user holding the **Author** role group — the only group that can hand out role groups; the suite never removes it — and every role group whose tasks the scenarios perform |
+| `AUTH_USER` / `AUTH_PASSWORD` | one user holding the **Author** role group. The suite creates every other person a scenario needs itself (`helpers/accounts.py`), holding exactly that person's role groups, and removes them at the end |
 | `DEFAULT_LOCALE` | the locale the suite returns to after the language tests |
 | `HEADLESS`, `SLOW_MO_MS`, `DEFAULT_TIMEOUT_MS`, `GRID_TIMEOUT_MS` | browser knobs |
 | `PGDSN` | optional — read-only database cross-check of numbers and writes; empty = those checks skip and say so |
 | `API_KEY` | optional — the public-API scenarios; empty = they skip and say so |
 | `API_BASE_URL` | optional — only when the API answers elsewhere than BASE_URL's installation root; tests build API addresses with `CONFIG.api_url(...)` |
-| `PERSONA_<NAME>_USER` / `_PASSWORD` | optional — a second person for four-eyes and "must NOT see" scenarios; missing = they skip and name the persona |
 
 The keys that say WHICH project and WHO signs in are read from `.env` only — a shell variable of the same name is
 ignored; the knobs (`HEADLESS`, `SLOW_MO_MS`, the timeouts, `DEFAULT_LOCALE`) may be overridden from the shell for
@@ -66,7 +65,13 @@ one run.
   `§N.M` in its docstring; `tools/coverage_map.py` counts the citations.
 * `pages/` — page objects: `driver.py` acts on forms, dialogs, row menus and grids by their visible captions;
   `register_page.py`, `queue_page.py`, `studio_page.py`, `users_page.py`, `nav.py`, `login_page.py` read their
-  screens. Captions come from `helpers/locales.py`, per locale — a test never hard-codes one language.
+  screens. Captions come from `helpers/locales.py`, per locale — a test never hard-codes one language; the
+  platform's own controls (sign-in, language, author mode, users) are found by their structure, in any language.
+  `feedback_watch.py` records every message a user is shown and fails a test that showed a technical error.
+* People: `as_user("Clerk")` is a page signed in as a test user holding exactly that role group, created by the
+  suite for the run (`helpers/accounts.py`) — as many people, in as many roles, as a scenario has. They sign in
+  with your `AUTH_PASSWORD`; `test-results/test-users.json` lists them; `KEEP_TEST_USERS=1` keeps them after the
+  run so you can sign in as one and look.
 * `helpers/` — `env.py` (the only reader of `.env`), `locales.py`, `numbers.py` (exact numbers, database-style
   rounding), `db.py` (the optional read-only cross-check: `query()` when the database IS the assertion — skips
   without one; `optional()` when it is a second witness — returns None and warns).

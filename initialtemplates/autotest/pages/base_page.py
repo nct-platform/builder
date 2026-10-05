@@ -28,7 +28,16 @@ class BasePage:
     def goto(self, path: str = "", *, expect_chrome: bool = True) -> "BasePage":
         """Open a page of the project. `expect_chrome=False` for a page that may legitimately NOT render the project
         (a prohibition scenario opening an address its role may not reach) — the test then asserts the refusal."""
-        self.page.goto(CONFIG.url(path), wait_until="domcontentloaded")
+        for attempt in (1, 2):
+            try:
+                self.page.goto(CONFIG.url(path), wait_until="domcontentloaded")
+                break
+            except Exception as exc:
+                # ⛔ Seen live: a page the platform is still re-rendering — right after a language or author-mode
+                # switch — aborts the next navigation with net::ERR_ABORTED. Let it settle and go again, once.
+                if attempt == 2 or "ERR_ABORTED" not in str(exc):
+                    raise
+                self.page.wait_for_timeout(1500)
         if expect_chrome:
             self.wait_for_app()
         else:

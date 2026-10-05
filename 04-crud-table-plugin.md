@@ -862,6 +862,8 @@ Two arithmetic traps that follow from this:
 
 ## Visibility predicate (per-row)
 
+> ⛔ **Decide, per action, what a user meets when it cannot run** — not offered (this predicate), explained before submit (a validation in its form), or refused in words (a direct action) — and never the rule's or the database's error underneath. The decision table and the order of questions: [25](25-form-settings-validation-and-events.md) "An action that cannot run".
+
 For each row the runtime evaluates ALL distinct non-empty `predicateIdentifier` values in a single call to
 `executePredicatesWithCrudContext` (plural), which loads the FULL entity by id and substitutes it into
 `context.<ctx>.<alias>.data` (`CrudTablePlugin.java`, method `evaluatePredicates` — distinct

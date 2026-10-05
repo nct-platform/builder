@@ -596,6 +596,46 @@ Configuration** (form-level, §4.1); depends-on → **field events** (§3).
 - The build order + where forms/validation/events sit in the procedure: [19-build-decision-procedure.md](19-build-decision-procedure.md) Phase 7,
   [13-master-playbook-empty-to-dynamic-project.md](13-master-playbook-empty-to-dynamic-project.md) Step 7
 
+## ⛔ An action that cannot run — hidden, explained, or refused in words; never the error underneath
+
+Every action a user can press — a crud table or tree action (row or toolbar), a process table's start or global
+action, a user task's action in a BPMN diagram — has situations in which it cannot succeed. The business logic
+underneath refuses it (a rule's `throw`, a CHECK constraint, a trigger) and must go on refusing it: that is the
+last line of defence, and a scheduler or another rule calling the same logic has no screen at all. What it must
+not be is how a USER finds out. A user who presses a button and reads "Form submission failed: Could not execute
+rule(s) '<uuid>'…" or `… violates check constraint …` was offered an action, or had a form accepted, that should
+have been hidden or explained.
+
+So decide, for EVERY action, from the PRD, the role model and what the user needs to know, which of three things
+the user meets. There is no default; the examples illustrate, the reasoning is what transfers:
+
+| the user should… | mechanism | when |
+|---|---|---|
+| not see it at all | the action's PREDICATE (`predicateIdentifier`) — the button is absent | the action is not this user's business: they hold no role group for it (the usual case); the record's state makes it meaningless (Approve on what is approved, Post on what is posted); a condition the user can neither see nor change from here |
+| see it, and learn what blocks it BEFORE submitting | a VALIDATION rule on the action's form — `validationRuleIdentifiers` on a task action, the form's action validators for a table action that opens a form (§4.2) — with `addFieldError` on the field that causes it AND `addError` for the text (next section) | the user can fix the cause in the form (a quantity above what is in stock, a date in a closed period), or must know the action exists and what blocks it |
+| see it, press it, and be told no — in words | a DIRECT action (no form) whose EXECUTION rule throws `new RuntimeException(<the business's own words, in every locale>)`, shown as the error message | knowing the action exists and why it is refused right now helps the user ("3 documents of this period are still unposted") |
+
+Combine them when the PRD needs it — hidden from the roles that have no business with it, explained to the role
+that does when the data is not ready. And keep the business logic's own guard in every case: a predicate is a
+courtesy that hides nothing from a crafted request, a scheduler or another rule.
+
+How to decide, in the order to ask:
+
+1. **WHO** — would this user EVER be allowed? If not (a role group question), it is a predicate. `validate` warns
+   when an action's own rule refuses by role group while the action has no predicate.
+2. **WHEN** — does the record's state make the action meaningless right now, in a way this user cannot change
+   from here? Hide it — and make sure the state that explains the absence is visible (a status column).
+3. **WHAT DATA** — can the user fix the cause (change a quantity, pick another date)? A validation in the form,
+   on that field. Can they not, but need to know? A direct action's worded refusal, or the validation's global
+   error.
+4. **WHAT IT COSTS TO FIND OUT BY TRYING** — an action whose effect is expensive or irreversible is never left
+   to "press and see": predicate or validation.
+
+The tests prove the decision both ways (contract step 7, family t): the action present for the roles and states
+that may use it and absent for the rest; each validation's message provoked by exactly its condition; each
+direct refusal's words. The automated suite fails any test during which a user was shown a technical error
+(`test/pages/feedback_watch.py`) — the one outcome no decision allows.
+
 ## ⛔ Business preconditions belong in a VALIDATION rule, never in the EXECUTION rule alone
 
 LIVE-FOUND 2026-08-07. An EXECUTION rule that rejects a business precondition by throwing

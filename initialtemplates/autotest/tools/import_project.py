@@ -158,48 +158,52 @@ def main(path: str, rebuild_structure: bool = False, recreate_integration: bool 
                                if (l) t = l.innerText; }
                      if (!t) { let p = c.parentElement;
                                for (let k = 0; k < 4 && p && !t; k++) { t = (p.innerText || '').trim(); p = p.parentElement; } }
-                     return {i, checked: c.checked, disabled: c.disabled, label: (t || '').split(String.fromCharCode(10))[0].slice(0, 80)};
+                     return {i, checked: c.checked, disabled: c.disabled, name: c.getAttribute('name') || '',
+                             label: (t || '').split(String.fromCharCode(10))[0].slice(0, 80)};
                    })"""
             )
             for b in boxes:
                 log(f"checkbox [{b['i']}] {b['label']!r} = {b['checked']}"
                     + (" (disabled)" if b["disabled"] else ""))
 
-            def want(patterns: tuple[str, ...], value: bool, what: str) -> str:
-                """Bring the checkbox with this label to the required state: "ok", "missing" or "stuck"."""
-                for b in boxes:
-                    low = (b["label"] or "").lower()
-                    if any(pt in low for pt in patterns):
-                        if b["checked"] == value:
-                            log(f"{what}: {'on' if value else 'off'} (as it was)")
-                            return "ok"
-                        if b["disabled"]:
-                            print(f"✗ {what}: the checkbox is disabled, it cannot be turned {'on' if value else 'off'}")
-                            return "stuck"
-                        page.evaluate(
-                            """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].click()""",
-                            b["i"])
-                        page.wait_for_timeout(800)
-                        now = page.evaluate(
-                            """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].checked""",
-                            b["i"])
-                        log(f"{what}: set {'on' if now else 'off'}")
-                        return "ok" if now == value else "stuck"
-                return "missing"
+            def want(wicket_id: str, patterns: tuple[str, ...], value: bool, what: str) -> str:
+                """Bring the switch to the required state: "ok", "missing" or "stuck". Found by its component id —
+                the end of its `name` attribute, the same in every language — and only failing that by its label."""
+                by_id = [b for b in boxes if (b.get("name") or "").endswith(wicket_id)]
+                by_label = [b for b in boxes if any(pt in (b["label"] or "").lower() for pt in patterns)]
+                match = by_id or by_label
+                if not match:
+                    return "missing"
+                b = match[0]
+                if b["checked"] == value:
+                    log(f"{what}: {'on' if value else 'off'} (as it was)")
+                    return "ok"
+                if b["disabled"]:
+                    print(f"✗ {what}: the checkbox is disabled, it cannot be turned {'on' if value else 'off'}")
+                    return "stuck"
+                page.evaluate(
+                    """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].click()""",
+                    b["i"])
+                page.wait_for_timeout(800)
+                now = page.evaluate(
+                    """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].checked""",
+                    b["i"])
+                log(f"{what}: set {'on' if now else 'off'}")
+                return "ok" if now == value else "stuck"
 
-            # Label fragments are the platform's own checkbox captions in each UI language
-            # (en / ru / hy). A switch that must be ON and cannot be is fatal; one that should
-            # stay OFF and does not exist on this installation is only logged.
+            # Each switch by its component id, with its caption fragments (en / ru / hy) as the fallback
+            # for an installation that renamed it. A switch that must be ON and cannot be is fatal; one
+            # that should stay OFF and does not exist on this installation is only logged.
             switches = (
-                (("business logic", "бизнес-логик", "բիզնես"), True,
+                ("replaceBusinessLogic", ("business logic", "бизнес-логик", "բիզնես"), True,
                  "«Replace the business logic and its database»"),
-                (("table structure", "структур", "կառուցվածք"), rebuild_structure,
+                ("rebuildSchemas", ("table structure", "структур", "կառուցվածք"), rebuild_structure,
                  "«Rebuild the table structure»"),
-                (("integration", "интеграц", "ինտեգրաց"), recreate_integration,
+                ("recreateIntegration", ("integration", "интеграц", "ինտեգրաց"), recreate_integration,
                  "«Recreate the integration»"),
             )
-            for patterns, value, what in switches:
-                state = want(patterns, value, what)
+            for wicket_id, patterns, value, what in switches:
+                state = want(wicket_id, patterns, value, what)
                 if state == "missing" and not value:
                     log(f"{what}: not on this dialog — nothing to switch off")
                     continue

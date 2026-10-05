@@ -5,17 +5,17 @@ the suite at another project — a staging copy, a customer's tenant, a fresh im
 the code. A literal host, realm or client anywhere else in the suite is a test that silently keeps testing the old
 project after .env moved.
 
-Nothing in this folder may contain a real password. The suite signs in with ONE author account and builds every
-other identity it needs through the application itself; a scenario that needs a genuinely DIFFERENT person (an
-approver who must not be the initiator) uses an optional persona account — PERSONA_<NAME>_USER /
-PERSONA_<NAME>_PASSWORD — that the project's owner creates and writes into .env.
+Nothing in this folder may contain a real password. The suite signs in with ONE author account and creates every
+other person a scenario needs through the application itself (helpers/accounts.py) — any number of them, holding
+whatever role groups the scenario names, on addresses no mail can reach, signing in with the author's own
+AUTH_PASSWORD.
 
 WHERE A VALUE COMES FROM. The keys that say WHICH project and WHO signs in — BASE_URL, API_BASE_URL, AUTH_USER,
-AUTH_PASSWORD, PGDSN, API_KEY and every PERSONA_* — are read from test/.env ONLY. A variable of the same name
+AUTH_PASSWORD, PGDSN and API_KEY — are read from test/.env ONLY. A variable of the same name
 exported in the shell (another tool's AUTH_USER, a BASE_URL left over from yesterday) is ignored: otherwise it
 silently wins and the suite tests the wrong project as the wrong person while .env looks right. The knobs of one
 run — HEADLESS, SLOW_MO_MS, the timeouts, DEFAULT_LOCALE — come from .env too, but the shell may override them for
-a single run: `HEADLESS=0 SLOW_MO_MS=250 ./start.sh -k <name>`.
+a single run: `HEADLESS=0 SLOW_MO_MS=250 ./start.sh -k <name>`, `KEEP_TEST_USERS=1 ./start.sh -k <name>`.
 
 Loading never fails: an import of this module must work on a machine with no .env at all, so the suite's code can
 be checked offline. A run that needs the project calls CONFIG.require() first — the session fixtures do — and stops
@@ -33,7 +33,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(ROOT, ".env")
 _FILE = {k: (v or "") for k, v in dotenv_values(ENV_FILE).items()} if os.path.isfile(ENV_FILE) else {}
 
-PERSONA_PREFIX = "PERSONA_"
 # The public API lives on the platform's own host, not under the project's path (doc 32).
 PUBLIC_API_PATH = "/public-api/v1"
 
@@ -59,14 +58,6 @@ def _int(name: str, default: int) -> int:
 
 
 @dataclass(frozen=True)
-class Persona:
-    """A second sign-in for the scenarios that need another person, e.g. `approver`."""
-    name: str
-    user: str
-    password: str = field(repr=False)
-
-
-@dataclass(frozen=True)
 class Config:
     base_url: str
     auth_user: str
@@ -80,7 +71,7 @@ class Config:
     pgdsn: str = field(default="", repr=False)
     api_key: str = field(default="", repr=False)
     api_base_url: str = ""
-    personas: dict = field(default_factory=dict, repr=False)
+    keep_test_users: bool = False
 
     @property
     def realm_client(self) -> str:
@@ -124,22 +115,6 @@ class Config:
                 "(<root>/<realm>/<client>), not at the installation.")
         return self
 
-    def persona(self, name: str) -> Persona | None:
-        """The persona account `name` (case-insensitive), or None when .env does not provide it."""
-        return self.personas.get(name.strip().lower())
-
-
-def _personas() -> dict:
-    found = {}
-    for key, user in _FILE.items():
-        if not (key.startswith(PERSONA_PREFIX) and key.endswith("_USER")):
-            continue
-        name = key[len(PERSONA_PREFIX):-len("_USER")].lower()
-        password = _FILE.get(f"{PERSONA_PREFIX}{name.upper()}_PASSWORD", "")
-        if name and user.strip() and password:
-            found[name] = Persona(name=name, user=user.strip(), password=password)
-    return found
-
 
 def load_config() -> Config:
     return Config(
@@ -154,7 +129,7 @@ def load_config() -> Config:
         pgdsn=_identity("PGDSN"),
         api_key=_identity("API_KEY"),
         api_base_url=_identity("API_BASE_URL").rstrip("/"),
-        personas=_personas(),
+        keep_test_users=_knob("KEEP_TEST_USERS", "0") in ("1", "true", "True", "yes"),
     )
 
 

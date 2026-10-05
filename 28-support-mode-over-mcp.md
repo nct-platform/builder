@@ -907,13 +907,18 @@ Ask for **author** specifically, before anything else, because the author role i
 roles. With it you can build every other identity the scenarios need; without it you are stuck one step
 into the first scenario, having already spent the setup.
 
-Once you are in as an author, you create the rest yourself — role groups, test users, their assignments —
-through the platform's own MCP tools, and you do not ask again.
+Once you are in as an author, you create the rest yourself and do not ask again: role groups over MCP, and the
+PEOPLE the scenarios need as test users — the automated suite makes them itself (`test/helpers/accounts.py`), with
+the author's own `AUTH_PASSWORD`: an author may set the password of a user they create, a user created with one
+gets no invitation, and an address on a name no mail can reach (`@autotest.invalid`) is never sent anything
+(30 §2.4). Every business step then runs as
+a user holding exactly that role's groups — never as the author, who sees what no ordinary role sees.
 
 ⛔ **Everything you create is real and stays there.** So:
 
-* give every test identity a name that says what it is and who made it — `zz-test-<role>` — so a human
-  scanning the project's users a month later knows instantly what they are looking at;
+* give every test identity a name that says what it is and who made it — first name `zz-at`, on
+  `@autotest.invalid` — so a human scanning the project's users a month later knows instantly what they are
+  looking at;
 * keep a list as you go, and hand it over at the end (§9) — what you created, and whether it can be deleted;
 * never repurpose a REAL user for a test, and never change a real user's roles to make a scenario pass.
   That is not a test result, it is a production change wearing one.
@@ -1124,9 +1129,9 @@ described in [30](30-live-test-bugfix-and-autotest.md) §6); you write `tests/`:
 ```
 test/
   start.sh          # THE entry point — one command, no arguments needed
-  .env.example      # BASE_URL (<root>/<realm>/<client>), AUTH_USER, AUTH_PASSWORD (+ optional PGDSN, API_KEY,
-                    # personas) — .env git-ignored, mode 600; the one place the project's link and the
-                    # credentials live (30 §6)
+  .env.example      # BASE_URL (<root>/<realm>/<client>), AUTH_USER, AUTH_PASSWORD (+ optional PGDSN, API_KEY)
+                    # — .env git-ignored, mode 600; the one place the project's link and the author's
+                    # credentials live; every other person is a test user the suite creates (30 §6, §2.4)
   pages/            # page objects: one per screen, so a moved button is one edit; the project's own in
                     # pages/project_<name>.py
   tests/            # one file per chapter of the scenario file; tests/conftest.py for the project's fixtures

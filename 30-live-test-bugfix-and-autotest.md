@@ -89,9 +89,9 @@ other identity the scenarios need; without it you are stuck one step in. ⛔ You
 type or ask for a password in the chat — the user signs in themselves in the window you
 drive ([28](28-support-mode-over-mcp.md) §8.2).
 
-⛔ **Never remove the `Author` group from the only author account**, not even
-temporarily while testing personas. It is the role that grants roles: drop it and
-nobody can grant it back.
+⛔ **Never remove the `Author` group from the only author account** — and never edit the
+author account's own role groups at all: the suite creates a user for every role it needs
+(§2.4). Author is the role that grants roles: drop it and nobody can grant it back.
 
 ### 2.2 Author mode — the toggle that hides half the nav
 
@@ -150,19 +150,41 @@ and the project root as Home.
 ⚠️ `sources` and `queries` have no quick link of their own; they live inside
 `database` and `bl`.
 
-### 2.4 Creating users — and the limit that shapes every permission test
+### 2.4 Creating users — and how the suite makes its people
 
-The Create-User form carries **First name / Last name / Email / Roles groups** and
-**no password field**. The platform provisions the account; the person sets their own
-secret out of band.
+What the platform guarantees:
 
-Consequence, and it is a hard one: **an automated test cannot sign in as a user it just
-created.** So persona testing does not mean "log in as the Operator". It means
-re-assigning role groups on an account you can already authenticate as — keeping
-`Author` at all times — and asserting what the nav and the row actions offer.
+* **An author sets the password of a user they create.** The Create-User dialog (First name, Last name, Email,
+  Role groups) offers *Set password* to every member of a role group that carries the author role. A user
+  created WITH a password gets **no invitation** and can sign in at once; one created without gets the
+  invitation mail with its set-password link. (On an EXISTING account an author cannot set the password — users
+  belong to the whole organization — except on a test account, below.)
+* **Addresses no mail can reach are test accounts.** An address on a name RFC 2606 / 6761 reserves — `*.invalid`,
+  `*.test`, `*.example`, `*.localhost`, `example.com` / `.net` / `.org` — can never receive mail. The platform
+  creates an account on one only WITH a password, never queues an invitation for it, and its outbox drops every
+  message to one before any provider sees it: a notification rule firing for a test user costs no bounce.
+* **Deleting a user removes them from the PROJECT** (role groups and membership — the project's user quota is
+  freed); the account stays in the organization. Creating the same address again re-adds that account and keeps
+  its OLD password — which is why a test run never reuses an address.
 
-Name every identity you create so a human scanning the project later knows what it is:
-`zz-test-<role>`. Keep a list and hand it over at the end.
+How the suite uses it: **every person a scenario has is a test user the suite creates for the run** —
+`helpers/accounts.py`, `as_user(...)` in a test — holding exactly the role groups the PRD gives that person, on
+`zz-at-<label>-<run>-<n>@autotest.invalid`, signing in with the SAME password as the author account the run
+starts with (`AUTH_PASSWORD` — it already satisfies the realm's password policy, and a person who wants to look
+at what a test user saw already knows it), in a browser context of its own. The run's roster (addresses, role
+groups — no passwords) is written to `test-results/test-users.json`; the users are removed when the session ends,
+or kept with `KEEP_TEST_USERS=1` for a person to sign in as one and look. As many people as the scenario has: two
+approvers are two labels (`as_user("Approver", label="second")`), "must NOT see" is a user without the group, an
+access change mid-flow is `accounts.set_role_groups(...)`. Nothing is configured per person and nothing is
+skipped for a missing account.
+
+⛔ **The author account performs only what the PRD gives an administrator.** A business step performed by the
+author proves nothing about the role it belongs to: Author sees every page and every action, and a rule-started
+case grants the author role a row of its own. A test that passes as the author and fails as the clerk is exactly
+the defect the suite exists to find.
+
+When you create identities by hand in a live test, name them the same way — first name `zz-at` — so a person
+scanning the project's users knows what they are, and remove them at the end.
 
 ---
 
@@ -326,8 +348,7 @@ tell the difference. A value may change only through rule 3 of the table: the sc
 it says why, and it was corrected first.
 
 ⛔ **And green is not "nothing to report".** A scenario that passed because it is `{manual}`, or
-because its test SKIPPED (no persona in `.env`, no `PGDSN`, no `API_KEY`, no `--run-sends`), was not
-proven. `start.sh` counts the skips in its summary; the report names each one.
+because its test SKIPPED (no `PGDSN`, no `API_KEY`, no `--run-sends`), was not proven. `start.sh` counts the skips in its summary; the report names each one.
 
 ---
 
@@ -364,11 +385,13 @@ test/
   requirements.txt      playwright, pytest, python-dotenv (+ psycopg for the optional database check)
   pytest.ini            --strict-markers; markers smoke auth nav i18n register form rule calc ripple workflow
                         roles prohibition report studio print api author destructive sends
-  conftest.py           ONE session browser + sign-in, the module LOCALE fixture, `persona(name)` (a second
-                        person in its own browser context, its locale set), the --run-destructive and
-                        --run-sends gates, screenshots on failure
-  helpers/  env.py      the ONLY reader of .env — CONFIG, CONFIG.url(), CONFIG.api_url(), CONFIG.require(),
-                        CONFIG.persona()
+  conftest.py           ONE session browser + sign-in, the module LOCALE fixture, `as_user(...)` / `accounts`
+                        (the test users), the --run-destructive and --run-sends gates, the technical-error
+                        trap, screenshots on failure
+  helpers/  env.py      the ONLY reader of .env — CONFIG, CONFIG.url(), CONFIG.api_url(), CONFIG.require()
+            accounts.py the test users: created by the author account for exactly the role groups a scenario
+                        names, on @autotest.invalid, signing in with AUTH_PASSWORD in their own browsers,
+                        listed in test-results/test-users.json, removed at the end (KEEP_TEST_USERS=1 keeps them)
             locales.py  LOCALES, every caption the tests use PER LOCALE — filled by you from the export
             numbers.py  parse a whole cell as a number; expected values in Decimal with database rounding;
                         assert_number compares EXACTLY (an unrounded screen value is a finding)
@@ -385,7 +408,9 @@ test/
             queue_page.py    a work queue: task count, rows that carry data, a task's actions
             studio_page.py   a custom HTML Studio component: mounted (text= / ready=), its problems, one
                              click = one effect; a context manager, because the page is shared
-            users_page.py    users and role groups; AuthorRoleGuard.assert_safe() refuses a set without Author
+            users_page.py    the users screen — create (with a password), change role groups, delete; found by
+                             structure, in any language
+            feedback_watch.py every message a user is shown, in every browser; the technical ones fail the test
   tools/    coverage_map.py  which scenario each test covers — and which none does
             import_project.py the reset: re-import ../project.mrjun through the project's own Settings page
   tests/    YOURS: one file per chapter of test-scenarios.md, numbered in run order; test_00_smoke.py is the
@@ -402,13 +427,13 @@ the only module that reads it; its keys are the ones the library's `.env.example
 | key | required | meaning |
 |---|---|---|
 | `BASE_URL` | yes | ⛔ ALWAYS `<root>/<realm>/<client>`. The bare installation root bounces to `…/auth;jsessionid=…` and renders none of the project |
-| `AUTH_USER`, `AUTH_PASSWORD` | yes | one user holding the Author role group (§2.1) — the only group that can hand out role groups; the suite never removes it — and every role group whose tasks and actions the scenarios perform (a process queue is per role group), except the steps a persona performs. The scenario file's chapter 0 lists those groups, so the owner knows what to assign |
+| `AUTH_USER`, `AUTH_PASSWORD` | yes | one user holding the Author role group (§2.1). Every other person a scenario has is a test user the suite creates itself (§2.4) — no other account is configured anywhere |
 | `DEFAULT_LOCALE` | | the locale the suite returns to after the language tests |
 | `HEADLESS`, `SLOW_MO_MS`, `DEFAULT_TIMEOUT_MS`, `GRID_TIMEOUT_MS` | | browser knobs; keep `HEADLESS=1` for every long run |
+| `KEEP_TEST_USERS` | | `1` keeps the run's test users after it ends (they sign in with `AUTH_PASSWORD`; `test-results/test-users.json` lists them); default `0` removes them |
 | `PGDSN` | | the read-only database cross-check (`helpers/db.py`); empty = those checks skip and say so |
 | `API_KEY` | | the public-API scenarios ([32](32-public-api.md) §9); empty = they skip and say so |
 | `API_BASE_URL` | | only when the API answers elsewhere than BASE_URL's installation root (a project on a domain of its own); empty = derived. Tests build every API address with `CONFIG.api_url("<slug>/…")` |
-| `PERSONA_<NAME>_USER` / `_PASSWORD` | | a second person for four-eyes and must-NOT-see scenarios (`persona("<name>")`); missing = they skip and name the persona |
 
 The rules around it:
 
@@ -416,8 +441,8 @@ The rules around it:
   build nobody fills it — there is no project yet. When the user asks you to test, `BASE_URL` is yours to write
   when the folder knows the project's address (`.dokie/project.json` → `project.liveUrl`; it is an address, not
   a secret) — with `mrjun.py autotest env --base-url <it>`, which also accepts a bare origin and adds the
-  realm and client. The run's knobs go the same way (`--set HEADLESS=0`). `AUTH_USER`, `AUTH_PASSWORD`, a
-  persona, `PGDSN` and an `API_KEY` are written by their OWNER, into the file — `autotest env` refuses them. ⛔
+  realm and client. The run's knobs go the same way (`--set HEADLESS=0`). `AUTH_USER`, `AUTH_PASSWORD`, `PGDSN`
+  and an `API_KEY` are written by their OWNER, into the file — `autotest env` refuses them. ⛔
   Never ask for them in the chat, never type them, never `cat` the file or print a value from it
   ([28](28-support-mode-over-mcp.md) §8.2): the test process reads it, you do not. `autotest env` tells you
   which keys are set without showing a single value.
@@ -473,10 +498,11 @@ Read [28](28-support-mode-over-mcp.md) §8.8 — the ways a UI assertion lies �
 | registers (m) | open the page, wait for ROWS (`wait_for_rows`), read columns by caption — `drv.grid("<caption>", "<caption>")` picks the table by the columns it must have (never "the biggest table": next to a larger register it returns the wrong one); every filter control: a value present in the data narrows, a value present nowhere returns ZERO rows; paging moves to different rows; each row action offered exactly in the states and to the roles the scenario names — and its absence asserted where it must be absent |
 | forms (n) | `driver.fill([...])` by visible label — assert its result: a field it reports `NOT FOUND` or `NO OPTION …` is a failure of the fill, never data; every mandatory field refused empty BY ITS OWN MESSAGE; every default present on open; every dropdown's options (cascade: change the parent, the child's options change); save, RE-OPEN, read every value back; with lines: the line grid before the document is saved (doc 26 §5 4a), the derived header before it is sent (4b) |
 | rules in action (o) | a predicate twice — in the state where it is true (the action is offered) and where it is false (it is ABSENT), changing only the condition it reads; an execution rule by its effects: the rows it wrote (screen after re-open, and `helpers/db.py`), the numbers it moved, the case it opened — run TWICE, still one case — the access it changed; a validation rule by each message, provoked with every other mandatory field filled |
-| processes (p) | ONE test per path, start to end event: start the case (form / direct / the triggering rule), and for each step open the queue of the role that owns it (`QueuePage`), assert the task is there with its data, act (`driver`), assert the status after it and the ripple; a step the PRD forbids the initiator to perform runs as a `persona(...)`; parametrize nothing that hides which path failed — one named test per path |
+| processes (p) | ONE test per path, start to end event: start the case (form / direct / the triggering rule), and for each step open — as a test user holding exactly the role that owns it (`as_user(...)`) — that role's queue (`QueuePage`), assert the task is there with its data, act (`driver`), assert the status after it and the ripple; two people in one role (the PRD forbids the initiator to approve) are two labels; parametrize nothing that hides which path failed — one named test per path |
 | calculations and dependencies (q) | the expected number computed IN the test from the scenario's inputs with the PRD's formula — `Decimal`, `round_db` — and compared with `assert_number(cell, expected, places, what=…, formula=…, inputs=…)`; then the same value from the database when `PGDSN` is set; every dependent read after the action (forward), and again after the reversal (backward); the invariants asserted after every write; a record the server numbered found by DIFFERENCE (before/after), never "the newest" |
 | studio components (r) | `with StudioComponent(page, "<the root selector you authored>") as c: c.open(path, text=<a caption the PRD names>, ready=<a selector only real data produces>)` — content, not an empty wrapper (a spinner is a child element too); each control clicked for real and its result read from the component; `count_effect(...) == 1` for an action after a re-render; the empty and error states; paging across pages; each locale; `problems()` empty at the end |
-| access (s) | the person who should gain or lose access OPENS the list — the author account switched to the role, or a `persona(...)` — and the case or row is present or absent; a "must NOT see" is asserted on the list, the direct URL and the row action, not on one of them |
+| access (s) | the person who should gain or lose access OPENS the list — a test user holding exactly that role (`as_user(...)`), its groups changed mid-flow with `accounts.set_role_groups(...)` where the scenario hands access over — and the case or row is present or absent; a "must NOT see" is asserted on the list, the direct URL and the row action, not on one of them |
+| actions — availability (t) | per action and per role: present where the PRD offers it, ABSENT where it does not (a user without the role, a state that makes it meaningless); per situation in which it cannot run, exactly the decided outcome — the validation's own words on the form (field-level where a field is the cause), or a direct action's worded refusal — provoked by exactly that condition; and on no path any technical error (the suite fails one by itself, `feedback_watch.py`) |
 | automatic starts, schedulers ([27](27-event-driven-process-start.md)) | the trigger produced the way the PRD says — the record created or the status set that a rule reacts to; where the trigger is a scheduler, its rule run by hand from the project's rule console (author mode) as [27](27-event-driven-process-start.md) §8.3 does by hand — then run AGAIN on the same data: still exactly ONE case, and it is in the worklist of a NON-admin member of its role group |
 | order, repetition, concurrency (g) | the same action twice (a double click, a re-submit, a retried request) has ONE effect; steps out of order are refused; the same record saved from two browser contexts ends as the PRD says (the second refused, or merged) — never silently overwritten |
 | prohibitions (f) | the forbidden situation CREATED by the test (not hoped for in the data), the action pressed, and BOTH halves asserted: the effect did not happen (the record is unchanged) and the refusal names the reason in its own words — polled, because the message arrives late and leaves early |
@@ -493,11 +519,15 @@ provoked (28 §8.8). Rewrite it until deleting the feature turns it red.
 ### Rules the suite obeys
 
 * **No credential in the repo.** `.env.example` ships with empty values; `.env` is git-ignored and is the only
-  place the project's address and the credentials live. One author account; every other identity is either
-  built through the application or a persona the owner put into `.env`.
-* **`AuthorRoleGuard.assert_safe(groups)`** before any role set is applied to the signed-in account — it refuses a
-  set without `Author`. A test that changes the account's role groups restores the original set itself, in a
-  `finally`, including on failure.
+  place the project's address and the author's credentials live. Every other person is a test user the suite
+  creates for the run (§2.4) — its password generated, held in memory, never written.
+* **Business steps run as the role, never as the author.** The author account creates users, switches author
+  mode and performs what the PRD gives an administrator — nothing else. The author's own role groups are never
+  edited (`AuthorRoleGuard.assert_safe(groups)` refuses a set without `Author`).
+* **No user ever sees a technical error.** `pages/feedback_watch.py` records every message every browser of the
+  session is shown; a test during which one carried an exception, a database constraint, a stack trace, a 500 or
+  the platform's rule-failure wrapping fails — the action should have been hidden or explained (25 "An action that
+  cannot run"). A test that provokes one on purpose says so: `@pytest.mark.technical_error_expected("<why>")`.
 * **`--run-destructive`** gates everything that writes to a real tenant; **`--run-sends`** everything that sends
   something out of it (`./start.sh all` does not imply it). Default runs are read-only.
 * **Wait on content.** This is a Wicket application with async grids, dialogs, menus and charts: wait for a row,
@@ -510,6 +540,6 @@ provoked (28 §8.8). Rewrite it until deleting the feature turns it red.
 * **A red run is triaged before anything is fixed** (§5) — and never repaired by changing an expected value to
   what the screen shows.
 * **Say what is NOT automated and why** — each `{manual}` scenario with what a person checks instead; skipped
-  checks (no persona, no `PGDSN`, no `API_KEY`, no `--run-sends`) named in the run's report, never counted as
+  checks (no `PGDSN`, no `API_KEY`, no `--run-sends`) named in the run's report, never counted as
   passed. A test that skips for "no data" means the project drifted from its seed rows: that is a finding about
   the TENANT (reset it, §5), never a reason to weaken the test.

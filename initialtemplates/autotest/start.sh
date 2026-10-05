@@ -198,7 +198,7 @@ PYEOF
 say "Summary"
 if [ $CODE -eq 0 ] && [ -n "${SKIPPED:-}" ] && [ "$SKIPPED" != "0" ]; then
   warn "no failures, but ${SKIPPED} test(s) SKIPPED — their scenarios were NOT verified (reasons: the 'SKIPPED' lines above)"
-  printf '     a missing persona, PGDSN or API_KEY is a gap in .env; "needs --run-destructive" / "--run-sends" is the\n'
+  printf '     a missing PGDSN or API_KEY is a gap in .env; "needs --run-destructive" / "--run-sends" is the\n'
   printf '     mode you chose; "no data" means the tenant drifted from the seed rows — ./start.sh reset, then run again.\n'
 elif [ $CODE -eq 0 ]; then
   ok "all green"

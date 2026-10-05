@@ -62,7 +62,7 @@ PLAN_KINDS_EXEMPT = {"context"}
 
 # test/.env: the knobs of a run may be written by `env`; the rest belongs to the project's owner.
 KNOB_KEYS = ("BASE_URL", "API_BASE_URL", "DEFAULT_LOCALE", "HEADLESS", "SLOW_MO_MS", "DEFAULT_TIMEOUT_MS",
-             "GRID_TIMEOUT_MS")
+             "GRID_TIMEOUT_MS", "KEEP_TEST_USERS")
 REQUIRED_KEYS = ("BASE_URL", "AUTH_USER", "AUTH_PASSWORD")
 # (pairs, not a dict literal: `"<NAME>_KEY": "<text>"` is exactly the shape the repo's leak scan reads as a secret)
 OPTIONAL_NOTES = dict((("PGDSN", "optional — the database cross-checks skip without it"),
@@ -75,7 +75,7 @@ def _is_secret_key(key):
 
 
 def _is_identity_key(key):
-    return key == "AUTH_USER" or (key.startswith("PERSONA_") and key.endswith("_USER"))
+    return key == "AUTH_USER"
 
 
 def _default_folder(project):
@@ -139,7 +139,8 @@ def _guard_out(out, project):
     if _inside(real_out, os.path.realpath(LIB_ROOT)):
         raise core.ToolError("--out %s is inside the builder library — the suite belongs to the project folder "
                              "(default: %s)" % (out, default))
-    if os.path.isdir(real_out) and [n for n in os.listdir(real_out) if n not in SKIP_NAMES] and not any(
+    # a lone .env is the owner having filled it in first — that folder is the suite's, not somebody else's
+    if os.path.isdir(real_out) and [n for n in os.listdir(real_out) if n not in SKIP_NAMES and n != ".env"] and not any(
             os.path.exists(os.path.join(real_out, marker)) for marker in ("conftest.py", "pytest.ini", "start.sh")):
         raise core.ToolError("--out %s is a folder that holds files but no suite — pick an empty folder (default: "
                              "%s)" % (out, default))
@@ -292,8 +293,9 @@ def _credential_findings(rel, code):
         if _looks_like_secret(m.group(1)):
             found.append("%s types a literal into a password field" % rel)
     if _LOGIN_LITERAL.search(code):
-        found.append("%s signs in with literal credentials (.login(\"…\", \"…\")) — use LoginPage.login() or the "
-                     "persona fixture" % rel)
+        found.append("%s signs in with literal credentials (.login(\"…\", \"…\")) — the author signs in with "
+                     "LoginPage.login(), everyone else is a test user the suite creates (as_user / helpers/accounts.py)"
+                     % rel)
     if _BEARER.search(code) or _JWT.search(code):
         found.append("%s carries a literal token" % rel)
     return [f + " — credentials live in test/.env only" for f in found]
@@ -695,9 +697,9 @@ def cmd_autotest_env(args):
         if not sep or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
             raise core.ToolError("--set takes KEY=VALUE, e.g. --set HEADLESS=0")
         if key not in KNOB_KEYS:
-            raise core.ToolError("%s is not a setting of the run — accounts and credentials (AUTH_*, PERSONA_*, "
-                                 "PGDSN, API_KEY) are written into test/.env by the project's owner, in the file, "
-                                 "never through a command line or a chat" % key)
+            raise core.ToolError("%s is not a setting of the run — the account and the credentials (AUTH_USER, "
+                                 "AUTH_PASSWORD, PGDSN, API_KEY) are written into test/.env by the project's owner, "
+                                 "in the file, never through a command line or a chat" % key)
         if key == "BASE_URL":
             value, more = _base_url(value, folder, args.project)
             notes += more
@@ -713,8 +715,6 @@ def cmd_autotest_env(args):
                                                     "git-ignored" if ignored else "NOT git-ignored"))
     empty_required = []
     for key in list(example) + [k for k in env if k not in example]:
-        if key.startswith("PERSONA_"):
-            continue
         value = env.get(key)
         if value is None:
             state = "commented out" if key in env else "missing from .env"
@@ -731,17 +731,10 @@ def cmd_autotest_env(args):
         elif not value and key in OPTIONAL_NOTES:
             state += " (%s)" % OPTIONAL_NOTES[key]
         core.out("  %-20s %s" % (key, state))
-    personas = sorted({k[len("PERSONA_"):-len("_USER")] for k in env
-                       if k.startswith("PERSONA_") and k.endswith("_USER") and env.get(k) is not None})
-    if personas:
-        parts = []
-        for name in personas:
-            user, pw = env.get("PERSONA_%s_USER" % name), env.get("PERSONA_%s_PASSWORD" % name)
-            parts.append("%s (%s)" % (name.lower(), "complete" if user and pw else
-                                      "USER empty" if not user else "PASSWORD empty"))
-        core.out("  %-20s %s" % ("personas", ", ".join(parts)))
-    else:
-        core.out("  %-20s none — the scenarios that need a second person skip" % "personas")
+    stale = sorted(k for k in env if k.startswith("PERSONA_"))
+    if stale:
+        core.out("NOTE  %s: the suite no longer reads personas — it creates the users a scenario needs itself "
+                 "(helpers/accounts.py); delete these lines" % ", ".join(stale))
     _realm, _client, live = _project_coordinates(folder, args.project)
     if "BASE_URL" in empty_required and live:
         core.out("  this folder records the project at %s — `mrjun.py autotest env --project %s --base-url %s`"
