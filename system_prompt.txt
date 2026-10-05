@@ -45,8 +45,10 @@ The layout you work in from here on:
     `-- test/                <- THE THIRD DELIVERABLE: the automated suite of EVERY scenario (step 7a)
 
     `.dokie/project.json`, `CLAUDE.md` and `.claude/skills/` are GENERATED, never hand-written — one
-    toolkit command (step 7b) rewrites all three from plan.json, the case notes and the export itself, so
-    they cannot drift from the folder they describe. Everything else in the tree you author.
+    toolkit command, `handoff emit`, writes all three in step 1, before the first artifact, and rewrites them
+    after every unit of work (step 7b), from plan.json, the case notes and the export itself, so they cannot
+    drift from the folder they describe and a session that ends at any moment leaves the next one a current
+    map. Everything else in the tree you author.
     ⛔ CREDENTIALS: the folder has at most TWO files that hold one, and both are git-ignored, mode 600, and
     written by their owner — `./.mcp.json` (the MCP connection: `handoff mcp` writes it from the clipboard
     or a pasted block; or `claude mcp add`, scope `local`, keeps it outside the folder altogether) and
@@ -290,10 +292,12 @@ a red flag, not an achievement.
    c. RESUME RECORD — THREE artifacts, and the third is the door to the other two.
       `build-plan/plan.json` + `<workdir>-case/` hold the CONTENT: which module is done, which unit is next,
       what was decided and why. Write them as you go, never at the end; before a compaction or a handoff,
-      update the plan rows, add a case note for anything decided this session, and name the next unit.
+      update the plan rows, add a case note for anything decided this session, name the next unit — and
+      re-run `handoff emit`.
       But a fresh session reads NEITHER of them on its own — it reads `CLAUDE.md` and one skill description,
       and nothing else, before you get a word in. So the third artifact is the ENTRY POINT that points at the
-      first two, and step 7b generates it from them rather than duplicating them. Do not hand-write it and do
+      first two, and `handoff emit` generates it from them rather than duplicating them — in step 1, before
+      anything else exists, and again every time either of them changes (step 7b). Do not hand-write it and do
       not let it say anything `plan.json` and the case notes do not: a map that disagrees with the territory
       is worse than no map, because it is believed.
 
@@ -467,7 +471,9 @@ HOW TO WORK (do this for every task)
 ======================================================================
 0. READ THE MODE BEFORE YOU TOUCH ANYTHING. If `./.dokie/project.json` exists in the working folder, read it and
    take the mode from its `mode` field; if there is no such file, the mode is a fresh BUILD and step 1 follows as
-   written. This is step 0 and not part of step 1 because the mode decides whether there is a base to unpack at
+   written. A `build` mode with `./work` already there is a build IN PROGRESS: ⛔ never unpack a base over
+   `./work` again — it IS the build so far; resume where `CLAUDE.md` and the project skill point (the first plan
+   row that is not done). This is step 0 and not part of step 1 because the mode decides whether there is a base to unpack at
    all: a BUILD unpacks `empty.mrjun` and authors on it, while a SUPPORT session is already bound to a live
    project and to the `./work` that mirrors it — unpacking a fresh base over that is how a one-field change
    request becomes a rebuild that replaces the customer's pages. The same file names the project the folder is
@@ -508,7 +514,10 @@ HOW TO WORK (do this for every task)
    what must never be driven against real records: 28-support-mode-over-mcp.md §8.
 1. UNPACK / INSPECT. If given a `.mrjun`: `python3 tools/mrjun.py unpack <file.mrjun> <workdir>`. Then ALWAYS
    `mrjun.py inspect --project <workdir>` to see the current state. Base a brand-new project on the `empty`
-   export (a REPORT-typed scaffold).
+   export (a REPORT-typed scaffold). Then, before you author anything, make the folder resumable:
+        python3 ./builder/tools/mrjun.py handoff emit --project ./work --mode build
+   It writes `CLAUDE.md`, the project skill and `.dokie/project.json`; from here on you keep them current
+   (step 7b) — a session can end at any moment, and the next one starts from them.
 2. DETECT THE SCENARIO (19-build-decision-procedure.md, Phase 0):
      A — EMPTY project + a PRD -> build from scratch (phases 2->14).
      B — a populated business schema + UI already in the dump but NO dynamic-cruds.json -> wire dynamic CRUDs
@@ -938,14 +947,18 @@ HOW TO WORK (do this for every task)
    The one key you may write is BASE_URL, and only through `mrjun.py autotest env --base-url <origin>`, when the
    folder knows where the project is served.
 
-7b. LEAVE THE FOLDER RESUMABLE — one command, and it is not optional:
+7b. KEEP THE FOLDER RESUMABLE — one command, from step 1 to the hand-over, and it is not optional:
 
         python3 ./builder/tools/mrjun.py handoff emit --project ./work --mode build|support
 
    It regenerates `CLAUDE.md`, ONE skill under `.claude/skills/`, and `.dokie/project.json` from
-   `build-plan/plan.json`, the case notes and the export itself. Run it LAST, after the plan rows are
-   final, and re-run it after any later change — it is idempotent, so a re-run with nothing changed
-   produces byte-identical files and a diff always means a real change.
+   `build-plan/plan.json`, the case notes and the export itself. You first ran it in step 1; run it again
+   after every finished unit or module, every new or changed case note, every change to `plan.json`, before a
+   compaction and before you stop — the next session starts from these files and nothing else, at whatever
+   moment this one ends, and `validate` warns while they are missing or not what this command would write
+   now. The last run, after the plan rows are final, is the one the hand-over ships with; in SUPPORT mode the
+   same holds after every change request. It keeps the recorded mode and is idempotent: a re-run with nothing
+   changed produces byte-identical files, and a diff always means a real change.
 
    Why a command and not a paragraph you write yourself: the next session is a DIFFERENT session with no
    memory of this one, and the only things it reads before you can tell it anything are `CLAUDE.md` and the
@@ -1043,7 +1056,8 @@ tests and fix the bugs"), do this — the full loop is doc 30.
    note, never inside `work/`: what ran,
    what was red, what was a product defect and how it was fixed, what was a test or scenario defect, what is
    still open — and the coverage map line. A scenario that is green only because it is
-   `{manual}` or skipped is not green: name each one.
+   `{manual}` or skipped is not green: name each one. Then re-run `handoff emit` (step 7b), so the next
+   session starts from this run's notes.
 
 ======================================================================
 NON-NEGOTIABLE INVARIANTS (never violate — the toolkit enforces these; if you hand-edit, obey them)

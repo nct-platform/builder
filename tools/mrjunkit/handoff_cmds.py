@@ -66,6 +66,7 @@ owner. (The skill file itself is generated rather than symlinked because it is p
 carries this project's counts, paths and case-note index.)
 """
 
+import argparse
 import json
 import os
 import re
@@ -382,9 +383,8 @@ def _description(name):
     """The ONE string that costs context on every turn. Load-bearing sentence first, no mode in it."""
     text = (
         "Read `./.dokie/project.json` and this folder's `CLAUDE.md` BEFORE answering anything about "
-        "this folder or changing any file in it. This folder is a delivered Dokie project: an "
-        "unpacked `.mrjun` export plus the plan it was built from, its case notes, and the builder "
-        "library. Use it for any question or change touching %s — its pages, dynamic CRUDs, forms, "
+        "this folder or changing any file in it. This folder is a Dokie project, built or supported here: "
+        "an unpacked `.mrjun` export plus its plan, its case notes, and the builder library. Use it for any question or change touching %s — its pages, dynamic CRUDs, forms, "
         "Groovy rules, workflows, queries, database dump, localization, charts, PDF/mail templates, "
         "its `.mrjun` export or import, or the `mrjun.py` toolkit. It says where the export, the "
         "plan, the case notes and the library live; which library doc answers which question; which "
@@ -410,10 +410,18 @@ def _router_body(facts):
     L = []
     L.append("# %s — project router" % f["name"])
     L.append("")
-    L.append("This folder is a **delivered Dokie project**: an unpacked `.mrjun` export, the plan it")
-    L.append("was built from, the case notes that record what was decided, and a copy of the builder")
-    L.append("library. Nothing below is authored by hand — `mrjun.py handoff emit` regenerates this")
-    L.append("file from those sources, so re-run it after any change rather than editing it.")
+    if f["mode"] == "build":
+        L.append("This folder is a Dokie project **being built here**: an unpacked `.mrjun` export (the build")
+        L.append("so far), the plan it is built from, the case notes that record what was decided, and a copy")
+        L.append("of the builder library.")
+    else:
+        L.append("This folder is a **delivered Dokie project**: an unpacked `.mrjun` export, the plan it")
+        L.append("was built from, the case notes that record what was decided, and a copy of the builder")
+        L.append("library.")
+    L.append("Nothing below is authored by hand — `mrjun.py handoff emit` regenerates this file from")
+    L.append("those sources. Re-run it after every unit of work, every new or changed case note and")
+    L.append("every plan change, and before you stop: the next session starts from this file and")
+    L.append("nothing else. `validate` warns when it is not what `handoff emit` would write now.")
     L.append("")
     L.append("**First: read `./.dokie/project.json`.** It carries the working `mode` and the same")
     L.append("paths in machine form. The mode decides which of §7's two rule sets applies.")
@@ -541,6 +549,13 @@ def _router_body(facts):
     L.append("")
     L.append("### mode = build — the project is still being assembled")
     L.append("")
+    L.append("- **Resume, never restart.** `%s/` IS the build so far: never unpack a base over it"
+             % f["workdir_rel"])
+    L.append("  again. The next unit is the first row of the plan (§3) that is not `done`; the case")
+    L.append("  notes (§4) say what was decided and why.")
+    L.append("- **Keep this map current.** Re-run `handoff emit` after every finished unit, every new")
+    L.append("  or changed case note and every plan change, and before you stop — a session can end at")
+    L.append("  any moment, and the next one has only these files.")
     L.append("- Follow the decision spine in `19-build-decision-procedure.md`; it says which phase you")
     L.append("  are in and when that phase is done.")
     L.append("- Write the per-artefact recipe BEFORE the phase that needs it —")
@@ -709,7 +724,8 @@ def _claude_md(facts):
     L = []
     L.append("# %s" % f["name"])
     L.append("")
-    L.append("**This file governs THIS folder** — the delivered Dokie project rooted here. Claude Code")
+    L.append("**This file governs THIS folder** — the Dokie project %s here. Claude Code"
+             % ("being built" if f["mode"] == "build" else "delivered and supported"))
     L.append("also loads a `CLAUDE.md` from every ANCESTOR directory and merges it with this one; where")
     L.append("they disagree about this project, this file wins.")
     L.append("")
@@ -740,7 +756,8 @@ def _claude_md(facts):
     L.append("   client's own per-project config (`claude mcp add`, scope `local`), outside this folder.")
     L.append("   Do not paste one into a note, a config, a commit or a reply.")
     L.append("")
-    L.append("Regenerate this file (and the skill) with:")
+    L.append("Regenerate this file (and the skill) after every unit of work, every new or changed case note,")
+    L.append("every plan change, and before you stop — the next session starts from them and nothing else:")
     L.append("")
     L.append("```")
     L.append("python3 %s handoff emit --project %s --mode %s"
@@ -1215,30 +1232,9 @@ def cmd_handoff_browser(args):
     return 0
 
 
-def cmd_handoff_emit(args):
-    workdir = os.path.realpath(args.project or ".")
-    if not os.path.isfile(os.path.join(workdir, core.F_TENANT)):
-        raise core.ToolError("--project must be the UNPACKED export dir (the one holding %s), not the "
-                             "project folder around it: %s" % (core.F_TENANT, workdir))
-    out_root = os.path.realpath(args.out) if getattr(args, "out", None) else os.path.dirname(workdir)
-    if not os.path.isdir(out_root):
-        raise core.ToolError("--out is not a directory: %s" % out_root)
-    # ⛔ Never emit INTO the export. `pack` walks the export dir, so a handoff written there would be
-    # shipped inside the customer's .mrjun — the router, the machine state and whatever else the
-    # folder accumulates. The same reason case notes live in a SIBLING folder.
-    if out_root == workdir or os.path.commonpath([out_root, workdir]) == workdir:
-        raise core.ToolError(
-            "--out must not be the export dir or inside it (%s): `pack` walks that directory, so the "
-            "handoff would ship inside the .mrjun. Use the project folder "
-            "around it, which is the default." % workdir)
-
-    # The mode is a property of the FOLDER, not of this invocation: a re-run that forgot --mode must not
-    # flip a delivered support folder back to build (or the reverse) without anyone asking for it.
-    mode = getattr(args, "mode", None)
-    if not mode:
-        mode = _recorded_mode(out_root) or "support"
-    args.mode = mode
-
+def _facts(args, workdir, out_root):
+    """Everything the generated files say, read from disk — no writes, no output. `args.mode` is already
+    resolved. Returns (facts, lib_root, delivered)."""
     p = core.Project(workdir)
     realm, client = p.realm_client()
     lib_root, delivered = _library_root(out_root)
@@ -1297,18 +1293,76 @@ def cmd_handoff_emit(args):
     facts["root_url"] = (_clean_root_url(getattr(args, "base_url", None))
                          or _recorded_root_url(out_root))
     facts["live_url"] = _project_url(facts["root_url"], facts["realm"], facts["client"])
+    return facts, lib_root, delivered
+
+
+def _generated(facts, out_root, fmt):
+    """{absolute path: text} — exactly the files `handoff emit` writes for these facts."""
+    files = {}
+    if fmt == "claude":
+        files[os.path.join(out_root, "CLAUDE.md")] = _claude_md(facts)
+        files[os.path.join(out_root, ".claude", "skills", SKILL_NAME, "SKILL.md")] = _skill_md(facts)
+    else:
+        files[os.path.join(out_root, MARKDOWN_REL)] = _markdown_doc(facts)
+    files[os.path.join(out_root, STATE_REL)] = _state_json(facts)
+    return files
+
+
+def stale_files(workdir):
+    """The generated files a re-run of `handoff emit` — recorded mode and format, default folder — would create or
+    change, relative to the folder; [] when the folder's entry point is current. Read-only: `validate` asks it,
+    and a gate never writes."""
+    workdir = os.path.realpath(workdir)
+    out_root = os.path.dirname(workdir)
+    fmt = ("markdown" if os.path.isfile(os.path.join(out_root, MARKDOWN_REL))
+           and not os.path.isfile(os.path.join(out_root, "CLAUDE.md")) else "claude")
+    args = argparse.Namespace(project=workdir, out=None, mode=_recorded_mode(out_root) or "support", realm=None,
+                              client=None, base_url=None, format=fmt, dir=None)
+    facts, _lib_root, _delivered = _facts(args, workdir, out_root)
+    stale = []
+    for path, text in _generated(facts, out_root, fmt).items():
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                if fh.read() == text:
+                    continue
+        except OSError:
+            pass
+        stale.append(os.path.relpath(path, out_root))
+    return stale
+
+
+def cmd_handoff_emit(args):
+    workdir = os.path.realpath(args.project or ".")
+    if not os.path.isfile(os.path.join(workdir, core.F_TENANT)):
+        raise core.ToolError("--project must be the UNPACKED export dir (the one holding %s), not the "
+                             "project folder around it: %s" % (core.F_TENANT, workdir))
+    out_root = os.path.realpath(args.out) if getattr(args, "out", None) else os.path.dirname(workdir)
+    if not os.path.isdir(out_root):
+        raise core.ToolError("--out is not a directory: %s" % out_root)
+    # ⛔ Never emit INTO the export. `pack` walks the export dir, so a handoff written there would be
+    # shipped inside the customer's .mrjun — the router, the machine state and whatever else the
+    # folder accumulates. The same reason case notes live in a SIBLING folder.
+    if out_root == workdir or os.path.commonpath([out_root, workdir]) == workdir:
+        raise core.ToolError(
+            "--out must not be the export dir or inside it (%s): `pack` walks that directory, so the "
+            "handoff would ship inside the .mrjun. Use the project folder "
+            "around it, which is the default." % workdir)
+
+    # The mode is a property of the FOLDER, not of this invocation: a re-run that forgot --mode must not
+    # flip a delivered support folder back to build (or the reverse) without anyone asking for it.
+    mode = getattr(args, "mode", None)
+    if not mode:
+        mode = _recorded_mode(out_root) or "support"
+    args.mode = mode
+
+    facts, lib_root, delivered = _facts(args, workdir, out_root)
 
     core.out("handoff emit: %s (mode=%s, format=%s)" % (facts["name"], facts["mode"], args.format))
     core.out("  export     %s" % facts["workdir_rel"])
     core.out("  into       %s" % out_root)
 
-    if args.format == "claude":
-        _emit(os.path.join(out_root, "CLAUDE.md"), _claude_md(facts), out_root)
-        _emit(os.path.join(out_root, ".claude", "skills", SKILL_NAME, "SKILL.md"),
-              _skill_md(facts), out_root)
-    else:
-        _emit(os.path.join(out_root, MARKDOWN_REL), _markdown_doc(facts), out_root)
-    _emit(os.path.join(out_root, STATE_REL), _state_json(facts), out_root)
+    for path, text in _generated(facts, out_root, args.format).items():
+        _emit(path, text, out_root)
 
     _append_gitignore(out_root)
 

@@ -1464,7 +1464,9 @@ ladder for one change is shorter and stricter:
 3. the plan row is ticked, or a new row exists if the change was not in the plan;
 4. a case note records WHY, in the user's own words — a support change with no recorded reason is a change the
    next session will undo;
-5. the live/local comparison at the end of the session is clean, or you have named exactly where it is not.
+5. the live/local comparison at the end of the session is clean, or you have named exactly where it is not;
+6. `mrjun.py handoff emit --project ./work` re-run, so the folder's `CLAUDE.md` and project skill describe it
+   as it is now — the next session starts from them and nothing else.
 
 Then hand over: what changed, in which project and on which branch, what you verified and what you could not,
 which items from §6 were involved and therefore still need a human, and — if any workflow was touched — that it

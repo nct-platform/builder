@@ -403,6 +403,8 @@ def cmd_validate(args):
     _check_admin_base_pages(p, r)
     _check_action_forks(p, r)
     _check_chart_page_params(p, r)
+    # -- the folder's entry point (CLAUDE.md + the project skill) is what `handoff emit` would write NOW --
+    _check_entry_point_current(p, r)
 
     # -- content tree checks ------------------------------------------------
     locales = set(p.locales())
@@ -8330,6 +8332,36 @@ def _iter_all_actions(p):
             for a in (payload.get("actions") or []) if isinstance(payload, dict) else []:
                 if isinstance(a, dict):
                     yield "workflow %r task %r" % (wf.get("name"), props.get("id")), "userActions", None, a
+
+
+def _check_entry_point_current(p, r):
+    """RESUME (WARN). A fresh session resumes a project folder from `CLAUDE.md`, the one project skill and
+    `.dokie/project.json` — the files `handoff emit` writes — and from nothing else, at whatever moment the last
+    session ran out of context. Missing, the next session starts blind; not what `handoff emit` would write now,
+    it starts from a map of a build that has moved on, which is worse, because it is believed. Only a PROJECT
+    FOLDER is checked — the export's parent holding the library (`builder/`) or a recorded mode
+    (`.dokie/project.json`); an export validated on its own has no entry point to keep. Read-only: the check
+    regenerates in memory and compares. (system_prompt OP 7c, steps 1 and 7b)"""
+    workdir = os.path.realpath(p.root)
+    folder = os.path.dirname(workdir)
+    state = os.path.join(folder, ".dokie", "project.json")
+    if not (os.path.isdir(os.path.join(folder, "builder")) or os.path.isfile(state)):
+        return
+    cmd = "python3 ./builder/tools/mrjun.py handoff emit --project ./%s" % os.path.basename(workdir)
+    if not os.path.isfile(state):
+        r.warn("this project folder has no CLAUDE.md, project skill or .dokie/project.json yet - a session that "
+               "runs out of context leaves the next one nothing to resume from. Run `%s --mode build` before "
+               "authoring anything (step 1), and again after every unit of work (step 7b)" % cmd)
+        return
+    from . import handoff_cmds
+    try:
+        stale = handoff_cmds.stale_files(workdir)
+    except core.ToolError:
+        return
+    if stale:
+        r.warn("%s %s not what `handoff emit` would write now - the next session would resume from a map of a "
+               "build that has moved on. Re-run `%s` (it keeps the recorded mode)"
+               % (", ".join(stale), "is" if len(stale) == 1 else "are", cmd))
 
 
 def _check_action_refused_by_role(p, r):

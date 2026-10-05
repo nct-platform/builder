@@ -98,7 +98,9 @@ its own DONE gate:
    templates → workflows → schedulers → nav/home. A task can't start before its inputs exist.
 3. **Write the acceptance test for each task WHEN you write the task** (the "test:" clause above). A task without a
    defined test is not ready to build.
-4. **Record it** (§6) so progress is visible and an interrupted build resumes without re-deriving the plan.
+4. **Record it** (§6) so progress is visible and an interrupted build resumes without re-deriving the plan —
+   then re-run `mrjun.py handoff emit --project ./work`: it turns the record into the `CLAUDE.md` and project
+   skill a fresh session opens first (contract steps 1 and 7b; `validate` warns while they are behind).
 
 ---
 
