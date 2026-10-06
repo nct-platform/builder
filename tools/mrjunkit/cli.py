@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover
     dist_cmds = None
 
 from . import (autotest_cmds, case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
-               crudverify_cmds, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
+               crudverify_cmds, execaccess, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
                packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
                globalresource_cmds, workflow_cmds)
 
@@ -492,11 +492,22 @@ def build_parser():
     sp.add_argument("--context", required=True, help="context id/alias/name")
     sp.add_argument("--script", required=True, help="@file or literal Groovy")
     sp.add_argument("--desc")
+    execaccess.add_access_args(sp, "rule")
     sp.set_defaults(func=rep_cmds.cmd_rule_add)
     sp = rule.add_parser("rm", help="remove a rule")
     _add_project(sp)
     sp.add_argument("id")
     sp.set_defaults(func=rep_cmds.cmd_rule_rm)
+    sp = rule.add_parser("access", help="show / set who may RUN a rule (rules[].access; absent = signed-in "
+                                        "users). A rule an anonymous visitor triggers on a public page needs "
+                                        "--access anyone (doc 08)")
+    _add_project(sp)
+    sp.add_argument("id", help="rule identifier or name")
+    execaccess.add_access_args(sp, "rule")
+    sp.add_argument("--default", action="store_true",
+                    help="remove the key: back to the platform default, signed-in users")
+    sp.add_argument("--show", action="store_true", help="print the access (also what no flag at all does)")
+    sp.set_defaults(func=rep_cmds.cmd_rule_access)
 
     # -- query --------------------------------------------------------------
     q = sub.add_parser("query", help="rep-objects queries").add_subparsers(dest="sub", metavar="<sub>")
@@ -643,6 +654,28 @@ def build_parser():
     sp.add_argument("--script", help="@file or literal")
     sp.add_argument("--returns-array", action="store_true")
     sp.set_defaults(func=crud_cmds.cmd_crud_add_method)
+
+    sp = crud.add_parser("access", help="show / set a dynamic CRUD's CRUD-level access (cruds[].access; absent = "
+                                        "signed-in users) — every method that inherits runs with it (doc 11)")
+    _add_project(sp)
+    sp.add_argument("alias")
+    execaccess.add_access_args(sp, "CRUD's methods")
+    sp.add_argument("--default", action="store_true",
+                    help="remove the key: back to the platform default, signed-in users")
+    sp.add_argument("--show", action="store_true",
+                    help="print the CRUD's access and what each method runs with (also what no flag does)")
+    sp.set_defaults(func=crud_cmds.cmd_crud_access)
+
+    sp = crud.add_parser("method-access", help="show / set ONE method's access: --inherit (the CRUD's, the "
+                                               "default) or its own (inheritAccess=false + access) (doc 11)")
+    _add_project(sp)
+    sp.add_argument("alias")
+    sp.add_argument("method", help="methodName")
+    sp.add_argument("--inherit", action="store_true",
+                    help="run with the CRUD's access (removes inheritAccess and access from the method)")
+    execaccess.add_access_args(sp, "method")
+    sp.add_argument("--show", action="store_true", help="print what the method runs with (also what no flag does)")
+    sp.set_defaults(func=crud_cmds.cmd_crud_method_access)
 
     sp = crud.add_parser("apply", help="give every GROOVY method a ruleIdentifier — the "
                                        "offline equivalent of the UI's \"Apply\" (idempotent)")

@@ -4,7 +4,10 @@ A dynamic CRUD lives in dynamic-cruds.json. SQL methods reference a saved query
 (rep-objects.queries) by queryIdentifier, named crud_<alias>_<method> (§ naming
 convention). GROOVY methods reference a rule by ruleIdentifier."""
 
+import json
+
 from . import core
+from . import execaccess
 
 # The standard method set of a dynamic CRUD (FINDINGS + SPEC).
 STANDARD_METHODS = ["find", "findAll", "count", "get", "create", "update", "delete"]
@@ -323,6 +326,133 @@ def cmd_crud_apply(args):
                  "\"Rule not found with identifier\". Add the script or clear the identifier."
                  % ref)
     core.out("crud apply: %d method(s) wired, %d already had an identifier" % (wired, already))
+
+
+# ---------------------------------------------------------------------------
+# execution access — who may RUN the CRUD's methods (doc 11 §"Execution access")
+# ---------------------------------------------------------------------------
+
+
+def _dynamic_crud_for_access(p, alias):
+    """The dynamic CRUD `alias`, with the two refusals that explain where else access lives."""
+    if alias == execaccess.BL_ALIAS:
+        raise core.ToolError("'bl' is the integration's CRUD-management CRUD — it is always administrators and "
+                             "authors only, and that is not configurable")
+    crud_file = p.cruds_file
+    cruds = ((crud_file.data.get("cruds") if crud_file and isinstance(crud_file.data, dict) else None) or [])
+    for c in cruds:
+        if isinstance(c, dict) and c.get("alias") == alias:
+            return c
+    raise core.ToolError("no dynamic CRUD with alias %r in dynamic-cruds.json. A Java (static) CRUD declares its "
+                         "access in code with @CrudAccess (on the class and/or a method) — it is not in the export "
+                         "and cannot be set here (doc 11 §\"Execution access\")" % alias)
+
+
+def _find_method(crud, name):
+    for m in crud.get("methods") or []:
+        if isinstance(m, dict) and m.get("methodName") == name:
+            return m
+    raise core.ToolError("crud %r has no method %r (methods: %s)"
+                         % (crud.get("alias"), name,
+                            ", ".join(str(m.get("methodName")) for m in crud.get("methods") or []
+                                      if isinstance(m, dict)) or "none"))
+
+
+def _runs_with(crud, m):
+    """What one method runs with, in words: its own access, or the CRUD's (inherited)."""
+    acc, source = execaccess.method_effective(crud, m)
+    if source == "own":
+        return "own access: %s" % execaccess.describe(acc)
+    stale = "" if m.get("access") is None else "  [carries an `access` that is IGNORED: inheritAccess is not false]"
+    return "inherits the CRUD's: %s%s" % (execaccess.describe(acc), stale)
+
+
+def _method_line(crud, m):
+    return "%-28s %s" % (m.get("methodName"), _runs_with(crud, m))
+
+
+def cmd_crud_access(args):
+    """Show or set a dynamic CRUD's CRUD-level access (cruds[].access); every inheriting method runs with it."""
+    p = core.Project(args.project)
+    crud = _dynamic_crud_for_access(p, args.alias)
+    access = execaccess.access_from_args(args)
+    if args.show and (access is not None or args.default):
+        raise core.ToolError("--show only prints; drop it to change the access")
+    if args.default and access is not None:
+        raise core.ToolError("--default removes the access (= signed-in users); it cannot be combined with "
+                             "--access / --role-group")
+
+    if access is None and not args.default:
+        core.out("crud: %s (%s)" % (crud.get("alias"), crud.get("name")))
+        core.out("  access: %s" % execaccess.describe(crud.get("access")))
+        if crud.get("access") is not None:
+            core.out("  raw: %s" % json.dumps(crud.get("access"), ensure_ascii=False))
+        core.out("  methods:")
+        for m in crud.get("methods") or []:
+            if isinstance(m, dict):
+                core.out("    " + _method_line(crud, m))
+        return 0
+
+    before = execaccess.describe(crud.get("access"))
+    if args.default:
+        if "access" not in crud:
+            core.out("crud %s: access already absent — signed-in users (the default)" % crud.get("alias"))
+            return 0
+        crud.pop("access")
+    else:
+        crud["access"] = access
+        execaccess.warn_unknown_groups(p, access)
+    p.mark(core.F_CRUDS)
+    p.save()
+    own = [m.get("methodName") for m in crud.get("methods") or []
+           if isinstance(m, dict) and m.get("inheritAccess") is False]
+    core.out("crud access set: %s\n  access=%s\n  was=%s\n  inherited by every method except: %s"
+             % (crud.get("alias"), execaccess.describe(crud.get("access")), before,
+                ", ".join(own) if own else "(none — all inherit)"))
+    return 0
+
+
+def cmd_crud_method_access(args):
+    """Show or set ONE dynamic CRUD method's access: --inherit (the CRUD's; the default) or its own."""
+    p = core.Project(args.project)
+    crud = _dynamic_crud_for_access(p, args.alias)
+    m = _find_method(crud, args.method)
+    access = execaccess.access_from_args(args)
+    if args.inherit and access is not None:
+        raise core.ToolError("--inherit makes the method run with the CRUD's access; it cannot be combined with "
+                             "--access / --role-group")
+    if args.show and (access is not None or args.inherit):
+        raise core.ToolError("--show only prints; drop it to change the access")
+    ref = "%s.%s" % (crud.get("alias"), m.get("methodName"))
+
+    if access is None and not args.inherit:
+        core.out("method: %s" % ref)
+        core.out("  inheritAccess: %s" % m.get("inheritAccess"))
+        core.out("  runs with: " + _runs_with(crud, m))
+        if m.get("access") is not None:
+            core.out("  raw access: %s" % json.dumps(m.get("access"), ensure_ascii=False))
+        core.out("  crud access: %s" % execaccess.describe(crud.get("access")))
+        return 0
+
+    before = _runs_with(crud, m)
+    if args.inherit:
+        # Absent IS inherit (absent/null/true all mean "the CRUD's"), and a leftover `access` would only be
+        # read the day someone flips inheritAccess to false — remove both.
+        if "inheritAccess" not in m and "access" not in m:
+            core.out("method %s: already inherits the CRUD's access (%s)"
+                     % (ref, execaccess.describe(crud.get("access"))))
+            return 0
+        m.pop("inheritAccess", None)
+        m.pop("access", None)
+    else:
+        m["inheritAccess"] = False
+        m["access"] = access
+        execaccess.warn_unknown_groups(p, access)
+    p.mark(core.F_CRUDS)
+    p.save()
+    core.out("method access set: %s\n  runs with: %s\n  was: %s"
+             % (ref, _runs_with(crud, m), before))
+    return 0
 
 
 def cmd_crud_list(args):

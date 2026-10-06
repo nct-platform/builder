@@ -29,8 +29,10 @@ a CRUD method is the context-independent `service.crud.<crudAlias>.<method>(args
 
 > **🔧 Tooling.** For these entities, run [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
 > `context add --name <s> --alias <s> --crud <a>...`, `context add-alias <ctx> <a>...`,
-> `rule add --name <s> --type PREDICATE|EXECUTION_RULE|VALIDATION_RULE --context <ctx> --script @f`
-> (executor and the missing-`return` warning are automatic), `rule rm`, `list rules/contexts`.
+> `rule add --name <s> --type PREDICATE|EXECUTION_RULE|VALIDATION_RULE --context <ctx> --script @f
+> [--access anyone|signed-in|authors | --role-group <g>...]`
+> (executor and the missing-`return` warning are automatic), `rule access <id|name> ...` (who may RUN it —
+> §"Execution access"), `rule rm`, `list rules/contexts`.
 > Full index and rules — [`tools/README.md`](tools/README.md); before re-importing — `mrjun.py validate`.
 >
 > ⚠️ **`rule add` limitation:** `--context` is **mandatory**, and the command always writes exactly one
@@ -123,7 +125,9 @@ Rules live in `rep-objects.json` under the `rules` key (an array). Schema of one
   "executor": "GroovyPredicate|GroovyExecutionRule|GroovyValidationRule",
   "contextIdentifiers": ["<context uuid>", ...],          // which contexts are available as context.<alias>; often []
   "rule": { "ruleScriptStr": "<Groovy source>" },         // body; without the template wrapper
-  "hidden": null                                          // null | true | false; true → hidden in the Rules list
+  "hidden": null,                                         // null | true | false; true → hidden in the Rules list
+  "access": { "publicAccess": false, "authenticatedUserAccess": true, "roleGroups": [] }
+                                                          // who may RUN it; ABSENT/null = signed-in users (§"Execution access")
 }
 ```
 
@@ -176,7 +180,8 @@ Worked example (EXECUTION, dropdown source) — **note `contextIdentifiers: []`*
 | `executor` | String | name of the `@ExecutorRule` bean: `GroovyPredicate`/`GroovyExecutionRule`/`GroovyValidationRule`; **must match `ruleType` 1:1** | — | `@ExecutorRule(name=...)` |
 | `contextIdentifiers` | String[] | UUIDs of contexts from `contexts[]`; their `alias` becomes available as `context.<alias>`. **Often `[]`** — rules that only call `service.crud.<alias>` / `service.security` / `service.global` need no context (see below) | `[]` | `RuleScriptSettingsControlPanel.java` |
 | `rule.ruleScriptStr` | String | script body (Groovy). **Without** the template wrapper — the executor adds it. Line breaks = `\n`, quotes = `\"` (this is a single JSON string) | — | `AbstractGroovyExecutor.java` |
-| `hidden` | Boolean\|null | `true` → the rule is not shown in the Rules list. In practice `rules[]` carries only `null` and `false` — hand-written rules leave it `null`, generated ones write `false`; neither is anomalous, and `true` is vanishingly rare | `null` | `RuleDto.hidden` |
+| `hidden` | Boolean\|null | `true` → the rule is not shown in the Rules list. In practice `rules[]` carries only `null` and `false` — hand-written rules leave it `null`, generated ones write `false`; neither is anomalous. `true` marks a CRUD GROOVY method's body (`crud_<alias>_<method>`) — its own `access` is ignored | `null` | `RuleDto.hidden` |
+| `access` | Object\|null | who may RUN the rule: `{publicAccess, authenticatedUserAccess, roleGroups}`. **Absent/`null` = signed-in users.** Set it with `mrjun.py rule access` — §"Execution access" | absent | `RuleDto.access` |
 
 > **`contextIdentifiers: []` — the dominant pattern for dropdown sources.** In a mature project a sizeable
 > minority of all rules carry an empty `contextIdentifiers`, and they are almost exclusively the
@@ -248,6 +253,101 @@ Under the `contexts` key (an array). Worked example:
 > deserialization abort, diagnose in `log/ui.log`; (2) the `crudAliases[]` genuinely omits the alias — add it with
 > `mrjun.py context add-alias <ctx> <alias>`. Note the import assigns the saved context a fresh DB **id** while
 > **preserving its `identifier`** — a changed id in `Saved Context … {id}` logs is not a problem.
+
+---
+
+## Execution access — who may run a rule
+
+Every rule has an **execution access**: who may RUN it, whoever asks. The executor checks it on every run, so it
+governs a form predicate exactly as it governs a public-API call. It is one object, the same on a rule, a dynamic
+CRUD and a CRUD method ([11 §"Execution access"](11-business-logic-dynamic-crud.md)), stored at
+`rep-objects.json` → `rules[].access`:
+
+```json
+"access": { "publicAccess": false, "authenticatedUserAccess": true, "roleGroups": ["<Role Group>"] }
+```
+
+| Value | Who may run the rule | `mrjun.py rule access` flag |
+|---|---|---|
+| `publicAccess: true` | anyone — anonymous visitors included | `--access anyone` |
+| `authenticatedUserAccess: true` | any signed-in user | `--access signed-in` |
+| neither flag, `roleGroups: ["A", …]` | members of those project role groups (exact names) | `--role-group A [--role-group B]` |
+| neither flag, `roleGroups: []` | administrators and authors only | `--access authors` |
+| **absent / `null`** | **signed-in users — the default** | `--default` (removes the key) |
+
+Administrators and authors may always run every rule; `roleGroups` is read only when neither flag is set. The
+vocabulary is the page editor's on purpose (`roleAccess`, [01](01-content-model-and-pages.md)), but the two are
+independent: **a page's access never opens the rules it triggers.**
+
+* **Absent means signed-in users** — for every new rule, and for every rule of an archive exported before the setting
+  existed (such an archive imports with all of its rules signed-in only). Opening a rule to anonymous visitors is
+  always an explicit act.
+* **Hidden rules ignore their own access.** A rule with `"hidden": true` is a CRUD GROOVY method's body
+  (`crud_<alias>_<method>`): only the platform and authors run it directly, and whoever calls the method is checked
+  against the METHOD's access ([11 §"Execution access"](11-business-logic-dynamic-crud.md)). `rule access` refuses a
+  hidden rule and points at `crud method-access`.
+
+**Two doors, whoever calls.**
+
+| Door | Checks | What passes through it |
+|---|---|---|
+| rule door | the rule's access | every rule run from a page — form predicates, validations, default-value rules, submit / action rules and their before-start / before-complete rules, action-button predicates, table fetch rules, dropdown / autocomplete choices rules, HTML Component Studio `ctx.callRule` — plus the public API, workflow steps, MCP, REST |
+| method door | the method's access | every CRUD method call — `ctx.callBl`, tables and forms bound to a CRUD, the public API, MCP |
+
+**Who is calling** is decided by how the request authenticated, never by its body alone: a user's token = that user;
+a platform service's internal token = whatever that service says (a user, an anonymous visitor, or the platform
+itself); no credentials = an anonymous visitor. So a page opened without signing in runs its rules AS an anonymous
+visitor.
+
+**Nested calls are NOT re-checked.** Once a rule passed its door, what its body calls — `service.rule(...)`,
+`service.crud.<alias>.<method>(...)`, a GROOVY method's body — runs on the platform's authority
+([16](16-groovy-service-api.md)). That is the recipe for a public form:
+
+1. open every rule the anonymous visitor triggers to anyone — the submit / action rule, the field predicates, the
+   validations, the choices rules: `mrjun.py rule access '<Form> Submit' --access anyone`;
+2. keep the CRUD methods those rules call at their default. ⛔ Do **not** open a CRUD method to anyone because a public
+   rule writes through it: the rule already carries the visitor through, and an open method carries every visitor with
+   devtools straight to the table. (`ctx.callBl` from a public page needs the METHOD open — prefer `ctx.callRule`,
+   [24](24-html-component-studio.md) §4.3.)
+
+> ⛔ **Breaking on the platform update.** Every rule an anonymous visitor triggers on a public page — form predicates,
+> validations, submit / action rules, choices / dropdown rules, `ctx.callRule` — is **REFUSED** until its access is
+> `anyone`. The page still renders; the first click fails. A refused rule answers code `ACCESS_DENIED` ("Not authorized
+> to run this rule"); a refused method answers HTTP 403 "Not authorized to run `<alias>.<method>`". Nothing at import
+> says so: run `validate` (below) and open every rule it lists. Live, the same fix is `nct_rule_setAccess`
+> ([28](28-support-mode-over-mcp.md)).
+
+> ⚠️ **The default is not a restriction.** Signed-in users means ANY signed-in user may run the rule directly — not
+> only through the screen that shows its button (`ctx.callRule('<Rule>', …)` from devtools on any page they can open).
+> A rule that writes, approves, deletes or reveals something sensitive gets `--role-group` (and keeps its own
+> `hasAnyRoleGroup` check, §"Recipe: role-check predicate"); so do the write / delete methods of a sensitive CRUD
+> ([11](11-business-logic-dynamic-crud.md)). The public API is no exception: the acting user — the signed-in person or
+> the endpoint's service account — must pass the rule's access ([32](32-public-api.md) §3.15).
+
+```bash
+mrjun.py rule access '<Form> Submit' --project work                         # print it (= --show)
+mrjun.py rule access '<Form> Submit' --access anyone --project work         # a rule a public page triggers
+mrjun.py rule access '<Entity> Approve' --role-group '<Approvers>' --project work
+mrjun.py rule access '<Entity> Purge' --access authors --project work       # administrators and authors only
+mrjun.py rule access '<Entity> Approve' --default --project work            # remove the key: signed-in users
+mrjun.py rule add --name '<Form> Submit' --type EXECUTION_RULE --context <ctx> --script @f --access anyone --project work
+```
+
+Without an access flag `rule add` writes no `access` key (the default). `--role-group` warns when the export defines
+no group of that exact name — it would match nobody, leaving the rule to administrators and authors.
+
+**What `validate` reports.** ERROR — an `access` that is not an object, an unknown key (the platform skips it, so a
+typo leaves the rule at signed-in users), a non-boolean flag, a `roleGroups` that is not a list of strings. WARN — a
+role group the export does not define; role groups next to a flag (ignored); an `access` on a hidden rule (ignored);
+and **every rule an anonymous visitor triggers on a public page whose access is not `anyone`**: a rule identifier in
+the config of any node a public page renders to an anonymous visitor (common components included), the `validators`
+of a form on such a page, the mapping predicates of a form group whose landing page is public, a
+`ctx.callRule('<name or identifier>')` literal in a studio script, and — weaker, the message says so — a string literal
+in a studio script that is the exact name of an EXECUTION rule (the shape of a helper that ends in `ctx.callRule`). A
+rule name a script only computes is invisible to it: list those by hand.
+
+ℹ️ The key means something only on a platform that has execution access; an older one ignores it
+([23](23-distribution-and-known-gaps.md)).
 
 ---
 
@@ -1138,3 +1238,7 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     EXECUTION rule (action logic / `onBeforeStart` / `onBeforeComplete`) aborts the action and shows `msg` as an
     error toast (`CrudTablePlugin.java`). A PREDICATE cannot show a message or abort — it only
     hides/disables the button. See §"Aborting an action with a message (`throw`)".
+20. **A rule a public page triggers must be `anyone`.** Absent `access` = signed-in users, so on a platform with
+    execution access an anonymous visitor's predicate / validation / submit / choices / `ctx.callRule` is refused
+    (`ACCESS_DENIED`). `mrjun.py rule access '<rule>' --access anyone`; keep the CRUD methods it calls at their
+    default. `validate` lists them. See §"Execution access".

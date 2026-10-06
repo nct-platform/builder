@@ -343,6 +343,10 @@ def cmd_validate(args):
     _check_workflow_start_document_shape(p, r)
     # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
     _check_rule_context_binding(p, r)
+    # -- execution access (who may RUN a rule / CRUD / method): shape, unknown role groups, ignored settings --
+    _check_execution_access_shape(p, cruds, r)
+    # -- a rule an anonymous visitor triggers on a public page, not opened to anyone -> refused, the form dies --
+    _check_public_page_rule_access(p, cruds, r)
     # -- a persist rule with no hasAnyRoleGroup -> anyone who reaches the form can write the entity --
     _check_persist_rule_role_guard(p, r)
     # -- a write action with no predicate -> the button shows for every role and fails only on Save --
@@ -9221,3 +9225,350 @@ def _check_user_task_action_has_complete_rule(p, r):
                       "leaves the worklist and the happy path looks finished. Wire the rule that "
                       "writes the decision. (07-workflows-and-tasks.md)"
                       % ((w.get("name") or "?"), props.get("name") or props.get("id"), label))
+
+
+# ---------------------------------------------------------------------------
+# Execution access — who may RUN a rule / a dynamic CRUD / one method (08 §"Execution access", 11)
+# ---------------------------------------------------------------------------
+
+_ACCESS_DOC = "(08-groovy-rules-and-context.md §\"Execution access\")"
+_CRUD_ACCESS_DOC = "(11-business-logic-dynamic-crud.md §\"Execution access\")"
+
+
+def _check_execution_access_shape(p, cruds, r):
+    """SHAPE (ERROR) + IGNORED / UNMATCHED SETTINGS (WARN) of every execution-access value in the export.
+
+    `rules[].access`, `cruds[].access` and `cruds[].methods[].{inheritAccess, access}` all hold the one object
+    `{publicAccess, authenticatedUserAccess, roleGroups}` (execaccess.py). Absent / null is the platform default —
+    signed-in users — and is never reported.
+
+    ERROR: not an object, an unknown key (the platform's reader skips it, so a typo such as `public` silently
+    leaves the artefact at signed-in users), a flag that is not a boolean, `roleGroups` that is not a list of
+    strings, an `inheritAccess` that is not a boolean.
+
+    WARN: a role group the export does not define (it matches nobody until a group of that EXACT name exists);
+    role groups next to a flag that makes them irrelevant; `inheritAccess: false` with no `access` (= signed-in
+    users — almost never what was meant by switching inheritance off); an `access` on a method that still
+    inherits (ignored); an `access` on a hidden rule (a CRUD method's body — ignored, the METHOD decides)."""
+    from . import execaccess
+
+    known = execaccess.project_role_groups(p.rep)
+
+    def common(label, value, doc):
+        problems = execaccess.shape_problems(value)
+        for pr in problems:
+            r.err("%s: access %s. Expected {\"publicAccess\": bool, \"authenticatedUserAccess\": bool, "
+                  "\"roleGroups\": [\"<role group>\", …]} or no key at all (= signed-in users). %s"
+                  % (label, pr, doc))
+        if problems:
+            return False
+        missing = execaccess.unknown_groups(value, known)
+        if missing:
+            r.warn("%s: access names role group(s) %s that this export does not define (roleGroups: %s) — until "
+                   "a group of that EXACT name exists it matches nobody, and only administrators and authors may "
+                   "run it. %s" % (label, ", ".join(repr(g) for g in missing),
+                                    ", ".join(sorted(known)) or "none", doc))
+        flag, ignored = execaccess.ignored_groups(value)
+        if flag:
+            r.warn("%s: access sets %s=true AND lists roleGroups %s — role groups are read only when neither flag "
+                   "is set, so they are ignored here. %s" % (label, flag, ", ".join(ignored), doc))
+        return True
+
+    for rule in p.rep.get("rules", []) or []:
+        if not isinstance(rule, dict) or rule.get("access") is None:
+            continue
+        label = "rule %r" % (rule.get("name") or rule.get("identifier"))
+        if common(label, rule.get("access"), _ACCESS_DOC) and rule.get("hidden") is True:
+            r.warn("%s is hidden (the body of a CRUD GROOVY method) and carries an access — it is IGNORED: only "
+                   "the platform and authors run a hidden rule directly, and whoever calls the method is checked "
+                   "against the METHOD's access (mrjun.py crud method-access). %s" % (label, _CRUD_ACCESS_DOC))
+
+    for crud in cruds or []:
+        if not isinstance(crud, dict):
+            continue
+        alias = crud.get("alias")
+        if crud.get("access") is not None:
+            common("crud %r" % alias, crud.get("access"), _CRUD_ACCESS_DOC)
+        for m in crud.get("methods") or []:
+            if not isinstance(m, dict):
+                continue
+            label = "crud %r method %r" % (alias, m.get("methodName"))
+            inherit = m.get("inheritAccess")
+            if inherit is not None and not isinstance(inherit, bool):
+                r.err("%s: inheritAccess is %r (%s), not a boolean (true/absent = the CRUD's access, false = the "
+                      "method's own). %s" % (label, inherit, type(inherit).__name__, _CRUD_ACCESS_DOC))
+                continue
+            acc = m.get("access")
+            if acc is not None and not common(label, acc, _CRUD_ACCESS_DOC):
+                continue
+            if inherit is False and acc is None:
+                r.warn("%s: inheritAccess is false but the method has no access of its own — that means signed-in "
+                       "users, whatever the CRUD says. If that is the intent, say it explicitly (mrjun.py crud "
+                       "method-access %s %s --access signed-in); otherwise --inherit. %s"
+                       % (label, alias, m.get("methodName"), _CRUD_ACCESS_DOC))
+            elif inherit is not False and acc is not None:
+                r.warn("%s: carries an access (%s) but still inherits the CRUD's (inheritAccess is %s) — the "
+                       "method's own access is read ONLY when inheritAccess is false, so it is ignored. Set it with "
+                       "mrjun.py crud method-access, which writes both. %s"
+                       % (label, execaccess.describe(acc), "absent" if "inheritAccess" not in m else inherit,
+                          _CRUD_ACCESS_DOC))
+
+
+_CALL_RULE_LIT_RE = re.compile(r"""\bcallRule\s*\(\s*(['"`])((?:\\.|(?!\1).)+?)\1""")
+_CALL_BL_LIT_RE = re.compile(r"""\bcallBl\s*\(\s*(['"`])([\w.-]+)\1\s*,\s*(['"`])([\w.-]+)\3""")
+_JS_STR_LIT_RE = re.compile(r"""(['"`])((?:\\.|(?!\1)[^\\\n])*)\1""")
+
+
+def _node_visible(node):
+    """A node's OWN view gate for an anonymous visitor: no roleAccess (= `new RoleAccess()`, public) or
+    publicReadAccess not false. Access is not inherited (01 §"Access — roleAccess")."""
+    ra = node.get("roleAccess") if isinstance(node, dict) else None
+    return not isinstance(ra, dict) or ra.get("publicReadAccess", True) is not False
+
+
+def _anonymous_nodes(p):
+    """(node, page) for every content node an ANONYMOUS visitor's render of a PUBLIC page reaches.
+
+    A page is public by its own roleAccess (not by its parent's). Inside it, a node renders when it and every
+    node above it up to the page pass their own view gate. A page-local stub of a common component
+    (`linkContentIdentifier`) renders the SHARED node — gated by the shared node's own access — so the shared
+    subtree is walked in its place, once per page that uses it."""
+    by_uid = {}
+    for br in p.branches or []:
+        if not isinstance(br, dict):
+            continue
+        for vp in br.get("virtualPlugins") or []:
+            c = vp.get("content") if isinstance(vp, dict) else None
+            if isinstance(c, dict):
+                for n, _pp, _pt in core.iter_nodes(c):
+                    if isinstance(n.get("uniqueIdentifier"), str):
+                        by_uid.setdefault(n["uniqueIdentifier"], n)
+    out = []
+
+    def walk(node, page, public, stack):
+        if not isinstance(node, dict):
+            return
+        if node.get("pluginName") == "siteMapPage":
+            page, public = node, _node_visible(node)
+        elif not public or not _node_visible(node):
+            return
+        else:
+            out.append((node, page))
+            target = by_uid.get(node.get("linkContentIdentifier"))
+            if target is not None and id(target) not in stack and _node_visible(target):
+                walk(target, page, True, stack | {id(target)})
+        for ch in node.get("children") or []:
+            if isinstance(ch, dict) and (public or ch.get("pluginName") == "siteMapPage"):
+                walk(ch, page, public, stack)
+
+    root = p.root_content
+    if isinstance(root, dict):
+        walk(root, root, _node_visible(root), frozenset())
+    return out
+
+
+def _json_strings(obj, key=None):
+    """Every (key, string) leaf of a parsed JSON value."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _json_strings(v, k)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _json_strings(v, key)
+    elif isinstance(obj, str):
+        yield key, obj
+
+
+def _check_public_page_rule_access(p, cruds, r):
+    """REFUSED ON A PUBLIC PAGE (WARN). The executor checks who may run a rule at its rule door, whoever calls —
+    and an anonymous visitor passes only an access with `publicAccess: true`. Absent / null is signed-in users.
+    So once the platform carries execution access, EVERY rule an anonymous visitor triggers is refused
+    (`ACCESS_DENIED` "Not authorized to run this rule") until it is opened to anyone: the public form will not
+    submit, the dropdown is empty, the studio component's `ctx.callRule` rejects. Nothing offline or at import
+    says so — the page renders, and fails on the first click of the first visitor who is not signed in.
+
+    Found from the PAGE side, over every node a public page renders to an anonymous visitor (`_anonymous_nodes`):
+      * any rule identifier in a node's config (form-control predicates / validation / default-value / choices
+        rules, table fetch rules and action rules, buttons …) — an exact rule-uuid match, so never a guess;
+      * a form whose content node is on such a page: its `validators` / `actionValidators`; a form group whose
+        landing page is public: its predicate→form mapping predicates;
+      * an `nct.html.plugin` studio script: `ctx.callRule('<name or identifier>'…)` literals, and — weaker, said
+        so in the message — a string literal that IS the exact name of an EXECUTION rule (the shape of a helper
+        `<helper>(ctx, '<rule>', …)` or a `{ kind: '<rule>' }` table that ends in `ctx.callRule`). Comments are
+        skipped;
+      * `ctx.callBl('<alias>', '<method>'…)` literals: here the METHOD must be open to anyone — reported apart,
+        because the better fix is a rule (24 §4.3).
+
+    Hidden rules (CRUD method bodies) are skipped: their callers are governed by the method. Nested calls are not
+    re-checked, so the CRUD methods a public rule calls stay at their default — never open them to fix this.
+    WARN, not ERROR: an older platform ignores the key, and a project may deliberately keep a rule signed-in only
+    on a page whose anonymous visitors never reach that control."""
+    from . import execaccess
+
+    rules = [x for x in (p.rep.get("rules") or []) if isinstance(x, dict) and x.get("identifier")]
+    if not rules:
+        return
+    by_id = {x["identifier"]: x for x in rules}
+    by_lname = {}
+    for x in rules:
+        if isinstance(x.get("name"), str):
+            by_lname.setdefault(x["name"].strip().lower(), x)
+    exec_by_name = {x.get("name"): x for x in rules
+                    if x.get("ruleType") == "EXECUTION_RULE" and x.get("hidden") is not True
+                    and isinstance(x.get("name"), str) and len(x["name"].strip()) >= 3}
+
+    refs = {}           # rule identifier -> {page label: set((kind, where))}
+    bl_refs = {}        # (alias, method) -> {page label: set((kind, where))}
+
+    def page_label(page):
+        return str(page.get("name") or page.get("alias") or page.get("identifier") or "?")
+
+    def add(store, key, page, kind, where):
+        store.setdefault(key, {}).setdefault(page_label(page), set()).add((kind, where))
+
+    anon = _anonymous_nodes(p)
+    node_ids = {}       # identifier of a node an anonymous visitor's render reaches -> its page
+    page_ids = {}       # identifier of a public page that renders something -> the page
+    form_pages = {}     # identifier of a public page on which a dynaform.form.plugin renders anonymously -> page
+
+    def index(store, obj, page):
+        for k in ("identifier", "uniqueIdentifier"):
+            if isinstance(obj.get(k), str):
+                store.setdefault(obj[k], page)
+
+    for node, page in anon:
+        index(node_ids, node, page)
+        index(page_ids, page, page)
+        if node.get("pluginName") == "dynaform.form.plugin":
+            index(form_pages, page, page)
+        what = "%s %r" % (node.get("pluginName"), node.get("name") or node.get("identifier"))
+        props = node.get("properties") or {}
+        if not isinstance(props, dict):
+            continue
+        for slot, prop in props.items():
+            sv = prop.get("stringValue") if isinstance(prop, dict) else None
+            if not isinstance(sv, str) or not sv.strip():
+                continue
+            if sv.strip() in by_id:
+                add(refs, sv.strip(), page, "config", "%s %s" % (what, slot))
+                continue
+            if sv.lstrip()[:1] not in ("{", "["):
+                continue
+            try:
+                inner = json.loads(sv)
+            except ValueError:
+                continue
+            if slot == "studioModel" and isinstance(inner, dict):
+                for scr in inner.get("scripts") or []:
+                    if not isinstance(scr, dict) or scr.get("enabled") is False:
+                        continue
+                    code = _strip_groovy_comments(scr.get("code") or "")
+                    where = "%r/%s" % (node.get("name") or node.get("identifier"), scr.get("name"))
+                    called = set()
+                    for m in _CALL_RULE_LIT_RE.finditer(code):
+                        tok = m.group(2).strip()
+                        rule = by_id.get(tok) or by_lname.get(tok.lower())
+                        if rule is not None:
+                            called.add(rule["identifier"])
+                            add(refs, rule["identifier"], page, "callRule", where)
+                    for m in _CALL_BL_LIT_RE.finditer(code):
+                        add(bl_refs, (m.group(2), m.group(4)), page, "callBl", where)
+                    for m in _JS_STR_LIT_RE.finditer(code):
+                        rule = exec_by_name.get(m.group(2)) or by_id.get(m.group(2))
+                        if rule is not None and rule["identifier"] not in called:
+                            add(refs, rule["identifier"], page, "named", where)
+                continue
+            for key, val in _json_strings(inner):
+                if val in by_id:
+                    add(refs, val, page, "config", "%s %s" % (what, key or slot))
+
+    # forms whose form renders on a public page (`contentIdentifier` names the form PAGE — 06), form groups whose
+    # landing page is public (the mapping predicates pick the form to open)
+    for form in p.rep.get("forms") or []:
+        if not isinstance(form, dict):
+            continue
+        cid = form.get("contentIdentifier")
+        page = form_pages.get(cid) or node_ids.get(cid)
+        if page is None:
+            continue
+        own = {k: v for k, v in form.items() if k != "formGroup"}
+        for key, val in _json_strings(own):
+            if val in by_id and val != form.get("identifier"):
+                add(refs, val, page, "form", "%r %s" % (form.get("name"), key))
+    for fg in p.rep.get("formGroups") or []:
+        if not isinstance(fg, dict):
+            continue
+        page = page_ids.get(fg.get("contentPageIdentifier")) or node_ids.get(fg.get("contentPageIdentifier"))
+        if page is None:
+            continue
+        for mp in ((fg.get("predicateFormMapping") or {}).get("mapping") or []) \
+                if isinstance(fg.get("predicateFormMapping"), dict) else []:
+            rid = mp.get("predicateIdentifier") if isinstance(mp, dict) else None
+            if rid in by_id:
+                add(refs, rid, page, "formgroup", repr(fg.get("name")))
+
+    def pages_words(places):
+        names = sorted(places)
+        head = ", ".join(repr(n) for n in names[:3])
+        return head + (" (+%d more)" % (len(names) - 3) if len(names) > 3 else "")
+
+    kind_words = (
+        ("config", "referenced by the config of %s"),
+        ("form", "referenced by form %s"),
+        ("formgroup", "a mapping predicate of form group %s"),
+        ("callRule", "called with ctx.callRule from studio script %s"),
+        ("callBl", "called from studio script %s"),
+        ("named", "named in a string literal of studio script %s (passed to ctx.callRule through a helper?)"),
+    )
+
+    def how_words(places):
+        seen = {}
+        for hs in places.values():
+            for kind, where in hs:
+                seen.setdefault(kind, set()).add(where)
+        parts = []
+        for kind, text in kind_words:
+            wheres = sorted(seen.get(kind) or ())
+            if wheres:
+                parts.append(text % (wheres[0] + (" (+%d more)" % (len(wheres) - 1) if len(wheres) > 1 else "")))
+        return "; ".join(parts)
+
+    for rid, places in sorted(refs.items(), key=lambda kv: str(by_id[kv[0]].get("name"))):
+        rule = by_id[rid]
+        if rule.get("hidden") is True or execaccess.is_public(rule.get("access")):
+            continue
+        name = rule.get("name") or rid
+        r.warn("rule %r (%s) runs for ANONYMOUS visitors of public page(s) %s — %s — but its access is %s. On a "
+               "platform with execution access every visitor who is not signed in is REFUSED (ACCESS_DENIED \"Not "
+               "authorized to run this rule\"): the form does not submit, the list stays empty, the call rejects. "
+               "Open the rule to anyone — mrjun.py rule access %s --access anyone — and leave the CRUD methods it "
+               "calls at their default: nested calls are not re-checked. %s"
+               % (name, rule.get("ruleType"), pages_words(places), how_words(places),
+                  execaccess.describe(rule.get("access")),
+                  rid if not isinstance(rule.get("name"), str) else "'%s'" % rule["name"].replace("'", "'\\''"),
+                  _ACCESS_DOC))
+
+    cruds_by_alias = {c.get("alias"): c for c in cruds or [] if isinstance(c, dict)}
+    for (alias, method), places in sorted(bl_refs.items()):
+        crud = cruds_by_alias.get(alias)
+        if crud is None:
+            r.warn("ctx.callBl(%r, %r) on public page(s) %s (%s): an anonymous visitor passes only a method open "
+                   "to anyone — for a Java CRUD that is @CrudAccess(publicAccess = true) on the method or class, "
+                   "which exposes it to every visitor with devtools. Prefer ctx.callRule on a rule opened to "
+                   "anyone that calls the method (nested calls are not re-checked). "
+                   "(24-html-component-studio.md §4.3)"
+                   % (alias, method, pages_words(places), how_words(places)))
+            continue
+        m = next((x for x in crud.get("methods") or [] if isinstance(x, dict) and x.get("methodName") == method),
+                 None)
+        if m is None:
+            continue
+        acc, source = execaccess.method_effective(crud, m)
+        if execaccess.is_public(acc):
+            continue
+        r.warn("ctx.callBl(%r, %r) on public page(s) %s (%s), but the method runs with %s (%s) — an anonymous "
+               "visitor is REFUSED (HTTP 403 \"Not authorized to run %s.%s\"). Opening the METHOD to anyone exposes "
+               "it to every visitor with devtools; prefer ctx.callRule on a rule opened to anyone that calls it, "
+               "and keep the method at its default. (24-html-component-studio.md §4.3)"
+               % (alias, method, pages_words(places), how_words(places), execaccess.describe(acc), source,
+                  alias, method))

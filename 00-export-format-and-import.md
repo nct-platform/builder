@@ -451,7 +451,7 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 | `queries` | `{id, identifier, name, query, parameters, attributes, aggregations, sourceIdentifier, wrapInPaging, itemsPerPage, offset, schedule, statementTimeoutSeconds}` | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `schedulers` | `ScheduleDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `workflows` | `{id, identifier, name, bpmnContent, elements, processDefinitionId, externalId, deployed, contextIdentifiers[]}` | [07-workflows-and-tasks.md](07-workflows-and-tasks.md) |
-| `rules` | `{id, identifier, name, description, status, ruleType, executor, contextIdentifiers[], rule:{ruleScriptStr}, hidden, realmName, clientName, ...}` | [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) |
+| `rules` | `{id, identifier, name, description, status, ruleType, executor, contextIdentifiers[], rule:{ruleScriptStr}, hidden, access?, realmName, clientName, ...}` — `access` = who may RUN it (below) | [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) |
 | `contexts` | `{id, identifier, name, alias, crudAliases[]}` | [08-...](08-groovy-rules-and-context.md) |
 | `formGroups` | `{id, identifier, name, contentPageIdentifier, formGroupsPageIdentifier, contextIdentifiers[], predicateFormMapping, placeFormsNextToLanding}` | [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) |
 | `forms` | `{id, identifier, name, formGroup, contentIdentifier, contextIdentifiers[], validators, actionValidators, hiddenConfigs, allowDrafts, multiLanguage}` | [06-...](06-form-groups-and-mapping.md) |
@@ -462,6 +462,16 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 | `mailTemplates` | `MailTemplateDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `pdfTemplates` | `PdfTemplateDto` (`id` nulled on export; saved into nct-pdf on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
 | `apiExposures` | `ApiExposureDto` — one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
+
+**Execution access — `rules[].access`.** Who may RUN the rule, whoever asks (a page, the public API, a workflow
+step, MCP): `{"publicAccess": bool, "authenticatedUserAccess": bool, "roleGroups": ["<Group>", …]}` —
+anyone / any signed-in user / members of those groups; administrators and authors always. **Absent or `null` =
+signed-in users.** Archives exported before the platform had the setting carry no `access` key at all, so they
+import as signed-in users — every rule an anonymous visitor triggers on a public page is then refused until it is
+opened to anyone (`mrjun.py rule access <rule> --access anyone`; `validate` warns on each one). A platform that
+predates the feature ignores the key. On a `hidden: true` rule (a CRUD method's body) it is ignored — the method's
+access decides (`dynamic-cruds.json`, §7). Model and recipe: [08 §"Execution access"](08-groovy-rules-and-context.md),
+[11 §"Execution access"](11-business-logic-dynamic-crud.md).
 
 #### Rule types in rep-objects (all THREE are real)
 
@@ -539,6 +549,7 @@ empty baseline. Top level (`DynamicCrudsExport`):
 | `sourceIdentifier` | string(uuid) | identifier of the DB source. On import, **live** creds are taken from src_source by this |
 | `sourceHost`/`sourcePort`/`sourceDb`/`sourceSchema`/`sourceUser`/`sourcePassword` | string/int | Copy of the connection (fallback if the source is not found) |
 | `localizationField` | string | Localization column (`localized` jsonb). Set via `bl.setLocalizationField` |
+| `access` | object\|absent | Who may RUN the CRUD's methods (`{publicAccess, authenticatedUserAccess, roleGroups}`), inherited by every method without its own. Absent/null = signed-in users. `mrjun.py crud access` |
 | `dtoFields` | `ExportedField[]` | DTO fields |
 | `filterFields` | `ExportedField[]` | Filter fields |
 | `methods` | `ExportedMethod[]` | CRUD methods |
@@ -580,6 +591,15 @@ A Groovy method (real `find`):
 | `contextIdentifiers` | string[]\|null | Contexts of a Groovy method |
 | `returnFields` | `Map<col,Type>`\|null | Map of returned fields |
 | `parameters` | `ExportedParameter[]` | `{parameterName, parameterType, parameterOrder}` |
+| `inheritAccess` | boolean\|absent | Absent/null/`true` = runs with the CRUD's `access`; `false` = with the method's own `access` |
+| `access` | object\|absent | The method's own access, read **only** when `inheritAccess` is `false` (then absent = signed-in users). `mrjun.py crud method-access` |
+
+**Execution access on import.** The three access keys are new: an archive exported before the platform had
+execution access carries none of them, and absent/`null` means **signed-in users** — so an old archive imports with
+every CRUD and method at signed-in users, as before. A platform that predates the feature ignores the keys. A
+GROOVY method's hidden rule (`crud_<alias>_<method>`) is governed by the METHOD's access, never its own; a Java
+(static) CRUD's access is `@CrudAccess` in code and is not in the archive. Model, defaults and what `validate`
+reports: [11 §"Execution access"](11-business-logic-dynamic-crud.md).
 
 **Link SQL method ↔ query**: the method's `queryIdentifier` points to a `query` in `rep-objects.json` with
 the name `crud_<alias>_<methodName>` and the same `sourceIdentifier`. Note: the method's `script`
@@ -799,13 +819,14 @@ tenant, only steps **10** (roleGroups), **11** (mailTemplates) and **PdfTemplate
 3. Delete existing dynamic CRUD of this (realm, client) — idempotency.
 4. Load live sources by identifier (`sourcesByIdentifier`).
 5. For each CRUD:
-   - `bl.create({alias, name})` → new `crudId`.
+   - `bl.create({alias, name[, access]})` → new `crudId` (`access` only when the archive carries one; absent =
+     signed-in users).
    - `bl.setSource(crudId, sourceIdentifier, host, port, db, schema, user, password)` — **creds
      are taken from the live source by `sourceIdentifier`**, exported values are only a fallback.
    - `bl.setLocalizationField(crudId, localizationField)`.
    - For each method: **`ensureHiddenGroovyRule`** (GROOVY with ruleIdentifier+script only),
      then `bl.addMethod(crudId, {methodName, methodType, script, returnType, returnsArray,
-     methodOrder, ruleIdentifier, queryIdentifier, contextIdentifiers})` → `newMethodId`;
+     methodOrder, ruleIdentifier, queryIdentifier, contextIdentifiers[, inheritAccess, access]})` → `newMethodId`;
      `bl.addParameter` for each parameter; `bl.setReturnFields`.
    - `bl.addDtoField` / `bl.addFilterField` for each field.
 6. After all CRUD — `rebindAllCrudsToSources`: push the current src_source creds into
@@ -818,7 +839,9 @@ which is filtered out of the export (`rep-objects.rules` contains no hidden=true
 to a Groovy method fails with `"Rule not found with identifier: <ruleIdentifier>"`. The rule:
 `name="crud_<alias>_<methodName>"`, `executor="GroovyExecutionRule"`,
 `ruleType=EXECUTION_RULE`, `status=ACTIVE`, `rule.ruleScriptStr=<script>`, `hidden=true`,
-`identifier=<method.ruleIdentifier>`. Idempotent (save by identifier).
+`identifier=<method.ruleIdentifier>`. Idempotent (save by identifier). It is created with **no** `access`, and
+needs none: a hidden rule's own access is ignored — callers are checked against the method's
+([11 §"Execution access"](11-business-logic-dynamic-crud.md)).
 
 ### What is remapped and what is not
 

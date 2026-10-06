@@ -164,6 +164,7 @@ export it is emitted **truncated** (the internal `DynamicCrudsExport.ExportedCru
 { "alias", "name",
   "sourceIdentifier", "sourceHost", "sourcePort", "sourceDb", "sourceSchema", "sourceUser", "sourcePassword",
   "localizationField",
+  "access"|absent,                                   // who may run the methods — §Execution access
   "methods":       [ <DynamicMethodDto>, ... ],
   "dtoFields":     [ <DynamicFieldDto>,  ... ],
   "filterFields":  [ <DynamicFieldDto>,  ... ] }
@@ -177,8 +178,13 @@ export it is emitted **truncated** (the internal `DynamicCrudsExport.ExportedCru
   "methodOrder",
   "ruleIdentifier"|null, "queryIdentifier"|null, "contextIdentifiers"|null,
   "returnFields": {col:Type}|null,
-  "parameters": [ {"parameterName","parameterType","parameterOrder"}, ... ] }
+  "parameters": [ {"parameterName","parameterType","parameterOrder"}, ... ],
+  "inheritAccess"|absent, "access"|absent }         // the method's own access — §Execution access
 ```
+
+`access` / `inheritAccess` are written only by a platform that has execution access, and only where an author set
+them; an archive exported before it carries neither, and absent means **signed-in users**
+([§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods)).
 
 `dtoFields[]` / `filterFields[]` (`DynamicFieldDto`, `DynamicFieldDto.java` — truncated on export, without
 `id`/`crudId`/`fieldCategory`; `fieldCategory` is implicit from the array: `dtoFields`→`DTO`, `filterFields`→`FILTER`):
@@ -303,6 +309,7 @@ A dynamic project carries one such record per domain entity; they all share this
 | `sourceUser` | String | Snapshot of the JDBC user. | no¹ | null | `.sourceUser` |
 | `sourcePassword` | String | Snapshot of the JDBC password (in plaintext in the export). | no¹ | null | `.sourcePassword` |
 | `localizationField` | String | Name of the jsonb column for localization (usually `localized`). Makes the CRUD "have `@LocalizationField`". | no | null | `.localizationField`; set via `bl.setLocalizationField` |
+| `access` | object\|null | Who may RUN this CRUD's methods — `{publicAccess, authenticatedUserAccess, roleGroups}`; every method that does not have its own inherits it. Absent/null = **signed-in users**. `mrjun.py crud access`. | no | absent | `.access`; [§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods) |
 | `methods` | array | The CRUD's methods. | yes² | `[]` | `.methods` |
 | `dtoFields` | array | Result fields (form/table/hints). | no | `[]` | `.dtoFields` |
 | `filterFields` | array | Filter fields (for the table's filter form). | no | `[]` | `.filterFields` |
@@ -355,6 +362,8 @@ an empty one), but such a CRUD can do nothing. A working CRUD carries the standa
 | `contextIdentifiers` | array\|null | Contexts of the Groovy rule. In practice: `[]` for a GROOVY-find with a real rule, `null` for auto-find and for all SQL methods. | no | null | `.contextIdentifiers` |
 | `returnFields` | {col:Type}\|null | Result schema (for Groovy hints), `Map<String,String>`. Filled as a **side effect** of running the method via the Run dialog (`CrudEditorPanel.saveReturnFields`). Before the first Run = null. | no | null | `.returnFields` |
 | `parameters` | array | The method's parameter list (see below). For SQL — extracted from `:param` automatically. | yes⁵ | `[]` | `.parameters` |
+| `inheritAccess` | Boolean\|null | Absent/null/`true` = the method runs with the CRUD's `access`; `false` = with its own `access` below. | no | absent | `.inheritAccess`; [§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods) |
+| `access` | object\|null | The method's own access (same object as the CRUD's), read **only** when `inheritAccess` is `false`; `false` with no `access` = signed-in users. `mrjun.py crud method-access`. | no | absent | `.access` |
 
 ³ In the UI model `MethodFormModel.returnsArray` defaults to `true` (`CrudEditorPanel.java`), but the canonical
 emitter sets it explicitly: for `findAll` → true, for all others → false (`DefaultMethodsDialog.java`).
@@ -1261,7 +1270,119 @@ export/import (`CmsProjectServiceImpl`):
 5. Per crud: `bl.create` → `bl.setSource` (live credentials preferred over the snapshot) → `bl.setLocalizationField`
    (if set); per method: `ensureHiddenGroovyRule` (for GROOVY with a non-empty ruleId) → `bl.addMethod` →
    per param `bl.addParameter` → `bl.setReturnFields`; per dtoField `bl.addDtoField`; per
-   filterField `bl.addFilterField`.
+   filterField `bl.addFilterField`. A CRUD's `access` travels in the `bl.create` map and a method's
+   `inheritAccess`/`access` in the `bl.addMethod` map; absent stays absent (= signed-in users).
+
+`bl` itself is always **administrators and authors only** — its execution access is fixed, not configurable, and
+`mrjun.py crud access bl` refuses ([§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods)).
+
+## Execution access — who may run a CRUD and its methods
+
+Every CRUD method call enters the platform through the executor's **method door**, whoever makes it — a page's
+`ctx.callBl`, a table's fetch, a form's write, the public API ([32](32-public-api.md)), MCP. The door checks the
+caller against the method's **execution access**. Rules have the same thing at their own door
+([08 §"Execution access"](08-groovy-rules-and-context.md)); this section is the CRUD half.
+
+**The access object** — the same shape on a rule, a CRUD and a method:
+
+```json
+{"publicAccess": false, "authenticatedUserAccess": true, "roleGroups": ["<Group>"]}
+```
+
+| Value | Who may run it |
+|---|---|
+| `publicAccess: true` | anyone — anonymous visitors included |
+| `authenticatedUserAccess: true` | any signed-in user |
+| neither flag, `roleGroups` non-empty | members of those project role groups (exact names, as in `rolegroup list`) |
+| neither flag, `roleGroups: []` | administrators and authors only |
+| **absent / `null`** | **signed-in users** — the default of every CRUD and method, and of every archive exported before the feature |
+
+Administrators and authors may **always** run every method, whatever the object says. Role groups are read only
+when neither flag is set. Opening anything to anonymous visitors is always an explicit `publicAccess: true`.
+
+**Where it lives** (`dynamic-cruds.json`, see [§ Per-variant reference](#per-variant-reference)):
+
+* `cruds[].access` — the CRUD's access, inherited by every method that has none of its own.
+* `methods[].inheritAccess` — absent/`null`/`true` = run with the CRUD's; `false` = run with `methods[].access`.
+* `methods[].access` — read **only** when `inheritAccess` is `false`. `inheritAccess: false` with no `access` means
+  signed-in users, whatever the CRUD says.
+* A GROOVY method's body is a **hidden rule** (`crud_<alias>_<method>`). Its own `rules[].access` is **ignored**:
+  only the platform and authors run a hidden rule directly, and whoever calls the method is checked against the
+  **method's** access. Set the method, never the hidden rule (`rule access` refuses one and points here).
+
+**What is checked, and what is not.** Only the call that **enters** the platform is checked. Once a rule passed
+its own door, everything its code calls — `service.crud.<alias>.<method>(…)`, `service.rule(…)`, a GROOVY
+method's body — runs on the platform's authority and is **not re-checked** ([16](16-groovy-service-api.md)).
+So the recipe for a public form is: open the form's **rules** to anyone, keep the **CRUD methods** they write
+through at their default. ⛔ Never open a method to anyone just because a public rule writes through it — that
+hands the write to every anonymous visitor with devtools, with none of the rule's validation in front of it.
+`ctx.callBl` from a public page is the one case that needs the method itself open to anyone; prefer
+`ctx.callRule` on a rule opened to anyone ([24 §4.3](24-html-component-studio.md)).
+
+⚠️ **The default lets every signed-in user call every method directly.** "Signed-in users" means any account of
+the project — a clerk can type `ctx.callBl('<alias>', 'delete', {id: 42})` in the console and the door lets it
+through. Hiding a button is not protection ([24 §9a.4](24-html-component-studio.md)). For a sensitive CRUD, restrict
+its write/delete methods to the role groups that own them (and keep the role check inside the rule that wraps
+them — [19](19-build-decision-procedure.md) Phase 6).
+
+A refused method answers **HTTP 403** `Not authorized to run <alias>.<method>`; in a table or form that surfaces
+as the call's error, in `ctx.callBl` as a rejected promise.
+
+### Java (static) CRUDs — `@CrudAccess`, in code
+
+A compiled CRUD declares its access with `@CrudAccess` (package `com.devsegment.execreactor.crud`, next to
+`@Crud`), on the class (the CRUD's) and/or on a method (that method's own). The attributes mirror the JSON:
+`publicAccess` (default `false`), `authenticatedUserAccess` (default `false`), `roleGroups` (default `{}`).
+No `@CrudAccess` on the class = signed-in users; no annotation on a method = it inherits the class; a bare
+`@CrudAccess` = administrators and authors only.
+
+```java
+@Crud(alias = "order", name = "Order")
+@CrudAccess(roleGroups = {"<Group>"})                 // the CRUD: members of <Group>
+public class OrderCrud implements ICrud<...> {
+
+    public OrderDto confirm(String id) { ... }        // inherits: members of <Group>
+
+    @CrudAccess(roleGroups = {"<Manager Group>"})     // its own: members of <Manager Group>
+    public OrderDto cancel(String id) { ... }
+
+    @CrudAccess(publicAccess = true)                  // anyone, anonymous visitors included
+    public List<ProductDto> catalog() { ... }
+
+    @CrudAccess                                       // administrators and authors only
+    public void purge() { ... }
+}
+```
+
+It is shown **read-only** in the Business Logic console and is **not in the export** — it is code, so no command
+edits it and `crud access` refuses a non-dynamic alias. `bl` is always administrators and authors only.
+
+### Commands
+
+```
+mrjun.py crud access <alias> --project work                              # show: the CRUD + what each method runs with
+mrjun.py crud access <alias> --role-group "<Group>" --project work       # CRUD level (cruds[].access)
+mrjun.py crud access <alias> --access signed-in|anyone|authors --project work
+mrjun.py crud access <alias> --default --project work                    # remove the key = signed-in users
+mrjun.py crud method-access <alias> delete --role-group "<Group>" --project work   # inheritAccess:false + access
+mrjun.py crud method-access <alias> delete --inherit --project work      # back to the CRUD's (removes both keys)
+mrjun.py crud method-access <alias> delete --show --project work
+```
+
+`--access` and `--role-group` are exclusive (role groups mean neither flag); `--role-group` repeats. A role group
+the export does not define is written with a WARNING — it matches nobody until a group of that exact name exists.
+Without an access flag no command writes an `access` key, so an untouched CRUD stays byte-identical. Live
+(support mode): `nct_bl_setAccess {crudId, access}`, `nct_bl_setMethodAccess {methodId, inheritAccess, access}`,
+`inheritAccess`/`access` on `nct_bl_addSqlMethod` / `nct_bl_addGroovyMethod` / `nct_bl_updateMethod` (null =
+unchanged there), and `nct_crud_getAccess {crudAlias}` to read what the method door sees — Java CRUDs included
+([28](28-support-mode-over-mcp.md) §5c).
+
+**What `validate` reports.** ERROR: an access that is not an object, an unknown key (the platform's reader skips
+it — a typo like `public` silently leaves signed-in users), a non-boolean flag, `roleGroups` that is not a list of
+strings, a non-boolean `inheritAccess`. WARN: a role group the export does not define; role groups next to a
+flag (ignored); `inheritAccess: false` with no `access`; an `access` on a method that still inherits (ignored —
+set it with `crud method-access`, which writes both); an `access` on a hidden rule (ignored); a `ctx.callBl` on a
+public page whose method is not open to anyone (the visitor gets the 403).
 
 ## ⛔ A document number is the system's job — generate it, never make a user type one
 
@@ -1553,3 +1674,8 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
   double `__` = nested `{ref:{…}}` object** — do not mix them up.
 - **The source's `dbType` in the export is `"POISTGRESQL"` (typo).** Do not "fix" it to `POSTGRESQL`; copy it as
   is from `sources[]`.
+- ⚠️ **Every method runs for every signed-in user until you restrict it.** Absent access = signed-in users, so a
+  sensitive CRUD's `create`/`update`/`delete` are callable straight from the console (`ctx.callBl`). Restrict
+  them to their role groups (`crud method-access <alias> delete --role-group "<Group>"`), and never open a method
+  to anyone to make a public form work — open the form's rules instead
+  ([§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods)).

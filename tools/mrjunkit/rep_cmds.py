@@ -3,9 +3,11 @@
 Encodes hard rules §3 (id=null, link by identifier, carry realm/client) and §5
 (ruleType->executor, warn on missing return)."""
 
+import json
 import re
 
 from . import core
+from . import execaccess
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,10 @@ def cmd_rule_add(args):
                  "trailer will discard a bare value. Add an explicit `return`."
                  % rule_type)
 
+    # No access flag -> no `access` key at all: absent IS the platform default (signed-in users), and every rule
+    # this command wrote before execution access existed looks exactly like that.
+    access = execaccess.access_from_args(args)
+
     obj = core.new_rep_object(p, {
         "name": args.name,
         "description": args.desc,
@@ -139,11 +145,78 @@ def cmd_rule_add(args):
         "rule": {"ruleScriptStr": script},
         "hidden": None,
     })
+    if access is not None:
+        obj["access"] = access
+        execaccess.warn_unknown_groups(p, access)
     p.rep.setdefault("rules", []).append(obj)
     p.mark(core.F_REP)
     p.save()
     core.out("rule added: %s (%s / %s)\n  identifier=%s\n  context=%s"
              % (args.name, rule_type, executor, obj["identifier"], ctx["identifier"]))
+    if access is not None:
+        core.out("  access=%s" % execaccess.describe(access))
+
+
+def _method_of_hidden_rule(p, rule):
+    """'<alias>.<method>' of the dynamic CRUD method whose body this hidden rule is, or None."""
+    jf = p.cruds_file
+    for crud in ((jf.data.get("cruds") if jf and isinstance(jf.data, dict) else None) or []):
+        for m in (crud.get("methods") or []) if isinstance(crud, dict) else []:
+            if isinstance(m, dict) and m.get("ruleIdentifier") and m.get("ruleIdentifier") == rule.get("identifier"):
+                return "%s %s" % (crud.get("alias"), m.get("methodName"))
+    name = rule.get("name") or ""
+    if name.startswith("crud_") and name.count("_") >= 2:
+        alias, _, method = name[len("crud_"):].rpartition("_")
+        if alias and method:
+            return "%s %s" % (alias, method)
+    return None
+
+
+def cmd_rule_access(args):
+    """Show or set who may RUN a rule (rules[].access). Absent = signed-in users; see execaccess.py."""
+    p = core.Project(args.project)
+    rule = core.resolve_rep(p, "rules", args.id)
+    access = execaccess.access_from_args(args)
+    label = "%s <%s> (%s)" % (rule.get("name"), rule.get("identifier"), rule.get("ruleType"))
+    if args.show and (access is not None or args.default):
+        raise core.ToolError("--show only prints; drop it to change the access")
+    if args.default and access is not None:
+        raise core.ToolError("--default removes the access (= signed-in users); it cannot be combined with "
+                             "--access / --role-group")
+    hidden = rule.get("hidden") is True
+    method = _method_of_hidden_rule(p, rule) if hidden else None
+
+    if access is None and not args.default:
+        core.out("rule: %s" % label)
+        core.out("  access: %s" % execaccess.describe(rule.get("access")))
+        if "access" in rule and rule.get("access") is not None:
+            core.out("  raw: %s" % json.dumps(rule.get("access"), ensure_ascii=False))
+        if hidden:
+            core.out("  NOTE: a hidden rule is a CRUD method's body — its own access is IGNORED: only the platform "
+                     "and authors run it directly, and its callers are governed by the METHOD's access%s."
+                     % ((" (mrjun.py crud method-access %s --show)" % method) if method else ""))
+        return 0
+
+    if hidden:
+        raise core.ToolError("rule %r is hidden — the body of a CRUD GROOVY method — so its own access is ignored "
+                             "by the platform. Set the METHOD's access instead: mrjun.py crud method-access %s "
+                             "--access ... (doc 11 §\"Execution access\")"
+                             % (rule.get("name"), method or "<alias> <method>"))
+    before = execaccess.describe(rule.get("access"))
+    if args.default:
+        if "access" not in rule:
+            core.out("rule %s: access already absent — signed-in users (the default)" % label)
+            return 0
+        rule.pop("access")
+    else:
+        rule["access"] = access
+        execaccess.warn_unknown_groups(p, access)
+    rule["modificationTime"] = core.now_iso()
+    p.mark(core.F_REP)
+    p.save()
+    core.out("rule access set: %s\n  access=%s\n  was=%s"
+             % (label, execaccess.describe(rule.get("access")), before))
+    return 0
 
 
 def cmd_rule_rm(args):

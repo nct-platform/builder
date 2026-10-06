@@ -128,6 +128,17 @@ version drifts silently. Two rules:
   maintain (it must stay free of false positives) before relying on the update.
   ```
 
+> ⚠️ **Execution access is version-dependent.** The keys `rules[].access`, `dynamic-cruds.json` `cruds[].access`
+> and `methods[].inheritAccess`/`access` (who may RUN a rule, a CRUD, a method — [08 §"Execution
+> access"](08-groovy-rules-and-context.md), [11 §"Execution access"](11-business-logic-dynamic-crud.md)) mean
+> something **only on a platform build that includes execution access**. An older platform ignores them: it has no
+> execution-access check, and everything runs as it always did. So a project can work today and
+> break the day its platform is updated — every rule an anonymous visitor triggers on a public page is then
+> refused (`ACCESS_DENIED`) until it is opened to anyone. `validate`'s public-page warnings ("runs for ANONYMOUS
+> visitors of public page(s) … but its access is …") describe exactly that breakage in advance: clear them
+> (`mrjun.py rule access <rule> --access anyone`) before the target platform is updated, not after. Writing the
+> keys is harmless on an old platform, and absent stays the safe default everywhere (signed-in users).
+
 ## 4. Known gaps — where `validate` can't help yet (so drive it live)
 
 > ⛔ **Three things no offline gate does. Read these before you trust a green run.**

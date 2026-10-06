@@ -511,6 +511,16 @@ no.
   screen. A table endpoint inherits the table page's access; any other rule call has only its callers, the role
   groups it is opened to (and the project's administrators), and the rule's own checks. A rule that must answer
   only for certain users, or only about the caller's own records, checks that itself.
+- **The rule's own execution access is a second gate** ([08 §Execution access](08-groovy-rules-and-context.md)) —
+  on a platform that has it, the executor checks it for an API call exactly as for a button: the acting user (§4)
+  must pass it. A rule left at the default (signed-in users) needs an authenticated acting user — a signed-in
+  person or the endpoint's service account; a rule restricted to role groups needs the acting user IN one of them,
+  service account included, or the call is refused although the endpoint admitted it. A rule set to
+  administrators and authors only can never run for a service account (a service account may never be an
+  administrator or author — §4). The
+  CRUD methods the rule then calls are not re-checked; whatever an endpoint runs through a CRUD method itself,
+  not through a rule, is checked against that METHOD's access ([11 §Execution
+  access](11-business-logic-dynamic-crud.md)). Set the access with `mrjun.py rule access` before you pack.
 - **The operation stores the rule's IDENTIFIER** (§3.14): deleting the rule, or re-creating it under a new
   identifier, makes that operation answer `404 endpoint_not_found`, and the endpoint's own page shows it *Broken*
   (the list of endpoints keeps showing its state from keys and switches, without asking every rule). The *Unused
@@ -567,6 +577,15 @@ What that means for you, offline:
   in none of those groups, every call without a session answers `403 forbidden` — only signed-in members of the
   groups get through. Open the endpoint to the integration's own group (or to no group), and say so in the
   handover. The endpoint's page warns about such an account.
+- **The acting user must also pass each rule's and method's execution access** — the endpoint admitting the
+  account is not enough. Whoever acts, signed-in person or service account, is checked at the executor's rule and
+  method doors like any other caller ([08 §Execution access](08-groovy-rules-and-context.md), [11 §Execution
+  access](11-business-logic-dynamic-crud.md)). So when an endpoint's rule — or a CRUD method the endpoint calls
+  directly, not through a rule — is restricted to role groups, put the integration's role group in that access too
+  (`mrjun.py rule access <rule> --role-group "<integration group>"` / `crud method-access <alias> <method>
+  --role-group …` — repeat `--role-group` for every group that keeps it), or the service account's calls are
+  refused; a refused rule answers as a refusal, never runs as somebody else. The methods a rule writes through are
+  not re-checked, so they need nothing.
 - **Process visibility is per user.** A caller sees the cases their e-mail, roles or role groups have access to.
   A case started through the API is owned by the acting user — exactly like a start-form case — so it is in that
   user's worklist; a service account that must ALSO see cases others started needs process access through its

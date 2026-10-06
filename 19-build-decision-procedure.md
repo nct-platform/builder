@@ -653,6 +653,10 @@ references.
   ([24](24-html-component-studio.md) §9a, [04](04-crud-table-plugin.md) §"Who sees which rows"),
   **(3)** scope its fetch rule so a non-member sees **zero rows**. Treat (2)+(3) as the real gate.
 - Pair **every** `hasAnyRoleGroup("X")` predicate (Phase 5) with roleGroup X + an assignment.
+- **Execution access** — decide it deliberately too ([08 §Execution access](08-groovy-rules-and-context.md),
+  [11 §Execution access](11-business-logic-dynamic-crud.md)): every rule a PUBLIC page triggers →
+  `rule access <rule> --access anyone` (or an anonymous visitor is refused); the CRUD methods those rules call stay
+  at the default; write/delete methods of sensitive CRUDs → `crud method-access <alias> <method> --role-group …`.
 - **Row-level ownership** ("only the *assigned* doctor can complete", "a user edits only *their* orders") is
   **not** a roleGroup — `hasAnyRoleGroup` lets *any* member act on *any* row. Enforce it with a **PREDICATE that
   compares the row's owner to the current user**: the entity must carry an identity link (an owner/`created_by`/
@@ -691,8 +695,9 @@ writes the SYSTEM-role map `accessors` and `--rolegroup` writes `roleGroupAccess
 in the second, where it is checked against membership; see the Decide box above).
 
 **Done when:** every actor has a roleGroup + assignment; every restricted page/action has the intended access;
-no `hasAnyRoleGroup` references a missing roleGroup; and **every list whose PRD says "only their own" has the
-scope written in its fetch rule AND the scoping column declared in `findAll` + `count`.**
+no `hasAnyRoleGroup` references a missing roleGroup; **every list whose PRD says "only their own" has the
+scope written in its fetch rule AND the scoping column declared in `findAll` + `count`**; and every rule a public
+page triggers is `--access anyone` (no public-page warning left in `validate`).
 
 ---
 
@@ -1319,6 +1324,9 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    refusals** in `test-scenarios.md` ([32 §9](32-public-api.md); runnable only after the recipient has bound a
    key). `validate` (step 1) already refuses a `rep-objects.apiExposures` key a base exported from a live project
    brought along — remove it with `mrjun.py api-exposures drop`, never with `--keep-api-exposures` on a build.
+3c. **Execution access** ([08 §Execution access](08-groovy-rules-and-context.md)) — no `validate` warning may be
+   left that a rule a public page triggers is not `anyone` (`mrjun.py rule access <rule> --access anyone`; never
+   open the CRUD methods it calls instead), and sensitive write/delete methods are restricted to role groups.
 4. `mrjun.py pack <dir> <out.mrjun>`.
 5. ⚠️ **WRITE `test-scenarios.md` BESIDE THE EXPORT — the second deliverable, and the only acceptance that
    exists.** You cannot drive the UI, so the file has to make someone else's first pass exhaustive rather than a

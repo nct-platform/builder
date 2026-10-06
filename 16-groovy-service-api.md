@@ -225,6 +225,12 @@ return service.crud.bill_of_materials.find(filter)
 > to a compiled Java `@Crud` bean (`ProductCrud`); on a **dynamic** one — to the `methods[]` from
 > `dynamic-cruds.json`. The call syntax is identical; see [11](11-business-logic-dynamic-crud.md).
 
+> **Not re-checked.** A method's execution access is checked only at the door a call ENTERS the platform through
+> (`ctx.callBl`, a table, a form, the public API, MCP). Called from a running rule, `service.crud.<alias>.<method>(...)`
+> runs on the platform's authority — the rule already passed its own door. So a rule opened to anyone may write
+> through a method that stays at its default (signed-in users); never open the method to make a public rule work.
+> [08 §"Execution access"](08-groovy-rules-and-context.md), [11 §"Execution access"](11-business-logic-dynamic-crud.md).
+
 ---
 
 ### 2.2 `service.global.*` — utility library (YAML functions + REST)
@@ -698,6 +704,11 @@ return service.rule("Is Author") && !service.rule("Document is Unlocked")
 > call (in a service task its access edits are saved with the task's, §2.7). `param` is NOT passed — the caller
 > consumed it — and no process variables are merged in. The callee runs with ITS OWN kind's surface (a predicate
 > called from an execution rule still has no `service.workflow`), as the same user.
+>
+> ⚠️ The callee's execution access is **not** checked: once the outer rule passed its door, `service.rule(...)` runs
+> on the platform's authority. A public rule (`anyone`) may call a signed-in-only or role-group rule — the intended
+> shape — which also means the OUTER rule's access is the whole gate for everything it calls
+> ([08 §"Execution access"](08-groovy-rules-and-context.md)).
 
 ---
 

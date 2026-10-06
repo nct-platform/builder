@@ -374,6 +374,7 @@ a role inside a section that is not granted stays invisible.
 | A page, a plugin on a page, plugin properties, page/plugin access | MCP CMS tools | available |
 | A Groovy rule (any of the three types) | MCP rule tools | available |
 | A dynamic CRUD: methods, parameters, DTO/filter fields | MCP `bl` tools | available |
+| Who may RUN a rule / a dynamic CRUD / one method (execution access) | MCP `nct_rule_setAccess`, `nct_bl_setAccess`, `nct_bl_updateMethod` | available on a platform with execution access — see §5c. A Java CRUD's access is code (`@CrudAccess`): no channel |
 | Database structure (table, column, index, constraint, raw DDL) | MCP repository tools | available |
 | A saved query | MCP query tools | available |
 | A form or a form group (metadata, mappings) | MCP form tools | available |
@@ -507,6 +508,55 @@ moment it lands, and a `replace: true` rebuild is live and irreversible.
 ⚠️ **Workflow caveat.** A workflow written over MCP is saved as a DRAFT and is never deployed by the save. A
 process whose definition you changed will keep running the old one until somebody presses Deploy. Say so
 explicitly in the hand-over for every workflow you touch, and check the deployed state rather than assuming it.
+
+### 5c. Execution access — `nct_rule_setAccess`, `nct_bl_setAccess`, `nct_bl_setMethodAccess`, `nct_crud_getAccess`
+
+Who may RUN a rule, a dynamic CRUD or one of its methods is the model of [08 §Execution access](08-groovy-rules-and-context.md)
+and [11 §Execution access](11-business-logic-dynamic-crud.md) — read them first. Over MCP it is the same JSON object
+the export carries, `{"publicAccess": …, "authenticatedUserAccess": …, "roleGroups": […]}`; absent / `null` =
+signed-in users.
+
+| Tool | What it takes / returns |
+|---|---|
+| `nct_rule_setAccess` | `{ruleIdentifier, access}` — sets one rule's access. `access: {"publicAccess": true}` = anyone, anonymous visitors included |
+| `nct_rule_create` / `nct_rule_update` | accept `access`. ⚠️ `update` **keeps** the existing access when `access` is omitted; a rule **re-created** with `create` and no `access` starts at signed-in users — a delete-and-recreate silently closes a public rule again |
+| `nct_bl_setAccess` | `{crudId, access}` — the dynamic CRUD's CRUD-level access, inherited by every method that has none of its own. `access: null` = back to signed-in users. The `crudId` comes from `nct_bl_getCrudByAlias` / `nct_bl_findAll` |
+| `nct_bl_setMethodAccess` | `{methodId, inheritAccess, access}` — one method: `inheritAccess` true/omitted = its CRUD's (its own access is cleared); `false` = its own `access` (`null` = signed-in users). The one call that can put a method BACK to inheriting |
+| `nct_bl_addSqlMethod` / `nct_bl_addGroovyMethod` | accept `inheritAccess: false` + `access` to create a method with its own access (an `access` without `inheritAccess: false` is refused) |
+| `nct_bl_updateMethod` | accepts `inheritAccess` and `access`, but like every field there a `null` means **unchanged** — to go back to inheriting or to the default, use `nct_bl_setMethodAccess` |
+| `nct_crud_getAccess` | `{crudAlias}` — Java and dynamic CRUDs alike: the CRUD's access and, per method, whether it inherits and who it is open to, exactly as the executor's method door reads the registration. The only way to SEE a Java CRUD's `@CrudAccess` live |
+| `nct_bl_getDetails` / `nct_bl_getMethods` | return `access` / `inheritAccess` — read before you write (§2.3) |
+
+A hidden rule (`crud_<alias>_<method>`, the GROOVY delegate of §6b) ignores its own access: set the METHOD's. A Java
+(static) CRUD's access is `@CrudAccess` in code and is shown read-only; `bl` is always administrators and authors.
+Each of these writes is live at once (§2.4) — closing a rule a page uses locks its users out on their next click.
+
+#### ⛔ After the platform is updated to a version with execution access — the checklist
+
+Every rule an anonymous visitor triggers on a public page is **refused** from the moment the update lands, until
+its access is `anyone`: absent means signed-in users. The public form stops submitting, the dropdown is empty, the
+studio component's `ctx.callRule` rejects — and a signed-in tester sees none of it. So, on every project that has
+public pages:
+
+1. **Find the rules.** Export the project fresh, unpack it and run `mrjun.py validate` — the public-page warnings
+   name each rule a public page triggers whose access is not `anyone` (and each `ctx.callBl` whose method is not).
+   Without an export, walk the public pages yourself: their forms (validators, field predicates, validations,
+   default-value and choices rules), the table fetch/action rules, and every studio script's `ctx.callRule`.
+2. **Open each one** — `nct_rule_setAccess {ruleIdentifier, access: {"publicAccess": true}}` — and read it back.
+3. ⛔ **Do NOT open the CRUD methods those rules call.** Nested calls are not re-checked: once a rule passed its
+   door, its `service.crud…` calls run on the platform's authority. Opening a method instead exposes it to any
+   visitor with devtools (`ctx.callBl` straight from the console).
+4. **Re-test every public form in a logged-OUT browser** (§8 — a signed-in author passes everything). A refused
+   rule answers `ACCESS_DENIED` "Not authorized to run this rule"; a refused method answers HTTP 403 "Not
+   authorized to run <alias>.<method>".
+5. **Close what the default leaves open.** With signed-in users as the default, any signed-in user can call any
+   method directly. Restrict the write/delete methods of sensitive CRUDs to role groups —
+   `nct_bl_setMethodAccess {methodId, inheritAccess: false, access: {"roleGroups": ["<group>"]}}` (or
+   `nct_bl_setAccess {crudId, …}` for the whole CRUD), check it with `nct_crud_getAccess` — then re-test those
+   screens as a member AND as a non-member.
+6. **Export, so the build copy carries the access** (§4 dual write) — or set the same values in the local export
+   with `mrjun.py rule access <rule> --access anyone` / `crud access` / `crud method-access` — and record what you
+   opened in a case note.
 
 ---
 

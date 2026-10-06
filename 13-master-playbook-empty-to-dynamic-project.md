@@ -561,6 +561,9 @@ Consignments — the chain is identical):
 - [ ] **No `rep-objects.apiExposures` key** — `validate` refuses `[]` (deletes every public-API endpoint of the
       target on import) and a list (replaces them); remove it with `mrjun.py api-exposures drop`. An inbound API
       is delivered as a handover — endpoint table, note, test calls — never as endpoints ([32](32-public-api.md) §6, §8).
+- [ ] **Every rule a PUBLIC page triggers is open to anyone** (`mrjun.py rule access <rule> --access anyone`; the
+      CRUD methods it calls stay at the default) — no public-page execution-access warning left in `validate`,
+      or anonymous visitors are refused ([08 §Execution access](08-groovy-rules-and-context.md)).
 - [ ] The typo `process.table.pluin` is preserved; not "fixed".
 - [ ] **Every status/enum LITERAL a SQL method writes is in the column's CHECK-constraint set** (`db show <table>`
       to see it; `validate` errors otherwise) — a lifecycle write outside the set throws on any real row.

@@ -884,6 +884,13 @@ visitors regardless of `roleAccess`.
    (`admin`/`nct_author` = all true + a subset of `user_view`/`user_edit`/… system permission-roles; the rest
    false).
 
+> ⛔ **A page's access does not open its rules.** `roleAccess` decides whether a node RENDERS; whether the rules it
+> triggers may RUN is each rule's own execution access, and that defaults to **signed-in users**. So on a **public**
+> page (policy 1) every rule an anonymous visitor triggers — form predicates, validations, submit / action rules,
+> choices rules, a studio component's `ctx.callRule` — is refused (`ACCESS_DENIED`) until its access is `anyone`:
+> `mrjun.py rule access '<rule>' --access anyone`. Keep the CRUD methods those rules call at their default. `validate`
+> lists every such rule. [08 §"Execution access"](08-groovy-rules-and-context.md).
+
 > ✅ **`roleGroupAccessors` gates by role GROUP, and membership IS checked.** An entry whose `view` (or `edit`,
 > or `advancedEdit`) is `true` grants the node to the **members of that group** — the check resolves the
 > current user's role groups and compares. So `"Back Office": {"view": true}` next to `publicReadAccess=false`

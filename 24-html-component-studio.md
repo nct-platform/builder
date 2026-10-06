@@ -380,6 +380,13 @@ const data = await ctx.callRule('<Screen> Data', { entityId: 42, mode: 'open' })
   its own `return null` after your body, so a bare final expression is discarded and the component silently
   receives `null` ([08](08-groovy-rules-and-context.md)). Use an **EXECUTION_RULE** (a PREDICATE only ever
   returns a boolean).
+* **Access**: the call passes the RULE's execution access, checked by the executor for the viewer
+  ([08 §"Execution access"](08-groovy-rules-and-context.md)). Absent = signed-in users, so ⛔ on a **public** page an
+  anonymous visitor is refused until the rule is `anyone` (`mrjun.py rule access '<Screen> Data' --access anyone`) —
+  the promise rejects with the `ACCESS_DENIED` message ("Not authorized to run this rule"). What the rule then calls
+  (`service.crud…`, `service.rule…`) is not re-checked, so its CRUD methods stay at their default. `validate` flags a
+  `ctx.callRule('<literal>')` — and a string literal naming an EXECUTION rule — on a public page whose rule is not
+  `anyone`.
 
 ```groovy
 // '<Screen> Data' — EXECUTION_RULE
@@ -397,9 +404,16 @@ await ctx.callBl('<alias>', 'findAll', [{ rowsInPage: 50, pageNumber: 0 }]);
 ```
 
 The runtime wraps a non-array into `[args]`; the server parses the JSON array into
-positional parameters and calls the dynamic-CRUD executor's **user-authenticated** entry point — the
-`…Internal` (service-token) variant is deliberately not used, so the call is subject to the logged-in user's
-rights.
+positional parameters and calls the dynamic-CRUD executor on behalf of the **viewer** (the signed-in user, or an
+anonymous visitor) — never on the platform's authority.
+
+**Access** — the call passes the METHOD's execution access, checked at the executor's method door: the method's own
+access, or the CRUD's when it inherits ([11 §"Execution access"](11-business-logic-dynamic-crud.md)). The default is
+signed-in users, so `callBl` now works for a signed-in non-author whenever the method allows them (before execution
+access it was effectively author-only); a refused call rejects with HTTP 403 "Not authorized to run
+`<alias>.<method>`". ⛔ From a **public** page an anonymous visitor needs the method open to **anyone** — and an open
+method is callable by every visitor with devtools, with any arguments. Don't: call a rule opened to anyone instead
+(§4.3).
 
 > ⚠️ Positional args must match the CRUD method's declared `parameters[].parameterOrder`
 > ([11](11-business-logic-dynamic-crud.md)). A scaffolded `findAll` declares `rowsInPage` + `pageNumber`;
@@ -415,11 +429,15 @@ rights.
 | Shapes the payload for the UI (KPIs, joins, localized labels) | ✅ | ❌ raw rows |
 | Reusable from workflows, schedulers, table fetch | ✅ same rule | ➖ |
 | Trivial single-entity write with no logic | ➖ | ✅ shortest path |
+| On a **public** page (anonymous visitors) | ✅ open the RULE to `anyone`; its methods stay default | ⛔ needs the METHOD open to anyone — any visitor can call it from devtools |
 
 **Default: one `<Screen> Data` EXECUTION rule per component for reads, one rule per mutating action** — i.e.
-a `… Screen Data` rule plus `Save …`/`Activate …`/`Delete …`. Components that reach for `callBl` instead
-typically end up hand-rolling retries, because `callBl` runs as the logged-in user and fails for unprivileged
-accounts (§4.4, security posture).
+a `… Screen Data` rule plus `Save …`/`Activate …`/`Delete …`. `callBl` is gated by the METHOD's execution access
+(default: signed-in users — §4.2), so it is fine for a signed-in screen whose methods allow the viewer; but the rule
+is the one place that can check *this* caller and *this* record before the write (§9a.4), and opening a method to
+widen a `callBl` widens it for every caller. **On a public page always use `callRule`**: open the rule to `anyone`
+(`mrjun.py rule access '<Form> Submit' --access anyone`) and keep the methods it calls at their default — a rule's
+nested calls are not re-checked ([08 §"Execution access"](08-groovy-rules-and-context.md)).
 
 ### 4.4 The envelope, the timeout, and error handling
 
@@ -491,11 +509,16 @@ The same truth, with the paging/table consequences worked through, is in
 [24c §2.5](24c-html-data-tables-and-paging.md).
 
 **Security posture.** Tenancy is server-derived and cannot be spoofed (realm/client come from the tenant, the
-user from the page), and the transport is the authenticated Wicket session. But there is **no per-rule /
-per-CRUD allowlist and no role check inside the bridge** — author JS (and any XSS on that page) can invoke every
-rule and every dynamic-CRUD method the current user may run. Gate the component itself with node `roleAccess`
-(`mrjun.py roleaccess set`, or the component's own context menu → **Role access** in the authoring UI) and put
-real authorization in the rule. ⚠️ An HTML component does **not** access-check the `<plugin>` children it
+user from the page), and the transport is the authenticated Wicket session. The bridge itself has **no
+allowlist and no role check**, but the executor behind it does: every `callRule` passes the rule's execution access
+and every `callBl` the method's, for the viewer ([08 §"Execution access"](08-groovy-rules-and-context.md),
+[11](11-business-logic-dynamic-crud.md)). That is still not a per-component gate — author JS (and any XSS on that
+page) can invoke every rule and every CRUD method the viewer may run, from ANY component. ⚠️ With the default
+(signed-in users) that is every rule and method of the project for any signed-in user — `ctx.callBl('<alias>',
+'delete', …)` from devtools included — so restrict the write / delete methods of sensitive CRUDs, and the sensitive
+rules, to role groups (`mrjun.py crud method-access <alias> delete --role-group '<Group>'`). Gate the component itself
+with node `roleAccess` (`mrjun.py roleaccess set`, or the component's own context menu → **Role access** in the
+authoring UI) and put the per-record authorization in the rule. ⚠️ An HTML component does **not** access-check the `<plugin>` children it
 hosts — each child is gated only by its own resolved node, so for a linked common component only the shared
 node's access counts here (see [01](01-content-model-and-pages.md) §"Hidden content").
 
@@ -1059,12 +1082,16 @@ Whatever the button does must ALSO be gated where it happens:
 
 | The action | Where the real gate goes |
 |---|---|
-| a business-logic method (`ctx.callBl`) | inside that method's own rule — refuse when the group is missing |
+| a business-logic method (`ctx.callBl`) | the method's **execution access** restricted to the group (`mrjun.py crud method-access <alias> <method> --role-group '<Group>'`) **and** a check inside that method's own rule — refuse when the group is missing |
+| a rule the component calls (`ctx.callRule`) | the rule's **execution access** restricted to the group (`mrjun.py rule access '<Rule>' --role-group '<Group>'`) **and** its own `hasAnyRoleGroup` check |
 | a CRUD row action / table action | the action's visibility **and** its execution rule |
 | a whole page or menu entry | ⛔ there is **no** page-level gate by role group ([19](19-build-decision-procedure.md) Phase 6) — gate every action on the page **and** scope its data, and leave the quick link out of the nav for everyone else |
 | a breadcrumb action button (§7) | the rule the button calls, same as any other action |
 
-Treat the JS check as *cosmetic*: it stops an authorised user from seeing clutter, nothing more.
+Treat the JS check as *cosmetic*: it stops an authorised user from seeing clutter, nothing more. Execution access
+([08 §"Execution access"](08-groovy-rules-and-context.md)) is the platform-level gate — the executor refuses the
+call before any code runs, whoever calls — and its default is *any signed-in user*, so it protects nothing until you
+narrow it. The in-rule check stays: it is the one that can look at the record (§9a.5).
 
 ### 9a.5 "Sees only their own" — scope the DATA, never the drawing
 
@@ -1516,6 +1543,9 @@ the breadcrumb bar and morph by key as the user drills in; every timer/listener 
 - [ ] The fetch rule returns `locale` from **`service.global.locale.getKey()`** (never `context.data.localeKey`,
       which is always `null` — §9), and labels come from one message map
 - [ ] Every `ctx.callRule`/`ctx.callBl` is wrapped in `try/catch`; empty and error states are rendered
+- [ ] On a **public** page: only `ctx.callRule`, every rule it calls has access `anyone` (`mrjun.py rule access
+      '<Rule>' --access anyone`), the CRUD methods behind them stay at their default, and `validate` shows none of
+      the "runs for ANONYMOUS visitors" / `ctx.callBl` public-page warnings (§4.1–§4.3)
 - [ ] **One** bridge call per interaction, never in a loop; a `paint()` yield before the call (the transport is
       blocking — §4.4)
 - [ ] No `setHtml`/`showHtml` if the main document contains `<plugin>` tags — a document that carries them is
