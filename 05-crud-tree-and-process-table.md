@@ -898,9 +898,10 @@ intake monitor:
    > nor the unlinked-page check finds it.** `TabPlugin` opens the FIRST tab by `order` and materialises **only**
    > the active pane (`getActiveTab()` = the first item after `getItems().sort(comparingInt(getOrder))`, cached in
    > a session attribute; every inactive pane gets a `BlockPanel` instead of its parsis — `TabPlugin.java`), and
-   > the switch is an `AjaxLink`, so **no URL — hence no quick link — can address tab 2**: `linkModel.identifier`
-   > addresses a `siteMapPage` and nothing finer ([17](17-left-nav-quick-links.md)). The reachability check misses
-   > it for the same reason: it warns per **`siteMapPage`** not reached by a quick link or a redirect
+   > the switch is an `AjaxLink`. A link CAN name a tab (`?tab=<tab id>`, [14a](14a-plugin-config-reference.md)
+   > §`nct.tab.plugin`; on a platform build that reads it — an older one ignores it), but a quick link's
+   > `linkModel.identifier` still addresses a `siteMapPage` and nothing finer ([17](17-left-nav-quick-links.md)), and
+   > the reachability check does not see tabs at all: it warns per **`siteMapPage`** not reached by a quick link or a redirect
    > (`_check_homepage_and_nav`, `validate_cmds.py`), and the HOST page is already linked — so the buried worklist
    > passes as "reachable" while the user never opens it. Tabs are for co-locating tables someone already on that
    > page wants side by side; a worklist is a **destination** — own page, own link.

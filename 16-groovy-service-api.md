@@ -1460,6 +1460,7 @@ and the same rule works there unchanged.
 | Where it is NOT delivered | A rule run against a CASE by process identifier (a workflow task action, a **process-table** action, a service task) and anything headless (scheduler, Kafka, MCP). Those requests carry a process, not a browser — the same list as `service.store.session` in §2.14. |
 | A full URL | **Refused at the call**, with an exception. So is a `..` segment, a backslash, a percent escape and a control character — a page path holds letters, digits and `- . _ ~ / ? # & = : @ + , ; ! $ ( ) *` and nothing else. A rule that could send a browser anywhere would be an open redirect served from the customer's own domain. |
 | A query string | Allowed: `service.redirectPage("orders/queue?status=OPEN")`. |
+| A page with tabs | Name the tab: `service.redirectPage("orders/card?id=" + id + "&tab=<tab id>")`. Without it the page opens on the tab the user used last on that tab set — remembered per tab-set node, not per record, so another record's tab ([14a](14a-plugin-config-reference.md) §`nct.tab.plugin` → «Which tab opens»). The id is the tab item's `id`; a value that matches no tab is ignored. |
 
 **Worked example** — an action that creates a case and takes the user to the worklist:
 

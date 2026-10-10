@@ -1181,8 +1181,10 @@ python3 tools/mrjun.py quicklink add --page "<Process> queue" --group "<business
 
 **A worklist nested as a secondary TAB does not count.** Two independent reasons:
 - **Nobody finds it.** A quick link addresses a page: `linkModel.identifier` is the target **`siteMapPage`**'s
-  identifier ([17](17-left-nav-quick-links.md) §`linkModel`), and there is no addressing scheme for "page X,
-  third tab". The only route in is a person who already knows to open another page and then click across —
+  identifier ([17](17-left-nav-quick-links.md) §`linkModel`). A link can add `?tab=<tab id>` to open "page X, third
+  tab" ([14a](14a-plugin-config-reference.md) §`nct.tab.plugin`), but nothing in the menu, the worklist hubs or the
+  reachability check knows the tab exists, and a platform build without the parameter opens the first tab. The
+  only reliable route in is a person who already knows to open another page and then click across —
   which is precisely the person who does not need the queue.
 - **The unlinked-page check is blind to it.** `validate`'s reachability warning walks `siteMapPage` nodes only
   (`_check_homepage_and_nav`, `tools/mrjunkit/validate_cmds.py:490-504`), so a `process.table.pluin` buried in a

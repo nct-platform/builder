@@ -1091,6 +1091,11 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   initialiser is `TabSize.BIG` (`TabModel.java`) and its `getSize()` coerces null→`BIG` — a chunky bar that
   eats vertical space above every grid. `BIG` is only for 2-3 top-level MODES, never for section switching.
   Only `node add --plugin nct.tab.plugin` injects SMALL for you; hand-written JSON gets nothing. (14 §1.8)
+- [BOTH] WHICH TAB OPENS: `?tab=<tab item id | name>` in the URL (`?tab.<tab-set identifier>=…` for one of several sets),
+  else the tab last used on that tab-set node in this browser session (per NODE, not per record), else the first.
+  A navigation that lands on a record page (`redirectPage("x/card?id=…")`, a notice link, a button) must name the tab:
+  `…&tab=<id>`; a wrong id is ignored silently, so check every written id against the built `tabModel`s. A quick link
+  does it with `params` = `?tab=<id>` (appended raw). Older platform builds ignore the parameter. (14a §`nct.tab.plugin`)
 - [BOTH] Config slot per plugin: form controls -> `properties.settings.stringValue`; tables (crud.table.plugin /
   crud.tree.plugin / process.table.pluin) -> `properties.model.stringValue`; chart.js.plugin -> `properties.Javascript`;
   tabs (nct.tab.plugin) -> `properties.tabModel.stringValue`; dynaform.filter.form.plugin -> `properties.filterFormModel`;

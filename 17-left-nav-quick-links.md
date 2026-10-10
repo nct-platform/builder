@@ -142,7 +142,7 @@ themselves have `children` (sub-menu).
 | `identifier` | String (uuid) | **for an internal link: the `identifier` of the target `siteMapPage` content node** (resolved within the active branch) |
 | `internal` | Boolean | `true` (default) ⇒ internal page link by `identifier`; `false` ⇒ external link — use `link` |
 | `link` | String | external URL (used only when `internal == false`) |
-| `params` | String | optional query/path params appended to the internal link (`ContentLinkByIdentifierParams.params`) |
+| `params` | String | optional query/path params appended to the internal link **as they are** (`ContentLinkByIdentifierParams.params`, `ContentLink.getURL`: `url += params`) — so it carries its own leading `?` (or `/`). `?tab=<tab id>` opens that page on a given tab ([14a](14a-plugin-config-reference.md) §`nct.tab.plugin` → «Which tab opens»); `quicklink add --params '?tab=<tab id>'` |
 | `needToBeSaved` | boolean | authoring housekeeping flag; set `true` on hand-authored items |
 | `localizedMap` | object | per-locale values: `{"name":{"en_US":…,"ru_RU":…,"hy_AM":…}, "icon":{…}}` — cover every locale in `tenant.json.locales` |
 

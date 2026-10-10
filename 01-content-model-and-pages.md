@@ -821,7 +821,9 @@ The class `TabModel` (`nct-ui/.../switcher/TabModel.java`), `TabSize` (`TabSize.
 | `tabModel` | STRING (JSON) | see above. | `{"items":[],"size":"BIG"}` | `TabPlugin.java` |
 | `className` / `styleName` / `tagProperties` | STRING | styling. | `""` | observed |
 
-The active tab is remembered in session metadata (the first by default) — it doesn't affect the export.
+Which tab opens is **not** part of the export: the URL's `?tab=<tab id | tab name>` first, else the tab the user used
+last on this node in this browser session, else the first by `order`. A link that lands on a record page should name
+the tab it wants — [14a](14a-plugin-config-reference.md) §`nct.tab.plugin` → «Which tab opens».
 
 ---
 

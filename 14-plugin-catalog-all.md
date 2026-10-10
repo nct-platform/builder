@@ -510,6 +510,11 @@ Item fields: `id` (the tab's uuid), `name`, `order`, `iconClass`, `localizedMap.
 > BIG tabs. In the UI the same switch is the **Size** dropdown in the tab editor ("Edit Tabs" toolbar
 > button → `TabPluginEditor`), so an author can see and change it after the fact; the point of the
 > rule is not to make them.
+> **Which tab opens.** `?tab=<tab id | name>` in the URL (or `?tab.<tab-set identifier>=…` for one set), else the
+> session's last tab on this node, else the first by `order`. The session remembers the tab per tab-set node, not per
+> record, so every navigation that lands on a record page should name its tab (`…?id=<id>&tab=<tabId>`). Full rules —
+> [14a](14a-plugin-config-reference.md) §`nct.tab.plugin`.
+
 Extra node props: `showCard` (bool), `isParsis`, `className`, `styleName`. **Two same-type tables (e.g. two
 `crud.table.plugin`) SHOULD be split across tabs — one per tab pane** — never stacked in one parsis (§2.3).
 Each tab's content lives in a child `nct.parsis.plugin` node whose **`identifier` AND `name` MUST equal that
