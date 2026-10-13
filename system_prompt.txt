@@ -331,7 +331,8 @@ Reference library — doc/builder/ :
                                         JSON config slot + field-by-field), source-grounded — the chart-doc depth,
                                         for every plugin. Use to hand-author any node's config exactly.
   15-pdf-and-mail.md .................. PDF templates + mail templates + the PDF->mail Groovy flow.
-  16-groovy-service-api.md ............ the full Groovy `service.*` capability surface (what a script can call).
+  16-groovy-service-api.md ............ the full Groovy `service.*` capability surface (what a script can call),
+                                        incl. adding, inviting, re-grouping and removing the project's people (§2.3).
   17-left-nav-quick-links.md .......... left-nav sidebar quick-links tree (`modelGroups` on site.kicker.plugin).
   18-existing-schema-to-dynamic-wiring.md . REVERSE scenario: wire an EXISTING populated schema + UI to dynamic
                                             cruds (erp->dynamic); CHECK/audit/single-company, enum snapshots,
@@ -1142,6 +1143,30 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   between nodes) or live while a form is open, and nothing joins a store key to a case or a row.
   There is no `service.session`, `service.cache`, `service.prefs`, `service.storage`, `service.store.global` or
   `service.store.project`. 16-groovy-service-api.md §2.14.
+- [BOTH] `service.security.users` and `service.security.roleGroups` manage the project's PEOPLE and ROLE GROUPS
+  from a rule - EXECUTION rules and CRUD GROOVY methods only; in a predicate or a validation rule - and in any rule
+  one of them calls with `service.rule(...)` or a CRUD method - every member THROWS (`validate` ERRORs on a direct
+  call and on a call to a people-managing rule by a literal name). `users` has exactly nine members: `create(Map)`, `get(email)`, `list()`,
+  `update(email, Map)`, `setEnabled(email, boolean)`, `delete(email)`, `addRoleGroup(email, name)`,
+  `removeRoleGroup(email, name)`, `invite(email)`; `roleGroups` has six: `list`, `get`, `create(name, roles)`,
+  `update(name, Map)`, `delete(name)`, `members(name)`. Everything is keyed by E-MAIL and acts on THIS project's
+  members only. `create(email:, firstName:, lastName:, roleGroups: [names])` INVITES the person by e-mail (the
+  project's `userRegistration` mail template) unless a `password:` is given, in which case nothing is mailed; an
+  undeliverable address (`*.invalid`, `*.test`, `example.com`) needs a password; an existing member is refused; an
+  address that already has an account of the organisation is added and KEEPS its own password (the result's
+  `existingAccount` says so). `delete` means "out of THIS project", `setEnabled` is the whole ORGANISATION's switch,
+  and there is no way to set an existing account's password (call `invite`). ⛔ The gate is the execution access of
+  the OUTERMOST rule or method a caller can start (a rule called from a rule is not checked again), NOT the
+  Settings -> Accesses grants of the User/Role Management screens - and its default is any signed-in user, so set
+  it - on the rule the button runs AND on everything that calls the people-managing one - to the role group that
+  administers people (`validate` WARNs on the default, ERRORs on `publicAccess: true`). A rule can never hand out
+  `admin` or `nct_author` (an author makes authors, on the User Management screen), nor define/change/delete a
+  role group that carries either; a group that arrives from a form field is checked against an explicit list in
+  the rule; the platform's own two accounts are not reachable. `roleGroups.delete` takes the group off
+  its holders first, and changing the ROLES of a group people hold is refused (take it from them, update it, give it
+  back) - a group's roles reach people when it is given, not when it is edited. The accounts themselves are NOT in
+  the export: every person who must exist on day one is a handover row. There is no `service.users`, `service.security.createUser`, `users.find`, `users.setPassword`
+  or `users.deleteAccount`. 16-groovy-service-api.md §2.3.1-2.3.3.
 - [BOTH] `service.redirectPage("<projectAlias>/<page>")` sends the BROWSER to another page of this project after
   the rule returns. EXECUTION rules ONLY - a predicate, a validation rule and a CRUD GROOVY method all refuse
   it, and the editor does not offer it there. The path is everything AFTER the organisation - the organisation

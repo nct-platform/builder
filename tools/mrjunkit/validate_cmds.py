@@ -339,6 +339,9 @@ def cmd_validate(args):
     _check_workflow_start_seeds_entity(p, r)
     # -- service.workflow.start("<identifier>") pointing at a workflow that is missing or not deployed --
     _check_rule_workflow_start_targets(p, r)
+    # -- service.security.users / .roleGroups: refused in a predicate, a member that does not exist, a rule that
+    #    adds people left open to every signed-in user (or to anyone) --
+    _check_rule_manages_people(p, r)
     # -- a hand-built start document with the context/attrs at the ROOT -> dropped in silence, blank queues --
     _check_workflow_start_document_shape(p, r)
     # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
@@ -3214,10 +3217,11 @@ def _check_groovy_numeric_traps(p, r):
     """Four ways a Groovy rule that does arithmetic dies at runtime while every offline gate stays green.
 
     All four are invisible in review because the failing expression READS correctly, and three of them
-    surface to the user as the literal text "null" — `ServiceWrapper.rule()` invokes a nested rule through
-    `java.lang.reflect.Method.invoke` and reports `InvocationTargetException.getMessage()`, which is always
-    null, so the message a user gets for ANY failure inside a nested rule is
-    `Failed to execute rule '<name>': null`. There is nothing to grep for. Hence this check.
+    surface to the user as the literal text "null" on a platform build that predates the unwrapping fix —
+    `ServiceWrapper.rule()` invoked a nested rule through `java.lang.reflect.Method.invoke` and reported
+    `InvocationTargetException.getMessage()`, which is always null, so the message a user got for ANY failure inside
+    a nested rule was `Failed to execute rule '<name>': null` (a current build says what the nested rule threw, except
+    for an exception that carries no message of its own). There is nothing to grep for. Hence this check.
 
     1. **`0G` is a BigInteger literal, `0.0G` a BigDecimal one.** ⇒ ERROR when the body does decimal work.
        `if (q < 0G) { q = 0G }` silently retypes `q`, and the next `q.setScale(2, HALF_UP)` throws
@@ -5811,18 +5815,7 @@ def _check_rule_workflow_start_targets(p, r):
     (16-groovy-service-api.md)"""
     # Both sources, because a CRUD GROOVY method is a first-class caller of start() and its body lives in
     # dynamic-cruds.json - the hidden rule it delegates to is deliberately absent from rep-objects.rules[].
-    bodies = []
-    for rule in p.rep.get("rules", []) or []:
-        rr = rule.get("rule")
-        if isinstance(rr, dict) and rr.get("ruleScriptStr"):
-            bodies.append(("rule %r" % rule.get("name"), rr["ruleScriptStr"], rule.get("ruleType")))
-    _by_alias, _cruds = _dynamic_crud_methods(p)
-    for crud in _cruds:
-        for m in crud.get("methods", []) or []:
-            if m.get("methodType") == "GROOVY" and m.get("script"):
-                # A CRUD GROOVY method runs as an EXECUTION rule whatever its hidden rule says.
-                bodies.append(("crud %r method %r" % (crud.get("alias"), m.get("methodName")),
-                               m["script"], "EXECUTION_RULE"))
+    bodies = [(where, body, rule_type) for where, body, rule_type, _access, _is_method in _groovy_bodies(p)]
     if not bodies:
         return
     rep = p.rep
@@ -5868,6 +5861,295 @@ def _check_rule_workflow_start_targets(p, r):
                 r.warn("%s calls service.workflow.start(\"%s\") on a workflow that is not deployed — the "
                        "call throws workflow_is_not_deployed until it is. (16-groovy-service-api.md)"
                        % (where, target))
+
+
+# What `service.security` really has (doc 16 §2.3). The checks answer about the person running the rule and exist in
+# every rule type; `users` and `roleGroups` manage the project's people and exist only in an EXECUTION rule or a CRUD
+# GROOVY method (the runtime wires a refusing variant into a predicate and a validation rule).
+_SECURITY_CHECK_MEMBERS = ("user", "hasAnyRole", "hasAllRoles", "hasAnyRoleGroup", "hasAllRoleGroups")
+_PEOPLE_MEMBERS = {
+    "users": ("create", "get", "list", "update", "setEnabled", "delete", "addRoleGroup", "removeRoleGroup", "invite"),
+    "roleGroups": ("list", "get", "create", "update", "delete", "members"),
+}
+# The members that CHANGE something. The others (`get`, `list`, `members`) only read - which still discloses the
+# project's people to whoever may run the rule, but is not "managing" them.
+_PEOPLE_MUTATING_MEMBERS = {
+    "users": ("create", "update", "setEnabled", "delete", "addRoleGroup", "removeRoleGroup", "invite"),
+    "roleGroups": ("create", "update", "delete"),
+}
+_PEOPLE_REF_RE = re.compile(r"\bservice\s*\.\s*security\s*\.\s*(users|roleGroups)\b")
+_PEOPLE_MEMBER_RE = re.compile(r"\bservice\s*\.\s*security\s*\.\s*(users|roleGroups)\s*\.\s*([A-Za-z_]\w*)")
+_SECURITY_CALL_RE = re.compile(r"\bservice\s*\.\s*security\s*\.\s*([A-Za-z_]\w*)\s*\(")
+_PEOPLE_DOC = "(16-groovy-service-api.md §2.3.1)"
+
+_SAFE_NAV_RE = re.compile(r"\?\s*\.")
+_QUOTED_PROPERTY_RE = re.compile(r"""\.\s*(['"])(\w+)\1""")
+_SUBSCRIPT_PROPERTY_RE = re.compile(r"""\[\s*(['"])(\w+)\1\s*\]""")
+_NAMESPACE_GETTER_RE = re.compile(r"\bsecurity\s*\.\s*get(Users|RoleGroups)\s*\(\s*\)")
+
+
+def _security_chain(code):
+    """The same property chain, however it was spelled: `service?.security?.users`, `service.security."users"`,
+    `service.security['users']` and the getter `service.security.getUsers()` all reach the same namespace at
+    runtime, and a check that only knew the plain dotted form would let any of them past. Folded to
+    `service.security.users`. Analysis only - the script is not changed. A chain broken across a variable
+    (`def s = service.security` ... `s.users.create(...)`) is NOT followed; that is the limit of a text check."""
+    code = _SAFE_NAV_RE.sub(".", code)
+    code = _QUOTED_PROPERTY_RE.sub(r".\2", code)
+    code = _SUBSCRIPT_PROPERTY_RE.sub(r".\2", code)
+    return _NAMESPACE_GETTER_RE.sub(lambda m: "security." + m.group(1)[0].lower() + m.group(1)[1:], code)
+
+
+class _Body(tuple):
+    """One Groovy body of the export. A plain 5-tuple - (where, body, rule_type, access, is_method), the shape every
+    check has always unpacked - that also remembers what OTHER bodies call it by: `rule_name` for a rule
+    (`service.rule("<name>")` resolves by NAME) and `method_ref` for a CRUD GROOVY method
+    (`service.crud.<alias>.<method>(...)`)."""
+    rule_name = None
+    method_ref = None
+
+
+def _groovy_bodies(p):
+    """Every Groovy body the export carries, as (where, body, rule_type, access, is_method): the rules in
+    `rep-objects.rules[]` and the GROOVY methods of the dynamic CRUDs.
+
+    A CRUD GROOVY method runs as an EXECUTION rule whatever its hidden rule says, and its caller is checked against
+    the METHOD's execution access (inherited from the CRUD unless `inheritAccess` is false) - never against the
+    hidden rule's. The hidden rule it delegates to is deliberately absent from `rules[]`."""
+    from . import execaccess
+
+    bodies = []
+    for rule in p.rep.get("rules", []) or []:
+        rr = rule.get("rule") if isinstance(rule, dict) else None
+        if isinstance(rr, dict) and rr.get("ruleScriptStr"):
+            body = _Body(("rule %r" % rule.get("name"), rr["ruleScriptStr"], rule.get("ruleType"),
+                          rule.get("access"), False))
+            body.rule_name = rule.get("name")
+            bodies.append(body)
+    _by_alias, cruds = _dynamic_crud_methods(p)
+    for crud in cruds:
+        for m in crud.get("methods", []) or []:
+            if m.get("methodType") == "GROOVY" and m.get("script"):
+                access, _source = execaccess.method_effective(crud, m)
+                body = _Body(("crud %r method %r" % (crud.get("alias"), m.get("methodName")),
+                              m["script"], "EXECUTION_RULE", access, True))
+                body.method_ref = (crud.get("alias"), m.get("methodName"))
+                bodies.append(body)
+    return bodies
+
+
+# Members every Groovy object has. `service.security.users.with { create(...) }` and `.toString()` are valid Groovy,
+# not a member that does not exist - and a closure delegate can do ANYTHING the namespace can.
+_OBJECT_MEMBERS = ("with", "tap", "toString", "hashCode", "equals", "getClass", "inspect", "dump", "identity",
+                   "getMetaClass", "getProperties", "metaClass", "properties", "class")
+
+# `service.rule("Name")` with a literal name, and `service.crud.<alias>.<method>(`. A name built at run time is not
+# followed - nothing static can say which rule it is.
+_RULE_CALL_RE = re.compile(r"""\bservice\s*\.\s*rule\s*\(\s*(['"])([^'"\n]+)\1\s*\)""")
+_CRUD_CALL_RE = re.compile(r"\bservice\s*\.\s*crud\s*\.\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\(")
+
+
+def _blank_strings(code):
+    """The same text with the CONTENT of every string literal replaced by spaces (quotes and newlines stay), except
+    the code inside a double-quoted string's `${...}`, which is code and is kept.
+
+    The people checks look for `service.security.users...` as CODE. A help text that mentions it
+    (`"to add somebody call service.security.users.create(...)"`) is not a call, and in a predicate it would be an
+    ERROR that blocks the import for a sentence. Comments are already gone; this removes the other place the
+    name can appear without being used."""
+    out = []
+    i, n = 0, len(code)
+    while i < n:
+        c = code[i]
+        if c not in "'\"":
+            out.append(c)
+            i += 1
+            continue
+        triple = code[i:i + 3]
+        quote = triple if triple in ("'''", '"""') else c
+        out.append(quote)
+        i += len(quote)
+        interpolates = c == '"'
+        while i < n:
+            if code.startswith(quote, i):
+                out.append(quote)
+                i += len(quote)
+                break
+            ch = code[i]
+            if ch == "\\":
+                out.append(" ")
+                if i + 1 < n:
+                    out.append("\n" if code[i + 1] == "\n" else " ")
+                i += 2
+                continue
+            if ch == "\n" and len(quote) == 1:
+                out.append(ch)         # an unterminated one-line string ends at the line
+                i += 1
+                break
+            if interpolates and code.startswith("${", i):
+                depth, j = 1, i + 2
+                while j < n and depth:
+                    depth += {"{": 1, "}": -1}.get(code[j], 0)
+                    j += 1
+                closed = depth == 0
+                out.append("  " + _blank_strings(code[i + 2:j - 1 if closed else j]) + (" " if closed else ""))
+                i = j
+                continue
+            out.append(ch if ch == "\n" else " ")
+            i += 1
+    return "".join(out)
+
+
+def _people_code(body):
+    """(folded, blanked): the body without comments and with the spellings of the security chain folded
+    (`_security_chain`) - and the same with every string literal blanked. Calls to follow are read from the first
+    (their argument IS a string); everything about `service.security.users` is read from the second."""
+    folded = _security_chain(_strip_groovy_comments(body))
+    return folded, _blank_strings(folded)
+
+
+def _check_rule_manages_people(p, r):
+    """`service.security.users` / `service.security.roleGroups` - the ways a script goes wrong (doc 16 §2.3).
+
+    ERROR - a PREDICATE or a VALIDATION_RULE that refers to either namespace. The runtime wires a refusing variant
+    there (they are evaluated for an answer, possibly once per row), so the first evaluation throws; the author
+    would only find out when the first user opens the page. The same for one that CALLS (`service.rule("X")`,
+    `service.crud.<alias>.<method>(...)`, literal names) a body that manages people: the refusal follows the call.
+
+    ERROR - a member that does not exist: `service.security.users.find(...)`, `.setPassword(...)`,
+    `service.security.roleGroups.assign(...)` ... The names an author guesses by analogy are exactly the ones that are
+    not there, and the failure is a `MissingMethodException` on the first run. Also a CALL
+    `service.security.<name>(...)` that is none of the five checks (`service.security.roles()`, `.createUser(...)`).
+
+    ERROR - an EXECUTION rule or CRUD GROOVY method that manages people (or calls one that does) and whose execution
+    access is `publicAccess: true`: an anonymous visitor could then add accounts and role groups to the project.
+    WARN - the same with the DEFAULT access (absent / null / signed-in users): every account of the project can
+    run it from the browser console whatever button hides it - the Settings -> Accesses grants guard the User and
+    Role Management SCREENS, not rules, so the rule's own access is the only gate there is. And that gate is the
+    OUTERMOST rule or method a caller can start: a rule called from a rule is not checked again, so restricting
+    the inner one does not protect it from a default-access rule that calls it - which is why the callers are
+    judged too. A rule that only READS the people (`get`, `list`, `members`) is told apart in the wording: if
+    everybody who can run it is meant to see that list, accept the warning and record why.
+
+    Comments and string literals are blanked first: a call parked behind `//`, or a help text that mentions the
+    name, is not a defect. The limits of a text check: the namespace passed through a variable
+    (`def s = service.security`), a computed rule name, and `.with {}` on `service` or `service.security`."""
+    from . import execaccess
+
+    entries = _groovy_bodies(p)
+    code_of = {id(e): _people_code(e[1]) for e in entries}
+    answer_only = ("PREDICATE", "VALIDATION_RULE")
+    refers = {id(e) for e in entries if _PEOPLE_REF_RE.search(code_of[id(e)][1])}
+    manages = {id(e) for e in entries if id(e) in refers and e[2] not in answer_only}
+    by_rule = {e.rule_name: e for e in entries if e.rule_name}
+    by_method = {e.method_ref: e for e in entries if e.method_ref}
+
+    def effect_of(entry):
+        used = sorted(set(_PEOPLE_MEMBER_RE.findall(code_of[id(entry)][1])))
+        # A reference the check cannot read members from (the namespace handed around, `.with {}`) is the worse case.
+        changes = (not used) or any(member in _PEOPLE_MUTATING_MEMBERS[namespace] or member in _OBJECT_MEMBERS
+                                    or member not in _PEOPLE_MEMBERS[namespace]
+                                    for namespace, member in used)
+        return used, changes
+
+    def callees(entry):
+        folded, blanked = code_of[id(entry)]
+        found = []
+        for m in _RULE_CALL_RE.finditer(folded):
+            if blanked.startswith("service", m.start()) and by_rule.get(m.group(2)) is not None:
+                found.append(by_rule[m.group(2)])
+        for m in _CRUD_CALL_RE.finditer(blanked):
+            if by_method.get((m.group(1), m.group(2))) is not None:
+                found.append(by_method[(m.group(1), m.group(2))])
+        return found
+
+    reached = {}
+
+    def reaches(entry, trail):
+        """The first body that manages people which `entry` can reach through literal calls, or None."""
+        key = id(entry)
+        if key in manages:
+            return entry
+        if key in reached:
+            return reached[key]
+        if key in trail:
+            return None                    # a cycle adds nothing
+        for callee in callees(entry):
+            hit = reaches(callee, trail | {key})
+            if hit is not None:
+                reached[key] = hit
+                return hit
+        if not trail:
+            reached[key] = None            # a "no" worked out inside a cycle may be wrong; only a top-level one is final
+        return None
+
+    def judge_access(where, who, access, does, target, via):
+        """The ERROR / WARN about who may run a rule that manages people - or reaches one."""
+        if execaccess.shape_problems(access):
+            return                       # reported by _check_execution_access_shape; there is no level to judge here
+        subject = "%s %s (service.security.users / .roleGroups)" % (where, does) if via is None else (
+            "%s calls %s, which %s (service.security.users / .roleGroups) - a rule called from a rule is not "
+            "checked again, so the access you gave %s does not protect it here -" % (where, via, does, via))
+        if execaccess.is_public(access):
+            r.err("%s and %s execution access is publicAccess:true - ANYONE, anonymous visitors included, could %s. "
+                  "Open it to the role group that administers people. %s"
+                  % (subject, who, "add accounts and role groups to this project" if "manages" in does
+                     else "read the names, addresses and role groups of everybody in this project", _PEOPLE_DOC))
+        elif access is None or (isinstance(access, dict) and access.get("authenticatedUserAccess") is True):
+            r.warn("%s and %s execution access lets ANY signed-in user run it - the default (a clerk can call it from "
+                   "the browser console whatever button hides it). The Settings -> Accesses grants guard the "
+                   "User/Role Management screens, not rules, so the access of the OUTERMOST rule or method a "
+                   "caller can start is the only gate: set it to the role group that administers people (%s)%s. %s"
+                   % (subject, who, "mrjun.py crud method-access" if target else "mrjun.py rule access --role-group",
+                      " - or, if everybody who may run it is meant to see this list, accept this warning and record "
+                      "why" if "reads" in does else "", _PEOPLE_DOC))
+
+    for entry in entries:
+        where, _body, rule_type, access, is_method = entry
+        folded, code = code_of[id(entry)]
+
+        for name in sorted(set(_SECURITY_CALL_RE.findall(code))):
+            if name not in _SECURITY_CHECK_MEMBERS and name not in _OBJECT_MEMBERS:
+                r.err("%s calls service.security.%s(...), which does not exist - service.security answers user() and "
+                      "the four hasAny/All checks (%s); people are managed through service.security.users / "
+                      ".roleGroups, which are properties, not methods. %s"
+                      % (where, name, ", ".join(_SECURITY_CHECK_MEMBERS), _PEOPLE_DOC))
+
+        who = "the method's" if is_method else "the rule's"
+
+        if id(entry) not in refers:
+            # It never names the namespace itself - but it may call something that does.
+            target = reaches(entry, frozenset())
+            if target is None:
+                continue
+            if rule_type in answer_only:
+                r.err("%s is a %s and calls %s, which manages people - the refusal follows the call, so every member "
+                      "throws 'is not available in rules called from %s' there (those rules are evaluated for an "
+                      "answer, possibly once per row). Do it from an EXECUTION_RULE or a CRUD GROOVY method that "
+                      "something DOES start. %s"
+                      % (where, rule_type, target[0],
+                         "predicates" if rule_type == "PREDICATE" else "validation rules", _PEOPLE_DOC))
+                continue
+            _used, changes = effect_of(target)
+            judge_access(where, who, access, "manages people" if changes else "reads the project's people",
+                         is_method, target[0])
+            continue
+
+        if rule_type in answer_only:
+            r.err("%s is a %s and uses service.security.users / service.security.roleGroups - every member throws "
+                  "'is not available in %s' there (those rules are evaluated for an answer, possibly once per row). "
+                  "Manage people from an EXECUTION_RULE or a CRUD GROOVY method. %s"
+                  % (where, rule_type, "predicates" if rule_type == "PREDICATE" else "validation rules", _PEOPLE_DOC))
+            continue
+
+        used, changes = effect_of(entry)
+        for namespace, member in used:
+            if member not in _PEOPLE_MEMBERS[namespace] and member not in _OBJECT_MEMBERS:
+                r.err("%s calls service.security.%s.%s(...), which does not exist - service.security.%s has "
+                      "exactly: %s. %s"
+                      % (where, namespace, member, namespace, ", ".join(_PEOPLE_MEMBERS[namespace]), _PEOPLE_DOC))
+        judge_access(where, who, access, "manages people" if changes else "reads the project's people",
+                     is_method, None)
 
 
 # `crudDataMap: [ <alias>: [ value: <row> ] ]` inside the document literal a rule hands to

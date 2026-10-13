@@ -668,6 +668,12 @@ service.notification.mail.userRegistration(
 )
 ```
 
+> **Inviting a person is not this.** The `userRegistration` template's `activationLink` points at the platform's
+> *set-password* page and carries a token that only the platform can write to its own store — so a link a rule
+> builds by hand does not work. To invite somebody, call `service.security.users.create(…)` (no
+> `password:`) or `service.security.users.invite(email)` ([16](16-groovy-service-api.md) §2.3.1): the platform
+> creates the account, writes the token and sends THIS template with the real link.
+
 ## 4.7 `service.notification.push.<method>(…)` — push WITHOUT a PDF
 
 The same set of methods as in 4.5, but without `pdfs` (`PushNotificationProxy.java`, hints `HintsService.java`). A rule body (`ruleType: EXECUTION_RULE`) that sends one personal and one group notification:

@@ -162,6 +162,7 @@ downstream phases are mechanical. Read the PRD and extract, into a table you kee
 | A closed **status set** / lifecycle ("Draft→Posted→Cancelled") | a **CHECK constraint** on the status column + **lifecycle EXECUTION rules** (one per transition) surfaced as table **actions** | 2, 5, 8 |
 | An enum / lookup ("unit of measure", "country") | a `lookup_*`/dimension table (or a code list) + an **enum dropdown** (snapshot or choices rule) | 2, 3, 7 |
 | An **actor / persona / permission tier** ("admin", "clerk", "approver") | a **roleGroup** (+ assignment) + page/action **access** + `hasAnyRoleGroup` predicates | 6 |
+| **People added, re-grouped or switched off BY THE APP** ("a manager invites a colleague", "HR deactivates a leaver", "approving a request creates the supplier's account", "the first run provisions the service accounts") | an **EXECUTION rule** (or a CRUD GROOVY method) calling `service.security.users.*` / `service.security.roleGroups.*` — never a predicate. The accounts are NOT in the export, so every person who must exist on day one is a **handover row** (e-mail, name, role group, how it is created - which rule or by hand - and who creates it), not a file. ⛔ The rule's **execution access** is the only gate (the Settings → Accesses grants guard the screens, not rules) and its default is *any signed-in user*: set it to the role group that administers people, and put the button behind a predicate on the same group | 5, 6, 7 ([16](16-groovy-service-api.md) §2.3.1) |
 | A noun that is **both a stored entity AND an actor** ("Doctor", "Agent" — appears in a managed list *and* performs role/row-gated actions) | its entity table **carries an identity link** (email/`user_id`) so per-row ownership predicates work (Phase 6) | 2, 6 |
 | A **printout / report** ("print invoice", "packing slip") | a **PDF template** (pdfme, by `alias`) + an EXECUTION rule/action that calls `service.report.pdf.get.<alias>` | 10 |
 | A **notification** ("email the customer", "notify on approval") | a **mail template** (exported) + a rule calling `service.notification.mail.*` | 10 |
@@ -579,9 +580,24 @@ appear. Scenario C: **add the new alias to the existing context**, do not create
   EXECUTION_RULE acts. Such a rule also runs **headless** — no row, no form, no `contextDataMap` — so it
   reads everything through `service.crud.<alias>.<m>(...)`; the gather → claim → shape → start → mark body,
   and the idempotency it must carry, are in [27](27-event-driven-process-start.md) §4–§5.
+- ⛔ **A rule that MANAGES PEOPLE is an EXECUTION_RULE — never a predicate — and its execution access is the
+  gate.** `service.security.users.*` and `service.security.roleGroups.*` (create / invite a person, re-group,
+  disable, remove; create a role group) throw in a PREDICATE and in a VALIDATION_RULE - and in any rule those call
+  - and `validate` ERRORs on a direct call in either type, and on a call to a rule or method that manages people
+  by a literal name. They are NOT held to the User/Role Management grants in Settings → Accesses: the rule's own
+  access decides who may run it, and an unset access means *any signed-in user*. **The gate is the OUTERMOST rule
+  or method a caller can start** — a rule called from a rule is not checked again — so the access goes on the rule
+  the BUTTON runs (`mrjun.py rule access … --role-group "<the group that administers people>"`, or `mrjun.py crud
+  method-access` for a CRUD GROOVY method) and on every rule or method that calls the people-managing one, not only
+  on the inner one. `validate` WARNs on the default and ERRORs on `publicAccess: true`, which would let an
+  anonymous visitor create accounts. A rule can never hand out `admin` or `nct_author`, nor define, change or
+  delete a role group that carries either (an author makes authors, on the User Management screen); a role group
+  that arrives from a FORM FIELD is checked against an explicit list in the rule, never passed on as it is.
+  [16](16-groovy-service-api.md) §2.3.1–2.3.3.
 - Use the **verified** API surface (`context.<ctx>.<alias>.data.get()/put()`, `.service.<m>(…)`,
   `service.crud.<alias>.<m>(…)`, `context.data.getAttr/setAttr`, `context.currentData.get()`, `service.rule("Name")`,
-  `service.security.hasAnyRoleGroup(…)`, `service.rimm.run([…])`, `service.report.pdf.*`, `service.notification.*`,
+  `service.security.hasAnyRoleGroup(…)`, `service.security.users.*` / `.roleGroups.*` (EXECUTION only),
+  `service.rimm.run([…])`, `service.report.pdf.*`, `service.notification.*`,
   `service.global.conversion.toSelectOptions(…)`, `service.store.session.*` / `service.store.user.*`,
   `service.redirectPage("alias/page")`) — full list [16](16-groovy-service-api.md). Never the stale
   `context.service.<alias>`.
@@ -1327,6 +1343,16 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
 3c. **Execution access** ([08 §Execution access](08-groovy-rules-and-context.md)) — no `validate` warning may be
    left that a rule a public page triggers is not `anyone` (`mrjun.py rule access <rule> --access anyone`; never
    open the CRUD methods it calls instead), and sensitive write/delete methods are restricted to role groups.
+   No "manages people" warning may be left either, unless it is a rule that only READS the project's people for
+   everybody who may run it (a members dropdown) and the hand-over says so.
+3d. **A build whose rules create people** ([16 §2.3.1](16-groovy-service-api.md)) — the accounts are not in the
+   export, so (a) write one **handover row** per person who must exist on day one; (b) the suite tests the
+   PASSWORD branch: `password:` given, address on `.invalid` (an invitation to a `.invalid` address is refused by
+   design), and the users a rule creates during a run are named `zz-at-…` so the run's teardown can remove them —
+   the harness removes only the users IT created ([30](30-live-test-bugfix-and-autotest.md) §2.4); (c) the
+   INVITATION itself (the e-mail, the link, the set-password page) cannot be asserted by the suite: write it into
+   `test-scenarios.md` as a manual scenario with a real mailbox, and say that a project nobody has opened since
+   import cannot send it.
 4. `mrjun.py pack <dir> <out.mrjun>`.
 5. ⚠️ **WRITE `test-scenarios.md` BESIDE THE EXPORT — the second deliverable, and the only acceptance that
    exists.** You cannot drive the UI, so the file has to make someone else's first pass exhaustive rather than a

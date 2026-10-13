@@ -99,7 +99,10 @@ Part 2 §global). Do not confuse them.
 service
  ├─ crud          → service.crud.<alias>.<method>(args)      (ServiceCrudLookup/Invoker)
  ├─ global        → service.global.<group>.<fn>(args)         (GlobalFunctionsWrapper ← YAML + REST)
- ├─ security      → service.security.user()/hasAny…()         (SecurityHelper)
+ ├─ security      → .user() · .hasAny…()                       (SecurityHelper)
+ │                  .users.create/get/list/update/setEnabled/delete/addRoleGroup/removeRoleGroup/invite
+ │                  .roleGroups.list/get/create/update/delete/members
+ │                                                              (UserDirectoryProxy · RoleGroupDirectoryProxy — EXECUTION only)
  ├─ rimm          → service.rimm.query(...)/run(...)          (RimmServiceProxy)
  ├─ notification  → .push.send…() / .mail.<alias>(...)        (NotificationWrapper → PushNotificationProxy + MailNotificationProxy)
  ├─ report        → service.report.pdf.get/download/email/push (ReportWrapper → PdfReportProxy)
@@ -334,9 +337,18 @@ return service.global.conversion.toSelectOptionsLocalized(list, "id", "statusNam
 
 ---
 
-### 2.3 `service.security.*` — current user and roles
+### 2.3 `service.security.*` — the current user, role checks, and the project's people
 
-Backing — `SecurityHelper` (`SecurityHelper.java`), realm/client/userId already inside.
+Three layers under one name, with different rules about where they work:
+
+| Layer | Members | Where it works |
+|---|---|---|
+| **the person running the rule** | `user()`, `hasAnyRole`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` | every rule type |
+| **the project's people** (§2.3.1) | `service.security.users.*` | EXECUTION rules and CRUD GROOVY methods only |
+| **the project's role groups** (§2.3.2) | `service.security.roleGroups.*` | EXECUTION rules and CRUD GROOVY methods only |
+
+Backing — `SecurityHelper` (`SecurityHelper.java`), realm/client/userId already inside; `users` and `roleGroups` are
+two proxies the executor attaches to it (`UserDirectoryProxy`, `RoleGroupDirectoryProxy`).
 
 | Method | Signature | Return / behavior |
 |---|---|---|
@@ -349,10 +361,12 @@ Backing — `SecurityHelper` (`SecurityHelper.java`), realm/client/userId alread
 > All checks are **fail-closed** and ask about the user's E-MAIL (never `userId`): with no e-mail, or no securityClient/realm/client — they return `false`
 > (`SecurityHelper.java`) rather than throwing.
 
-> **You cannot list a user's roles.** `SecurityHelper` exposes only `user()` + the four `hasAny/All*` boolean
-> checks (`SecurityHelper.java`) — there is **no** `roles()`/`roleGroups()`/`getRoles()`. To branch on a
-> role you must **test** membership by name (`service.security.hasAnyRoleGroup("X")`) per candidate; the natural
-> guess `service.security.roles()` does not exist.
+> **There is no `service.security.roles()` and nothing that lists the current user's own role groups.** The checks
+> above answer yes/no about the person running the rule, by name. To see which role groups SOMEBODY holds, read it off the
+> person: `service.security.users.get("<e-mail>").roleGroups` (§2.3.1, EXECUTION rules only). In a predicate there
+> is nothing to list — test membership by name (`service.security.hasAnyRoleGroup("X")`) per candidate.
+> `service.security.roleGroups` (the property, plural, §2.3.2) is the project's role-group CATALOGUE, not the
+> current user's.
 
 **Worked example** — a visibility predicate (`Is Compliance Head`):
 
@@ -362,6 +376,273 @@ return service.security.hasAnyRoleGroup("Compliance Head") || service.security.h
 
 **Worked example** — `user()` in an init rule (`Invoice Init`):
 `inv.createdBy = service.security.user().email`.
+
+#### 2.3.1 `service.security.users` — add, find, rename, disable and remove the project's people
+
+```
+service.security.users
+    .create(Map options)                  // add a person - WITH a password, or INVITED by e-mail
+    .get(String email)                    // a member as a map, or null
+    .list()                               // every member
+    .update(String email, Map changes)    // firstName and/or lastName
+    .setEnabled(String email, boolean enabled)
+    .delete(String email)                 // out of THIS project; the account survives
+    .addRoleGroup(String email, String roleGroup)
+    .removeRoleGroup(String email, String roleGroup)
+    .invite(String email)                 // (re)send the "choose your password" e-mail
+```
+
+Everything is keyed by **e-mail** — the only identity a script can write down — and acts on **this project's
+members only**. A person who belongs to another project of the same organisation is not found here, and the
+platform's own two accounts (the Developer and the Author the platform ships with) are invisible and untouchable:
+no call finds them, changes them or hands them a role group, and `create` refuses their addresses.
+
+**Where it works.** EXECUTION rules and CRUD GROOVY methods — everywhere a rule can run: a button, a
+scheduler, a workflow service task, a public-API call. In a PREDICATE and in a VALIDATION rule the namespace is
+present but **every member throws** `service.security.users.<member> is not available in predicates …` (`… in validation rules …` there), because
+those are evaluated for their answer, possibly once per row. **The refusal follows the call**: an EXECUTION rule or
+CRUD GROOVY method that a predicate or validation rule calls (`service.rule("…")`, `service.crud.<alias>.<method>()`)
+throws `… is not available in rules called from predicates` — a predicate cannot borrow the people-managing rule next
+door. The editor does not offer the namespace in a predicate either, and `validate` ERRORs on a DIRECT use
+([19](19-build-decision-procedure.md) Phase 5; it does not follow calls).
+
+**Who is allowed — the rule's own access, nothing else.** The project's *User Management* and *Role Management*
+screens are gated by Settings → Accesses. A rule is **not**: whoever was allowed to run the rule has, through it,
+whatever the rule does, exactly as with every other `service.*` call
+([11 §"Execution access"](11-business-logic-dynamic-crud.md): *once a rule passed its own door, everything its
+code calls is not re-checked*). Two consequences, and the second is the one that bites:
+
+* It does not matter whether the person who triggers the rule is an author, holds any role group, or is signed in
+  as an ordinary user — only that the **rule's execution access** let them run it. A rule can therefore onboard
+  somebody on behalf of a clerk who has no User Management access at all. That is the point.
+* ⛔ **The default execution access is "any signed-in user".** A rule that adds people, left at the default, can be
+  run by every account of the project from the browser console, whatever button hides it. Set the rule's access to
+  the role group(s) that administer people (`mrjun.py rule access <rule> --role-group "<Group>"`; for a CRUD GROOVY
+  method, `mrjun.py crud method-access` — [11](11-business-logic-dynamic-crud.md) §"Execution access"), and put the
+  button behind a predicate on the same group. `validate` WARNs on the default and ERRORs on `publicAccess: true`.
+* ⛔ **The gate is the OUTERMOST rule or method a caller can start — not the one that holds the call.** A rule that
+  `service.rule("Invite")`s, or `service.crud.<alias>.<method>()`s, another is not stopped by that one's access: the
+  inner door is not consulted again. So restricting an inner "Invite" rule or `inviteUser` method protects it only
+  from callers who reach it DIRECTLY; the page's action rule that calls it must be restricted to the same group, and
+  so must every other rule or method that calls it. `validate` follows literal `service.rule("Name")` and
+  `service.crud.<alias>.<method>(` calls and judges the callers too; a computed name is not followed.
+* ⚠️ **Rules that nobody clicks.** A rule that runs as a workflow service task or from a scheduler has no browser
+  user: the engine runs it as itself, so a restricted access does not "protect" it there — what protects it is that
+  only the process definition or the schedule starts it. Test such a rule on the live project; do not assume the
+  group gate applies.
+
+**`create` — two ways to add a person.**
+
+```groovy
+// 1. INVITED: the person gets an e-mail with a link and chooses their own password.
+def jane = service.security.users.create(
+        email: "jane@acme-corp.com", firstName: "Jane", lastName: "Roe",
+        roleGroups: ["Buyers"])
+
+// 2. WITH A PASSWORD: you chose the way in, so nothing is mailed.
+service.security.users.create(
+        email: "scanner-01@acme-corp.com", firstName: "Scanner", lastName: "Station",
+        password: "a-long-generated-value", roleGroups: ["Warehouse"])
+```
+
+| Option | | |
+|---|---|---|
+| `email`, `firstName`, `lastName` | required | the address is lower-cased; it is the person's identity from here on |
+| `password` | optional | **present ⇒ created with it, nothing mailed. Absent or blank ⇒ INVITED.** Passed on exactly as written, spaces included. ⛔ A literal in the script is stored in the rule text, which travels with every export — use it for test and machine accounts and prefer an invitation for people; never write a real person's password into a rule |
+| `roleGroups` | optional | **names** of this project's role groups (matched ignoring case, like `hasAnyRoleGroup`). Every name must exist — a typo is refused with the list of the groups that do |
+| `locale` | optional | language of the set-password page the invitation opens (`"hy"`, `"ru_RU"`); default the rule's own language, else the project's default |
+
+Any other key is **refused by name** (`unknown option 'roleGroup'`): a misspelt `roleGroups` would otherwise create
+the person with no groups and no error. The e-mail must be a **plain address** — exactly one `local@domain`, no
+spaces or control characters, none of `/ \ ? # % ; < > " ,` — and names are **text, not markup** (no `<` or `>`, no
+control characters, at most 255 characters): both travel into URLs, logs and the invitation e-mail. A rule that takes
+them from a form should still check them; the refusal is the last wall, not the first.
+
+*Invited* means: the account is created with a password nobody knows, and an e-mail built from the project's
+**`userRegistration` system mail template** ([15](15-pdf-and-mail.md), placeholders `firstName` and
+`activationLink`) is queued. The person follows the link, chooses a password and is signed in. A person has one
+live link at a time: it stays valid until the next invitation to them replaces it, so re-inviting is also how a
+link that went astray is retired. The mail is **queued, not delivered** — `create` returns once it is accepted, and an invitation that the project's
+daily e-mail quota (or the mail provider) later refuses is dropped without the rule ever hearing of it. If it cannot
+be QUEUED, the call throws, and the message says the account **was** created and names `invite(...)` to send it again.
+
+*Refused before anything is created:* an unknown role group; a role group that carries `admin` or `nct_author` (§2.3.3); an
+address that is **already a member** of this project (so a rule run twice does not invite twice — test with `get`
+first); one of **the platform's own two accounts**; an **undeliverable address with no password** (`*.invalid`, `*.test`, `*.example`, `*.localhost`,
+`example.com/.net/.org` can never receive the invitation, so they need a password — that is how test accounts are
+made); the project's **user quota** (`Maximum number of users (N) reached for this project`).
+
+*An address that already has an account in the organisation* (it belongs to another project of it) is **added to
+this project and keeps its own password** — the `password` you passed is ignored, and the result says so
+(`existingAccount: true`). Without a `password` such a person is **still invited** (`invited: true`): the e-mail is
+how they learn they were added, and its link lets them choose a NEW password for the whole account, every project
+of the organisation included. The organisation's accounts are shared by all its projects, which is also why `update`
+cannot change a password (below).
+
+**What it returns** — the new member, as a map, plus two flags: `invited` (an invitation e-mail was queued) and
+`existingAccount` (the address already had an account in the organisation; the platform's own answer, not a guess):
+
+```groovy
+[email: "jane@acme-corp.com", firstName: "Jane", lastName: "Roe", enabled: true,
+ roleGroups: ["Buyers"], invited: true, existingAccount: false]
+```
+
+There is no internal id in any of these maps, on purpose; the e-mail is the key for every other call.
+
+**Reading.**
+
+| Call | Answers |
+|---|---|
+| `get("jane@acme-corp.com")` | the member map, or `null` — never an exception for "not found" |
+| `list()` | every member, platform accounts excluded. It costs a lookup per member behind the scenes: use it to find or report, never inside a loop over rows |
+
+**Changing.**
+
+| Call | Does | Leaves alone |
+|---|---|---|
+| `update(email, [firstName: "Janet", lastName: "Doe"])` — or `update(email, firstName: "Janet")` | renames. What you do not mention stays | role groups, password, the address. Names belong to the **organisation**: the person is renamed in every project of it |
+| `setEnabled(email, false)` | stops them signing in **and ends the sessions the identity provider holds for them**; `true` lets them in again | role groups, history. ⚠️ The switch is the **organisation's**: a person disabled here cannot sign in to *any* project of it. ⚠️ A token already issued keeps working until it expires (hours, not seconds), so this is "no new sign-in", not "gone this instant" |
+| `addRoleGroup(email, "Buyers")` | gives one more group; idempotent | the groups they already hold |
+| `removeRoleGroup(email, "Buyers")` | takes one away; idempotent. Roles another of their groups still grants are kept | the others |
+| `invite(email)` | queues the e-mail with a fresh link (it replaces the earlier one) — for somebody who lost the first one, or needs a **new password, which a rule may not set for them**. Refused for an address no mail can reach. Counts against the project's daily e-mail quota | everything else |
+| `delete(email)` | takes them **out of this project**: their role groups here, their membership, and their `service.store.user` rows (§2.14). `false` when they were not a member. Refused for the project's **owner** (the owner is a property of the project, not a membership). Open sessions are not ended — `setEnabled(email, false)` first if you need that | **the account** — they may belong to other projects, and can be added again |
+
+⛔ There is no way to set an existing account's password from a rule, and no way to change an address: accounts
+are shared by the whole organisation, so either would let one project take over a person's sign-in to all the
+others. A rule that needs somebody to have a new password calls `invite(email)` — the link goes to the mailbox
+that owns the address.
+
+⛔ There is no way to delete the account itself (the person from the organisation). `delete` is "remove from this
+project", which is what the User Management screen's Delete does too.
+
+**Errors** are ordinary exceptions with a plain sentence — `service.security.users.create: jane@… is already a
+member of this project …`, `service.security.users.create failed: Maximum number of users (5) reached for this
+project` — so `try { … } catch (Exception e) { … e.message … }` can show them. Nothing is half-done on a refusal
+that happens before the account exists, and a password the organisation's password policy refuses
+(`… The password was not accepted: Invalid password: minimum length 8.`) creates nothing: the account is removed
+again, so the retry starts clean.
+
+**Worked example — an approved request becomes an account** (an EXECUTION rule behind an action; access:
+the role group that approves):
+
+```groovy
+def request = context.hr.request.data.get()
+// The group comes from a FORM FIELD: never pass it on as it is. An explicit list is the check that cannot be
+// forgotten, and it is the list the form's dropdown must be filled from (not from roleGroups.list()).
+def GRANTABLE = ["Buyers", "Warehouse", "Accountants"]
+if (!GRANTABLE.contains(request.roleGroup)) {
+    throw new IllegalArgumentException("Role group '${request.roleGroup}' cannot be requested here")
+}
+def existing = service.security.users.get(request.workEmail)
+if (existing == null) {
+    service.security.users.create(
+            email: request.workEmail, firstName: request.firstName, lastName: request.lastName,
+            roleGroups: [request.roleGroup])                 // invited by e-mail
+} else if (!existing.roleGroups.contains(request.roleGroup)) {
+    service.security.users.addRoleGroup(request.workEmail, request.roleGroup)
+}
+```
+
+**Worked example — a leaver:**
+
+```groovy
+service.security.users.removeRoleGroup(leaver.email, "Approvers")
+service.security.users.setEnabled(leaver.email, false)     // no new sign-in; their identity-provider sessions end
+```
+
+**Timing — nothing here is instant, and the delays differ by who is asking.** Page and action access in the web
+tier follows a role-group change in about **5 seconds**. A `service.security.hasAnyRole…` / `hasAnyRoleGroup…`
+check **inside a rule or predicate** is remembered by the rule engine for up to **30 seconds** — a rule that
+calls `addRoleGroup(…)` and then asks `hasAnyRoleGroup(…)` about the same person can read the old answer. The
+role-group LIST that the Role Management screen and the user dialog show is cached for up to about **80 seconds**,
+so a group a rule has just created or renamed can be missing from it until then — a refresh does not help before the
+cache expires. `service.security.user().firstName/lastName` is remembered for up to **6 minutes**, so a person
+renamed by `update(…)` can still be greeted by the old name until then. The user list itself (`get`, `list`) is
+current.
+
+**The invitation needs the project to have been opened once.** The web tier writes the invitation, and it can find
+the project (realm and client → project) only after the project's first page has been served; a rule that invites
+on a project nobody has opened since import logs an error and mails nothing. The author opening the project once is
+enough. The web tier also checks, before it makes the link, that the account really is at the address the rule
+named — a request that does not describe a real account of the project is dropped with a log line.
+
+#### 2.3.2 `service.security.roleGroups` — the project's role groups
+
+```
+service.security.roleGroups
+    .list()                                // [[name: "Buyers", roles: ["report_view"]], …]
+    .get(String name)                      // one group, or null
+    .create(String name, List roles)       // roles spelled as hasAnyRole spells them
+    .update(String name, Map changes)      // [name: "New", roles: [...]] - what you do not mention stays
+    .delete(String name)                   // false when there was no such group
+    .members(String name)                  // the e-mails of everybody who holds it
+```
+
+A role group is a name and a list of **roles**; people hold groups, and checks like `hasAnyRoleGroup("Buyers")`
+test the name. Roles are written as in `hasAnyRole` — lower case, `report_view`, `scheduler_edit`, `user_create` …
+(any case is accepted; an unknown one is refused with the list of the valid roles, because a role silently dropped
+makes a group that grants less than its author meant). ⚠️ The EXPORT writes the same roles as enum constants —
+`roleGroups[].roles` holds `REPORT_VIEW`, `NCT_AUTHOR`, `ADMIN` — while a rule writes the role's name, `report_view`;
+copying one spelling into the other works for every role whose constant is just the upper-cased name — except two
+that are spelled differently: the constant `ORGANIZARIONS_VIEW` (sic) is the role `organization_view`, and
+`ORGANIZATIONS_EDIT` is `organization_edit`; the standard business groups of the sample projects carry both. The
+refusal's list is the authority for the rest. Groups are matched by **name, ignoring case**; `members` refuses a
+name that matches no group instead of answering "nobody".
+
+```groovy
+service.security.roleGroups.create("Warehouse", ["report_view", "source_view"])
+service.security.users.addRoleGroup("scanner-01@acme-corp.com", "Warehouse")
+```
+
+**What a group's holders keep.** A person's roles in the identity provider are written when a group is *given* to
+them and taken back when it is *taken from* them — never when the group itself is edited. So the platform treats
+the two edits differently, on purpose:
+
+* `delete("Warehouse")` first **takes the group off everybody who holds it** (one by one — that is what revokes the
+  roles it granted), then deletes it. If taking it off somebody fails, the group is not deleted and the call can be
+  repeated.
+* `update("Warehouse", [roles: […]])` that **changes the roles of a group people hold is refused**, with the number
+  of holders and what to do. Narrowing or widening it for the people in it means: take it from them, update it,
+  give it back —
+
+  ```groovy
+  def holders = service.security.roleGroups.members("Warehouse")
+  holders.each { service.security.users.removeRoleGroup(it, "Warehouse") }
+  service.security.roleGroups.update("Warehouse", [roles: ["report_view"]])
+  holders.each { service.security.users.addRoleGroup(it, "Warehouse") }
+  ```
+
+  — or create a new group and move them over. A **rename**, or "changing" the roles to what they already are, is
+  always allowed; so is changing a group nobody holds.
+
+Settings → Accesses, the access of pages and menu links, and the **execution access of rules and CRUD methods**
+(`access.roleGroups`) name a role group by its **NAME**, and so does every `hasAnyRoleGroup("…")` literal in a
+script. Renaming a group therefore drops the grants it had — a rule that renames "People Admin" silently locks the
+invite rule to authors — and a group created later under the name of a deleted one **inherits** what the deleted one
+was granted. Do not reuse the name of a group you delete, and re-grant (and re-edit the literals) after a rename. The role
+checks that read the group (`hasAnyRoleGroup`, page and action access) follow the timings under §2.3.1; those that
+read the person's roles may lag, as there.
+
+#### 2.3.3 What a rule may NOT hand out
+
+A rule is run by whoever its execution access admits — by default every signed-in user — not necessarily by an
+author, and an author is, in effect, code running on the platform. The User Management screen refuses to hand an
+author group to anybody who is not an author; a rule cannot know who it acts for, so, regardless of the rule's
+access:
+
+* **`admin`** — the Developer's authority — can be neither put into a role group by a rule (`create`, `update`)
+  nor given to a person by one (`create`'s `roleGroups`, `addRoleGroup`) if the group carries it.
+* **`nct_author`** — makes its holder an author of the project — **the same**: a rule can neither put it into a
+  group nor give a person a group that carries it, and a role group that carries **either** role cannot be changed
+  or deleted by a rule: those are the groups the project's own authority rests on (the `Author` group is one). The
+  server (nct-security) holds this line too, for the two members that give a group away. Authors are made on the
+  User Management screen, by an author.
+* **Removing** a group or switching a person off is allowed for everybody visible — taking authority away is not
+  the risk. That includes the person running the rule; design the rule with that in mind. The project's **owner**
+  can be switched off or stripped of role groups, but not removed (`delete` refuses them).
+
+Each refusal is an exception naming the group and the rule that applies. Groups that carry those roles are
+defined in the export (`mrjun.py rolegroup add`) or on the Role Management screen — never from a rule.
 
 ---
 
@@ -1661,6 +1942,11 @@ resolution are done by the runtime. Step by step:
    - **RIMM query → dropdown:** `service.rimm.run([name:"...", itemsPerPage, parameters:[...]])` →
      `service.global.conversion.toSelectOptions(list, "key", "display")`.
    - **role check (predicate):** `return service.security.hasAnyRoleGroup("Author")`.
+   - **add / re-group / disable a person from the app:** `service.security.users.create(email:…, firstName:…,
+     lastName:…, roleGroups:["Buyers"])` (invited by e-mail; add `password:` to skip the invitation),
+     `.addRoleGroup(…)`, `.setEnabled(…, false)`, `.delete(…)` — §2.3.1. EXECUTION rules and CRUD GROOVY methods
+     only, and ⛔ set the rule's **execution access** to the role group that administers people: the default lets
+     every signed-in user run it.
    - **notify a role on an event:** `service.notification.push.sendAlertToRoleGroup("Ops", "T", "M")`.
    - **PDF → e-mail:** `def r = service.report.pdf.get.tpl("f.pdf", [...]); service.report.pdf.email.mailTpl([...],[...],[r])`.
    - **invoke another rule:** `return service.rule("Is Author") && ...`.
@@ -1703,6 +1989,30 @@ resolution are done by the runtime. Step by step:
 - **`service.notification` without `.push`/`.mail`** does not work: the `send*` methods live on
   `service.notification.push.*`, emails — on `service.notification.mail.<alias>(...)`. (Note the full path in the
   §2.5 example: `service.notification.push.sendAlert(...)`.)
+- **`service.security.users.*` and `.roleGroups.*` are EXECUTION-only and THROW elsewhere.** In a predicate or a
+  validation rule they exist and refuse with `… is not available in predicates` (they are evaluated for an
+  answer, possibly once per row) — and so does an execution rule that such a rule *calls* (`… in rules called from
+  predicates`). `validate` ERRORs on a direct call; it does not follow calls. §2.3.1.
+- **A rule that manages people is as open as its execution access — and the default is "any signed-in user".**
+  The Settings → Accesses grants gate the User Management SCREEN, not rules: whoever may run the rule has, through
+  it, everything it does. Set `rule access` (or the CRUD method's access) to the role group that administers
+  people, and put the button behind a predicate on it. `validate` WARNs on the default. §2.3.1.
+- **`users.create` is not idempotent.** A person who is already a member is refused, so a rule that can run twice
+  starts with `users.get(email)`. `addRoleGroup`, `removeRoleGroup` and `roleGroups.delete` ARE idempotent.
+- **A role group's roles are written to people when the group is GIVEN, not when it is edited.** `delete(group)`
+  takes it off its holders first; `update(group, [roles: …])` on a group people hold is refused until you take it
+  from them (§2.3.2). Grants made in Settings → Accesses and on pages name a group by NAME: a rename drops them,
+  and a re-created group of the same name inherits them.
+- **The User Management dialog — and the invitee's set-password page — save a person's WHOLE list of role
+  groups.** A dialog opened (or a set-password page loaded) before a rule ran `addRoleGroup` / `removeRoleGroup`
+  for the same person puts the old list back when it is saved. Rules that change groups are for processes, not for
+  editing while somebody has that person's dialog open.
+- **A `password` passed to `create` is ignored for an address that already has an account in the organisation**
+  (it keeps its own); the result's `existingAccount` says so. Do not mail credentials on the strength of the
+  password you passed — mail them only when `existingAccount` is `false`.
+- **There is no way to set an existing account's password, change an address, or delete the account itself.**
+  New password ⇒ `invite(email)`; `delete(email)` means "out of THIS project"; `setEnabled` is the
+  ORGANISATION's switch. §2.3.1.
 - **`service.rule("Name")` resolves by NAME.** Duplicate rule names → non-deterministic selection. Keep names
   unique.
 - **`service.enums['Name']` returns `null` if the enum is not registered** (`EnumsWrapper.getAt` returns null)
@@ -1771,6 +2081,16 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   namespace is flat: `unread`, `find`, `get`, `unreadCount`, `accounts` and the mutating members listed in
   §2.16, with the folder given as an OPTION (`folder: "INBOX"`) rather than as a sub-namespace. There is
   also no way to ask whether a queued message was ultimately delivered — a send is queued, not performed.
+- **`service.users` / `service.user` / `service.security.createUser(...)` / `service.security.deleteUser(...)` /
+  `service.security.roles()` / `service.security.roleGroups()` (a call) / `service.security.groups`** — none of
+  these (`service.security.roleGroups` is a property holding the namespace of §2.3.2, never a call).
+  Managing people is `service.security.users` with exactly nine members (`create`, `get`, `list`, `update`,
+  `setEnabled`, `delete`, `addRoleGroup`, `removeRoleGroup`, `invite`) and role groups is
+  `service.security.roleGroups` with exactly six (`list`, `get`, `create`, `update`, `delete`, `members`) —
+  §2.3.1–2.3.2. There is **no** `users.find(...)` (use `get(email)` or filter `list()`), **no**
+  `users.setPassword/changePassword/resetPassword` (use `invite`), **no** `users.deleteAccount` (the account
+  belongs to the organisation), **no** `users.add/remove` (those are `create` and `delete`), and **no**
+  `roleGroups.assign/add` (a group is given to a person with `users.addRoleGroup`).
 - **`service.session` / `service.cache` / `service.prefs` / `service.state` / `service.storage`** — none of these
   exist. There is exactly ONE key/value namespace and it is `service.store`, with exactly two members:
   `service.store.session` and `service.store.user` (§2.14). `service.store.global` and `service.store.project`

@@ -294,6 +294,11 @@ service.redirectPage("orders/queue")
 // a rule calls a rule (by NAME, boolean):
 service.rule("Is Author")
 // roles:  service.security.hasAnyRoleGroup("Author")
+// the project's PEOPLE (EXECUTION rules / CRUD GROOVY methods only - throws in a predicate, and in a rule a predicate
+// calls; the OUTERMOST rule's execution access is the gate, default = any signed-in user, so set it; 16 §2.3.1):
+service.security.users.create(email: "a@acme-corp.com", firstName: "A", lastName: "B", roleGroups: ["Buyers"])  // INVITED by e-mail; add password: "..." to skip the invitation
+service.security.users.addRoleGroup("a@acme-corp.com", "Buyers");  service.security.users.setEnabled("a@acme-corp.com", false)
+service.security.users.get("a@acme-corp.com")      // member map or null;  .delete(email) = out of THIS project only
 // remember something about this SESSION or this USER (16 §2.14). NOT a substitute for context.data.setAttr,
 // which is how a workflow step publishes to the next one — nothing joins a store key to a case:
 service.store.session.put("selectedBranchId", id);  service.store.session.get("selectedBranchId")   // this browser session
@@ -564,6 +569,10 @@ Consignments — the chain is identical):
 - [ ] **Every rule a PUBLIC page triggers is open to anyone** (`mrjun.py rule access <rule> --access anyone`; the
       CRUD methods it calls stay at the default) — no public-page execution-access warning left in `validate`,
       or anonymous visitors are refused ([08 §Execution access](08-groovy-rules-and-context.md)).
+- [ ] **Every rule that MANAGES PEOPLE (`service.security.users.*` / `.roleGroups.*`) is restricted to the role group
+      that administers them — and so is every rule or method that CALLS it** (the outermost one is the gate), no
+      "manages people" warning left in `validate` unless it is a read-only directory the hand-over says is meant
+      for everybody; the accounts it creates are handover rows ([16 §2.3.1](16-groovy-service-api.md)).
 - [ ] The typo `process.table.pluin` is preserved; not "fixed".
 - [ ] **Every status/enum LITERAL a SQL method writes is in the column's CHECK-constraint set** (`db show <table>`
       to see it; `validate` errors otherwise) — a lifecycle write outside the set throws on any real row.

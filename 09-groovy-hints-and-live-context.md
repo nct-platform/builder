@@ -96,7 +96,9 @@ only member it changes is `service.redirectPage`. The response shape (JSON) is d
     "access":       { "addRoleAccess(String roleName)": <methodDetails>, ... },
     "rimm":         { "query(String realmName, String clientName, String queryName)": <methodDetails>, ... },
     "security":     { "user()": { "id":{"type":"String"}, "email":{"type":"String"}, "firstName":{"type":"String"}, "lastName":{"type":"String"} },
-                      "hasAnyRole(String... roles)": <methodDetails>, "hasAllRoles(...)": ..., "hasAnyRoleGroup(...)": ..., "hasAllRoleGroups(...)": ... },
+                      "hasAnyRole(String... roles)": <methodDetails>, "hasAllRoles(...)": ..., "hasAnyRoleGroup(...)": ..., "hasAllRoleGroups(...)": ...,
+                      "users":      { "create(Map options)": <methodDetails+_returnFields>, ... },   // EXECUTION rules only (9 members)
+                      "roleGroups": { "list()": <methodDetails+__element>, ... } },                  // EXECUTION rules only (6 members)
     "notification": { "push": { "sendText(...)": ..., ... }, "mail": { "<mailAlias>(List<String> recipients, Map<String, String> placeholders)": <methodDetails>, "<mailAlias>(List<String> recipients, String subject, Map<String, String> placeholders)": <methodDetails> } },
     "report":       { "pdf": { "get": { "<pdfAlias>(String fileName, Map<String, Object> params)": <methodDetails> },
                                "download(String fileName, List<PdfReferenceDto> pdfs)": <methodDetails>,
@@ -141,8 +143,13 @@ one of three source forms — an inline `[{value, label, comment}]` list, `{"ref
 root `__argValueSets` (so a list shared by several methods is carried once), or `{"keysOf":"context.data"}`,
 which costs nothing extra because those keys are already in the payload. `value` is what goes between the
 quotes, `label` is what the dropdown shows, `comment` is appended after the call as a block comment.
-Two of the three forms are in use today. `ref` carries two sets: `workflows` for `service.workflow.start`, and
-`processTables` for `service.workflow.list` / `actions` / `startActions`. `keysOf` is what every key argument of
+Two of the three forms are in use today. `ref` carries five sets: `workflows` for `service.workflow.start`,
+`processTables` for `service.workflow.list` (its entries carry `expandsCall`), `processTablesPlain` — the same
+tables without `expandsCall` — for the settings-id argument of `actions` / `startActions`, `mailAccounts` for
+`service.mailbox.account("…")`, and `roleGroups` — the NAMES of the project's real role groups (names only; what a
+group grants is behind Role Management) — for `hasAnyRoleGroup` / `hasAllRoleGroups` and for every
+`service.security.users` / `.roleGroups` member that takes a group's name as an argument (not the names inside
+`create`'s `roleGroups: […]` list — the editor does not look inside a list literal). `keysOf` is what every key argument of
 `service.store.session.*` / `service.store.user.*` uses — `{"keysOf":"__storeKeys.session"}` — which is the
 cheaper shape for that list: one entry per key, no labels to duplicate across the ten key-taking methods of the
 two scopes.
@@ -159,9 +166,11 @@ call with the answers already in it. The kinds are `workflowStart` and `processT
 
 Root keys beginning `__` — today `__argValueSets` and `__storeKeys` — are payload infrastructure, not language:
 the editor filters them out of the top-level suggestion list. They are two keys rather than one because they are
-built under different conditions: `__argValueSets` costs a call to another service and is assembled only when
-the payload carries `service.workflow`, i.e. for execution rules; the stores are offered in every rule type, so
-their keys have to be there in every rule type too.
+built under different conditions: the `workflows` and `processTables` sets cost a call to another service and are
+assembled only when the payload carries `service.workflow`, i.e. for execution rules; `mailAccounts` and
+`roleGroups` are assembled in every rule type (fail-soft: one call for `roleGroups`, two for `mailAccounts`, bounded by
+a 2 s / 5 s Feign timeout on the role-group client — `roleGroups` is needed by `hasAnyRoleGroup` in predicates); the stores are offered in every rule type, so their keys have to be there in
+every rule type too.
 
 **The key distinction between the three node shapes** that the JS parses:
 - **method-details** — a map with a `"signature"` field (String). JS treats it as a method call
@@ -248,7 +257,8 @@ The same map is reused under `service.crud.<crudAlias>` (`HintsService.java`), s
 |---|---|---|
 | `service.access.*` | `addRoleAccess`, `removeUserAccess`, `hasRoleGroupAccess`, `getRoleAccesses()`, … — offered in every rule kind, but an edit is SAVED only from a service task or a sequence-flow predicate ([16](16-groovy-service-api.md) §2.7) | `buildAccessManagementMethods` |
 | `service.rimm.*` | `query(...)`, `run(...)` (running saved queries by name) | `buildRimmServiceMethods` |
-| `service.security.*` | `user()` (navigable: `id/email/firstName/lastName`, all `{type:String}`), `hasAnyRole(String... roles)`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` (all `boolean`) | `buildSecurityMethods` |
+| `service.security.*` | `user()` (navigable: `id/email/firstName/lastName`, all `{type:String}`), `hasAnyRole(String... roles)`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` (all `boolean`) — offered in every rule type. `hasAnyRoleGroup` / `hasAllRoleGroups` annotate their first argument with the `roleGroups` value set, so the project's real role-group names complete inside the quotes | `buildSecurityMethods` + `attachRoleGroupValues` |
+| `service.security.users.*` (9 members) / `service.security.roleGroups.*` (6) | managing the project's people and role groups. Offered **only** when `ruleType` is `EXECUTION_RULE` (a CRUD GROOVY method asks for execution-rule hints, so it sees them) — never in a predicate or a validation rule, where the runtime refuses every member, and never while the type is still unknown. Every member that takes a role group's NAME (`addRoleGroup`, `removeRoleGroup`, `roleGroups.get/update/delete/members`) carries `argValues` pointing at the `roleGroups` value set; every member that hands a person back (`get`, `create`, `update`, `setEnabled`, `addRoleGroup`, `removeRoleGroup`) says what is in it via `_returnFields`, and `list()` via `__element` | `buildSecurityUserHints` / `buildSecurityRoleGroupHints` |
 | `service.notification.push.*` | `sendText`, `sendAlert`, `sendWarning`, `sendError`, `sendReminder`, `*ToRole`, `*ToRoleGroup` (see full list below) | `buildPushNotificationMethods` |
 | `service.notification.mail.<alias>(...)` | **TWO overloads** per mail-template alias (see below) | `buildMailNotificationMethods` |
 | `service.report.pdf.*` | PDF generation/download/delivery (see the subsection below) | `buildReportHints` → `buildPdfReportHints` |
@@ -259,7 +269,7 @@ The same map is reused under `service.crud.<crudAlias>` (`HintsService.java`), s
 | `service.workflow.start(...)` | starting a process; **two overloads**, both annotating argument 0 with the `workflows` value set so the identifier autocompletes inside the quotes, and both expanding the whole call when one is picked | `buildWorkflowHints` + `attachArgValueSets` |
 | `service.workflow.list / actions / startActions / contextData / complete` | working an existing case; the settings-id argument is annotated with the `processTables` value set and expands the whole call, writing that table's real filter keys and naming its indexed values | `buildWorkflowHints` + `attachArgValueSets` |
 | `service.store.session.*` / `service.store.user.*` | the two key/value stores; **eight identical methods each**, every key argument annotated with `argValues: {"0": {keysOf: "__storeKeys.<scope>"}}` so it completes from that scope's catalogued keys. Offered in **every** rule type, because all three executors wire the runtime | `buildStoreHints` → `buildStoreScopeMethods` |
-| `__storeKeys` (payload root, not under `service`) | `{session: {<key>: {type}}, user: {…}}` — the keys this project has actually written, per scope. A separate root key rather than an entry in `__argValueSets`, which exists only for execution rules | `attachStoreKeys` |
+| `__storeKeys` (payload root, not under `service`) | `{session: {<key>: {type}}, user: {…}}` — the keys this project has actually written, per scope. A separate root key rather than an entry in `__argValueSets`, whose workflow sets exist only for execution rules | `attachStoreKeys` |
 | `service.actionName` / `service.actionId` | typed leaf `{type:String}`; set when the rule is invoked from an action button | `HintsService.java` |
 | `service.redirectPage(String pagePath)` | navigating the browser after the rule returns; offered when `ruleType` is `EXECUTION_RULE` **and** `crudMethod` is false — a CRUD GROOVY method asks for execution-rule hints but cannot navigate, so the business-logic editor sends `crudMethod: true` | `HintsService.java` |
 | `service.rule(String ruleName)` | invoking another rule by name | `HintsService.java` |
@@ -553,6 +563,7 @@ against this table, not against the hint:
 | H10 | `service.access.add…` / `remove…` in every rule kind, described as acting "on the process" | saved only from a service task's rule or a sequence-flow predicate | returns `true`, nothing changes | decide in the action's complete rule, apply in the next service task ([07](07-workflows-and-tasks.md) "Stage-wise case access") |
 | H11 | the inserted snippet of `conversion.toSelectOptionsLocalized(...)` / `toAutoCompleteOptionsLocalized(...)` fills EVERY parameter — the optional `localeKey` and `localizationFieldName` as the literal strings `"localeKey"` and `"localizationFieldName"` | those literals are used as the locale and the field name | the labels silently stay in the base language | delete the two trailing arguments the snippet inserted: `toSelectOptionsLocalized(list, "<key>", "<display>")` |
 | H12 | nothing — the editor does not offer them | they work | completion stays silent | `attrs`, `userId`, `contextIdentifiers`, `contextDataMap`, `param` (rule editor), bare `data` / `currentData`, `service.access.accessDto`, `service.enums.names()`, the validation collector's `hasErrors()`/`getErrors()`/…, `RestResponse` helpers ([16](16-groovy-service-api.md)) |
+| H13 | `service.security.users.*` / `.roleGroups.*` in an EXECUTION rule (and a CRUD GROOVY method) | refused, `… not available in rules called from predicates`, when that rule was reached from a predicate or a validation rule (`service.rule(…)`, a CRUD method) — the editor cannot know who will call it | `ServiceException` at run time | do the work in a rule that something DOES start (a button, a service task), never one a predicate calls ([16](16-groovy-service-api.md) §2.3.1) |
 
 
 ## Gotchas
@@ -599,3 +610,9 @@ against this table, not against the hint:
 - **The PREDICATE enum string.** In `RuleHintsRequestDto`/`rule.ruleType` a predicate is `PREDICATE` (not
   `PREDICATE_RULE`), see `RuleType.java`; the javadoc in HintsService sometimes writes `PREDICATE_RULE` inaccurately.
   An unknown string → the default `EXECUTION_RULE` (`parseRuleType`, `HintsService.java`).
+- **The editor loses the RETURNED member's fields when the call's arguments contain `[` or `]`.** `groovy-hint.js`
+  reads any bracket in a chain as an index, so `service.security.users.get("x").` and `….list()[0].` complete, but
+  `users.update("a", [firstName: "x"]).`, `users.create(email: "a", roleGroups: ["X"]).` and a `def u = …` of those
+  fall back to generic Object methods — the members still RUN; only the completion is missing. Write the call over
+  two statements (`def u = users.get("a")`) when you want the fields offered. Likewise a role-group NAME completes
+  inside the quotes of an argument, never inside a list literal (`roleGroups: [" … "]`).

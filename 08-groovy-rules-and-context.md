@@ -579,6 +579,7 @@ The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
 | `service.access.*` | the case's access rows: who SEES a case (`addRoleGroupAccess`, `removeOwnerAccess`, `hasUserAccess`, …) | all — but an edit is SAVED only from a service task's rule or a sequence-flow predicate; everywhere else it returns `true` and is discarded ([16](16-groovy-service-api.md) §2.7, [07](07-workflows-and-tasks.md) "Stage-wise case access") | `ServiceWrapper.access` (`AccessManager`) |
 | `service.workflow.start("<workflowIdentifier>", ctxMap[, opts])` | start a process; returns its identifier. First argument is the workflow **identifier** (autocompleted inside the quotes), and the workflow must be deployed | **EXECUTION only** (incl. CRUD GROOVY methods) | `WorkflowProxy` — `setWorkflow` refuses in predicate/validation |
 | `service.workflow.list / actions / startActions / contextData / complete` | work an EXISTING case: page through a worklist, ask what may be done to a process, read its context data, execute an action with new data. The first argument of most of them is a **process table's Settings ID**, which makes the rule inherit that table's workflow, filter and indexes — see [16](16-groovy-service-api.md) §2.13 | **EXECUTION only** (incl. CRUD GROOVY methods) | same gate as `start` |
+| `service.security.users.create / get / list / update / setEnabled / delete / addRoleGroup / removeRoleGroup / invite` and `service.security.roleGroups.list / get / create / update / delete / members` | manage the project's **people** and **role groups** from a rule: add a person (invited by e-mail, or with a password), re-group, disable, remove. Held to the RULE's own execution access, **not** to the Settings → Accesses grants of the User/Role Management screens — so set `rule access` to the role group that administers people; the default, any signed-in user, would let a clerk run it. Present in every rule type, but in a predicate / validation rule **every member throws** (`… is not available in predicates`; the same in an execution rule such a rule calls, `… in rules called from predicates`) — see [16](16-groovy-service-api.md) §2.3.1–2.3.3 | **EXECUTION only** (incl. CRUD GROOVY methods) | `SecurityHelper.users` / `.roleGroups` → `UserDirectoryProxy` / `RoleGroupDirectoryProxy` (`GroovyExecutorHelper.applySecurityDirectory`) |
 | `service.store.session.get/put/remove/containsKey/keys/all/clear` | key/value storage for the **browser session**, per project. Empty (put stores nothing, get answers `null`) wherever no browser session took part: a VALIDATION rule, a CRUD GROOVY method invoked directly from a page, anything a process table evaluates or runs against a case, scheduler / Kafka / MCP — see [16](16-groovy-service-api.md) §2.14 | all (but see the empty-list) | `RuleStoreProxy` → `SessionKeyValueStore` |
 | `service.store.user.get/put/remove/containsKey/keys/all/clear` | the same eight methods, stored in the database **per user** and outliving the session. Empty wherever there is no acting user | all | `RuleStoreProxy` → `UserKeyValueStore` |
 | `service.redirectPage("alias/page")` | send the BROWSER to another page of this project after the rule returns. Path WITHOUT the organisation, which is prepended for you; a full URL is refused. Nothing happens when no browser is waiting — see [16](16-groovy-service-api.md) §2.15 | **EXECUTION rules only** — a predicate, a validation rule and a CRUD GROOVY method all refuse it | `ServiceWrapper.redirectPage` |
@@ -611,7 +612,10 @@ The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
 
 This is the **authoritative security boundary** for Spring beans:
 - `inject("rimmService")` → returns a **safe proxy** `service.rimm` (not the raw bean).
-- `inject("contextService"|"reactorService"|"ruleService"|"crudReactor")` → **`SecurityException`** (blocked).
+- `inject("contextService"|"reactorService"|"ruleService"|"crudReactor"|"securityDirectory"|
+  "securityRoleGroupDirectoryClient")` → **`SecurityException`** (blocked: they take a realm and a client as
+  ARGUMENTS, so a rule holding one could aim at another project; the last two build the `service.security.users` /
+  `.roleGroups` proxies). Not a sandbox — see [16](16-groovy-service-api.md) §2.1.
 - Allow-list by name: `emailService, notificationService, validationService, calculationService,
   formatterService, dateService`, plus any bean whose name ends in `Helper` or `Util`.
 - Other beans load with a warning log (not recommended).
@@ -1051,14 +1055,17 @@ allocates.
 
 `service.rule("<name>")` executes the named rule through `java.lang.reflect.Method.invoke`
 (`ServiceWrapper.rule()`, `nct-executor-common`). When the nested rule throws, reflection wraps it in an
-`InvocationTargetException`, and the wrapper reports **`e.getMessage()`** of *that* — which is always
-`null`. So every failure inside a nested rule reaches the user as:
+`InvocationTargetException`. **A platform build that unwraps it** (the current one) reports the nested failure's own
+text — `…Failed to execute rule 'Inner': Failed to execute Groovy script: <the real message>`; **an older build**
+reports **`e.getMessage()`** of the wrapper, which is always `null` (and so does the current one for an exception that
+carries no message of its own, such as a `ServiceException` with only `errors[]`). Against an older build every
+failure inside a nested rule reaches the user as:
 
 ```
 Failed to execute rule 'Outer' (…): Failed to execute Groovy script: Failed to execute rule 'Inner': null
 ```
 
-The word "null" carries **no information about the cause**: it is not a NullPointerException, not a null
+On an older build the word "null" carries **no information about the cause**: it is not a NullPointerException, not a null
 value, not a missing binding. The real exception is `e.getCause().getCause()` and it is not written to any
 log the builder can read. Unwrap it yourself — one helper, defined once per rule that calls another:
 
@@ -1220,7 +1227,10 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     `service.store.session` is EMPTY unless a browser session took part: in a VALIDATION rule, in a CRUD GROOVY
     method invoked directly from a page, in anything a process table evaluates or runs against a case, and in
     anything headless. `service.store.user` is empty only where there is no acting user.
-    [16](16-groovy-service-api.md) §2.14.
+    [16](16-groovy-service-api.md) §2.14. `service.security.users` / `service.security.roleGroups` are in
+    NEITHER group: all three executors wire them, so they always EXIST (no `NullPointerException`), but in a
+    predicate and in a validation rule - and in an execution rule that one of them calls - every member refuses with an explanation — [16](16-groovy-service-api.md)
+    §2.3.1.
 16. **`attrs` is a `Map<String,JsonNode>`.** Don't compare a JsonNode directly — extract:
     `attrs.filterBy?.asText()`, `attrs._crudEntityId?.asText()`. Known keys (illustrative, not
     exhaustive): `filterBy`, `rowsInPage`, `pageNumber`, `processIdentifier`, `_crudAlias`,
