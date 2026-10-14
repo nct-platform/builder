@@ -873,9 +873,10 @@ library, or better a `chart.js.plugin` child, only when you need axes.
 > w.document.close(); w.focus(); w.print();
 > ```
 > ⚠️ Better still when the layout is fixed: render server-side through the platform's PDF templates
-> ([15](../15-pdf-and-mail.md)) — the renderer carries fonts for every script (Armenian, Georgian, Cyrillic,
-> Greek, Hebrew, Arabic, the Indic scripts, Thai, Chinese/Japanese/Korean ...), so a non-Latin locale prints as
-> written, with no font to register and no transliteration.
+> ([15](../15-pdf-and-mail.md)) — the renderer carries fonts for the scripts of its set (Armenian, Georgian, Cyrillic,
+> Greek, Hebrew, Arabic, the Indic scripts, Thai, Chinese/Japanese/Korean ...), so a non-Latin locale in one of them prints as
+> written, with no font to register and no transliteration. A script the set lacks (Thaana, Tibetan, Mongolian, Syriac ... and emoji:
+> the list is in [15](../15-pdf-and-mail.md)) prints as boxes: do not promise it.
 
 ### 9.2 T6 — the seam between a studio console and the generated pages
 

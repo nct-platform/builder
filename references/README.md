@@ -57,7 +57,7 @@ everything:
 ```bash
 # every pattern that governs charts, strongest evidence first
 jq '[.nodes[] | select(.type=="pattern" and (.artefact|test("chart";"i")))]
-    | sort_by(-.evidenceCount)' knowledge-graph.json
+    | sort_by(-(.evidenceCount // 0))' knowledge-graph.json
 
 # where the library is contradicted by delivery evidence
 jq '[.edges[] | select(.rel=="corrects")]' knowledge-graph.json

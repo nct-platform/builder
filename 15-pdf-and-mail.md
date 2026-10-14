@@ -152,7 +152,8 @@ Each field with a `name` becomes a **placeholder** that is filled at render time
 
 **The authoritative field-type set is the renderer's plugin map** — a type absent from that map does not render. It registers: `text`, `multiVariableText`, `image`, **`svg`**, `line`, `rectangle`, **`ellipse`**, `table`, the temporal/choice types `date`, `time`, `dateTime`, `checkbox`, `radioGroup`, `select`, and the 12 barcodes `qrcode`, `japanpost`, `ean13`, `ean8`, `code39`, `code128`, `nw7`, `itf14`, `upca`, `upce`, `gs1datamatrix`, `pdf417`. The editor exposes `svg`/`ellipse` in its palette.
 
-- ⚠️ **`list` does NOT render.** The autocomplete hints and the input resolver acknowledge a `list` type (it is JSON-serialized like `multiVariableText`), but **no `list` plugin is registered in the renderer**. A `list` field fails to render. Prefer `table`.
+- ⚠️ **`list` does NOT render.** The autocomplete hints and the input resolver acknowledge a `list` type (it is JSON-serialized like `multiVariableText`), but **no `list` plugin is registered in the renderer**. A `list` field makes the renderer refuse the whole template (see the next bullet). Prefer `table`.
+- ⚠️ **A template the renderer refuses fails the WHOLE PDF — not just the field.** pdfme checks the template before it draws anything. `basePdf` must be a blank page (numbers `width` and `height`, and `padding` of exactly four numbers) or a PDF; `schemas` a list of pages, each a list of fields; every field an object with a text `name`, a `type` from the set above (exactly: `Text`, ` text`, `barcode` and `xyz` are all refused), a `position` with numbers `x` and `y`, numbers `width` and `height`, and, when present, `readOnly` true/false and `rotate` a number. `mrjun.py validate` reports each of these as an ERROR (`_pdf_template_problems`). What passes: an empty `name`, a negative size, duplicate names, keys the renderer does not know, and a `direction` that is not `auto`/`ltr`/`rtl` (it is read as `auto`, without a word).
 - ⚠️ **Shapes take no `params`.** `line`, `rectangle`, `ellipse` are valid **schema** types but the field extractor **skips them**, so they never appear in `fields` and take no render-time value — they are pure decoration baked into `templateJson`.
 
 Each entry of `fields` carries: `name`, `type`, `description`, `options` (for select/radio), `columns` (for table), `variables` + `variableDefaults` (for multiVariableText), `readOnly`, `content` (default value), `sampleRows` (for table).
@@ -165,11 +166,13 @@ Each entry of `fields` carries: `name`, `type`, `description`, `options` (for se
 character with the first font that has it, so a field set in the default font prints Armenian, Georgian,
 Cyrillic, Greek, Latin with diacritics, Hebrew, Arabic, Devanagari/Bengali/Tamil and the other Indic scripts,
 Thai/Lao/Khmer/Myanmar, Ethiopic, Chinese/Japanese/Korean and the currency and common symbols
-(`₽ € £ ¥ ₸ ₾ ֏ № ✓`) — in one line, mixed freely. A base letter and its combining marks always stay together, and
+(`₽ € £ ¥ ₸ ₾ ֏ № ✓`) — in one line, mixed freely. A base letter and its combining marks stay together, and
 the scripts that need shaping (vowel signs that move, stacked letters, conjuncts: Devanagari, Bengali, Tamil, Thai,
 Khmer, Myanmar, ...) come out as written.
-A character that **no** bundled font has (emoji, for one) is drawn as a placeholder box (the font's own; never a crash) and is written to the
-render log with the template alias, the field name and the code point (`MISSING_GLYPH`).
+A character that **no** bundled font has is drawn as a placeholder box (the font's own; never a crash) and is written to the
+render log with the template alias, the field name and the code point (`MISSING_GLYPH`). That is every emoji, the rarest Han characters
+(the four CJK faces together cover about 30,000 Han code points: the whole basic block and nearly all of Extension A, but only part of Extensions B and beyond), and every script the list above does not name: Thaana (Dhivehi), Tibetan and Dzongkha, Mongolian, Syriac, Cherokee, Canadian syllabics, Tifinagh, N'Ko, Yi, Javanese, Balinese, Sundanese, Ol Chiki, Meetei Mayek, Vai and the historic scripts (Coptic, runes, cuneiform ...). Do not promise a customer a language
+whose script is not in that list.
 
 `fontName` therefore only chooses the **look** of the text. The names that exist:
 
@@ -218,21 +221,30 @@ render log with the template alias, the field name and the code point (`MISSING_
 - **Dates in any language.** A `date` field with `"locale": "hy"` or `"ka"` (or any language the platform's
   ICU knows) prints month and day names in that language; `"format"` may use the long styles (`PP`, `PPP`, `PPPP`),
   which are the language's own. A `locale` the platform does not know prints the date in
-  English and logs `UNSUPPORTED_LOCALE`; a value that is no date prints as written and logs `INVALID_DATE`; an empty
-  one prints nothing; none of it fails the PDF. Dates are always Gregorian, whatever calendar the
-  language uses at home.
+  English and logs `UNSUPPORTED_LOCALE`; a value that is no date prints as written and logs `INVALID_DATE`; none
+  of it fails the PDF. (A `locale` may be written `hy-AM` or the platform's way, `hy_AM`. A field that has a `locale`
+  keeps it whatever the language of the document is; that language is the default only for a field with none. A param
+  that is null or an empty string is not passed on, so the field prints its designed-in `content` — a date field with
+  no content and no value prints nothing; a value of only spaces prints today's date.) Dates are always Gregorian, whatever calendar the
+  language uses at home. With no `"format"`, a `dateTime` prints 12-hour (`03:30 PM`) in `en` and `es` and 24-hour (`15:30`) in
+  `en-GB` and `es-ES`: set `"format"` where the hours must be the same whichever way the language is written.
 - **File names keep their letters.** `fileName` may be Armenian, Cyrillic, Chinese …; only characters a file
   system or a mail attachment cannot hold (`/ \ : * ? " < > |`, control characters, and the characters that turn
-  text round) are replaced with `_`, runs of spaces become one, the length is limited to 150 bytes of UTF-8 (about
-  75 Armenian or Cyrillic letters, 50 Chinese characters) and `.pdf` is added. The browser's save dialog shows the name
+  text round) are replaced with `_`; a tab or a line break is a space, a run of ordinary spaces becomes one, spaces and dots at
+  either end are dropped, and the name is cut so that with its `.pdf` it is at most 150 bytes of UTF-8 (about 73
+  Armenian or Cyrillic letters, 48 Chinese characters); `.pdf` is added when it is not there. The browser's save dialog shows the name
   as written.
 - **Known limits** (the renderer's engine, not something to fix in a template): the runs of an inline-markdown text
   are laid out left to right, one by one, also in Hebrew or Arabic (the words inside a run are right, the order of the
   runs is not right to left, and `direction` has no effect there); Chinese and Japanese line breaking uses an
   incomplete list of the characters that may not start or end a line; the Designer's preview is the browser drawing the
-  same fonts, so it can differ from the PDF in the finest details of complex scripts, it shows a synthetic italic
-  upright, shows Han characters in Simplified order whatever `lang` the PDF gets, and a date in Armenian, Georgian
-  or Sinhala may show English month names there (the PDF has them right).
+  same fonts, so it can differ from the PDF: in the finest details of complex scripts; in the height of a table row and
+  the size `dynamicFontSize` picks for Malayalam, Tamil, Sinhala, Bengali, Telugu, Khmer and Lao (the PDF row can be a
+  one to three lines taller: trust the PDF); in justified text (the preview widens the gaps between words, the PDF spreads
+  the space over the letters); it shows a synthetic italic upright, shows Han characters in Simplified order whatever `lang` the PDF gets, and a date in Armenian, Georgian
+  or Sinhala may show English month names there (the PDF has them right). Undo/Redo (Ctrl/Cmd+Z) in the Designer is not reported to the
+  form until the next edit, so Save right after an undo stores the template as it was before it: make one more edit (a nudge will do) or
+  reopen it. One word of many thousands of letters with no space in an inline-markdown text is slow to render (seconds); a plain `text` field is not.
 - Every PDF is made by "Dokie" (author, creator, producer).
 
 ## 1.4 Standard (seed) templates
@@ -453,7 +465,7 @@ Meaningful property slots of this node (all are direct typed properties, **not**
 
 > ⚠️ **UNVERIFIED (engine behaviour).** The node shape above is **verified against real exports** and is identical in every one of them; the engine behavior cannot be reconstructed from the data.
 
-**Recommendation for building a project:** to generate PDFs in a new (dynamic) project **use pdfme templates (Part 1) + the Groovy API (Part 3)**, not this legacy scaffold. Keep `pdf.report.plugin` as is on the `reports/Pdf` demo page (or delete it together with the page if you don't need the demo). Do not create new `pdf.report.plugin` nodes by hand — the engine is undocumented.
+**Recommendation for building a project:** to generate PDFs in a new (dynamic) project **use pdfme templates (Part 1) + the Groovy API (Part 4)**, not this legacy scaffold. Keep `pdf.report.plugin` as is on the `reports/Pdf` demo page (or delete it together with the page if you don't need the demo). Do not create new `pdf.report.plugin` nodes by hand — the engine is undocumented.
 
 ---
 
@@ -609,7 +621,7 @@ def armenian = service.report.pdf.get.intakeReceipt("intake-42.pdf", [ customerN
 
 ## 4.2 `service.report.pdf.email.<mailAlias>(recipients, [subject,] placeholders, pdfs)`
 
-**The main "PDF → email" flow.** `<mailAlias>` is the `alias` of a mail template (Part 2). It renders each PDF reference in the PDF service (not merged), attaches it as an `application/pdf` attachment (`fileName`, `content`), and sends the mail by alias.
+**The main "PDF → email" flow.** `<mailAlias>` is the `alias` of a mail template (Part 3). It renders each PDF reference in the PDF service (not merged), attaches it as an `application/pdf` attachment (`fileName`, `content`), and sends the mail by alias.
 
 Two signatures (from the hints):
 

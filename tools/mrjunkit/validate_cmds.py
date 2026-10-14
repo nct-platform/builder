@@ -3192,13 +3192,14 @@ def _pdf_template_font_names(templateJson):
     an object) is no font either: it is returned as its JSON text. `null` is no name."""
     try:
         node = json.loads(templateJson) if isinstance(templateJson, str) else templateJson
-    except ValueError:
-        # not JSON at all: read the text the way the check always did
+    except (ValueError, RecursionError):
+        # not JSON at all (or nested deeper than the parser reads): read the text the way the check always did
         return set(re.findall(r'"fontName"\s*:\s*"([^"]*)"', templateJson))
     if not isinstance(node, dict):
         return set()
     schemas = []
-    for page in node.get("schemas") or []:
+    pages = node.get("schemas")
+    for page in pages if isinstance(pages, list) else []:
         schemas.extend(page if isinstance(page, list) else [page])
     base = node.get("basePdf")
     if isinstance(base, dict) and isinstance(base.get("staticSchema"), list):
@@ -3227,6 +3228,12 @@ def _pdf_template_font_names(templateJson):
     return names
 
 
+def _shown_name(name, limit=80):
+    """A font name for a message: quoted, so that one with a space at its end can be seen, and cut when it is long."""
+    text = repr(name)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 def _check_pdf_template_fonts(p, r):
     """A pdfme template should name a font the RENDERER has: one of PDF_FONT_NAMES, or "" for the default.
 
@@ -3241,17 +3248,19 @@ def _check_pdf_template_fonts(p, r):
     `fontName` and are the half people forget, and `fontVariants` (the faces inline markdown uses). It reads a template
     the way the renderer does (see _pdf_template_font_names): what the renderer ignores is not warned about.
     """
-    for tpl in p.rep.get("pdfTemplates", []) or []:
-        raw = tpl.get("templateJson")
+    for tpl in _list_of(p.rep, "pdfTemplates"):
+        raw = tpl.get("templateJson") if isinstance(tpl, dict) else None
         if not raw:
             continue
-        names = {n for n in _pdf_template_font_names(raw) if n and n not in PDF_FONT_NAMES}
+        names = sorted(n for n in _pdf_template_font_names(raw) if n and n not in PDF_FONT_NAMES)
         if names:
+            # (a template can name any number of fonts, of any length)
+            shown = ", ".join(_shown_name(n) for n in names[:20]) + (" (and %d more)" % (len(names) - 20) if len(names) > 20 else "")
             r.warn("pdfTemplate %r names font(s) %s -- not in the renderer's font set (%s). Each such field prints "
                    "in the default font (Roboto) and the render logs UNKNOWN_FONT. Use one of those names, or "
                    "\"\" for the default; a template exported from pdfme's own playground carries "
                    "NotoSerifJP-* -- clear them. (15)"
-                   % (tpl.get("alias") or tpl.get("name"), ", ".join(sorted(names)), ", ".join(sorted(PDF_FONT_NAMES))))
+                   % (tpl.get("alias") or tpl.get("name"), shown, ", ".join(sorted(PDF_FONT_NAMES))))
 
 
 def _check_groovy_numeric_traps(p, r):
@@ -4496,6 +4505,79 @@ _PDFME_FIELD_TYPES = {"text", "multiVariableText", "image", "svg", "line", "rect
                       "date", "time", "dateTime", "checkbox", "radioGroup", "select",
                       "qrcode", "japanpost", "ean13", "ean8", "code39", "code128",
                       "nw7", "itf14", "upca", "upce", "gs1datamatrix", "pdf417"}
+_PDF_FIELD_TYPES_TEXT = ", ".join(sorted(_PDFME_FIELD_TYPES))
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _pdf_field_problems(field, where, named=True):
+    """What makes the renderer refuse a pdfme field -- and then the WHOLE PDF fails, not just the field (pdfme checks the template before it draws
+    anything: `[@pdfme/common] Invalid argument`). Read off the renderer (pdfme 6.1.2), not off a guess: a field must be an object with a `name`
+    (text; a page written the legacy way, as an object keyed by field name, has the name in the key), a `type` that is one of the renderer's, a
+    `position` with numbers `x` and `y`, numbers `width` and `height`; `readOnly`, if there, a boolean; `rotate`, if there, a number. What it lets
+    pass: an empty name, a negative width, duplicate names, keys it does not know, a `fontSize` in text, an `alignment` or `textFormat` it does not know
+    and a `direction` that is not auto/ltr/rtl (read as auto)."""
+    if not isinstance(field, dict):
+        return ["%s is not an object" % where]
+    problems = []
+    if named and not isinstance(field.get("name"), str):
+        problems.append("%s has no text `name`" % where)
+    ftype = field.get("type")
+    if not isinstance(ftype, str):
+        problems.append("%s has no text `type`" % where)
+    elif ftype not in _PDFME_FIELD_TYPES:
+        hint = " -- use 'table'" if ftype == "list" else ""
+        problems.append("%s has type %s, which the renderer does not have (it has: %s)%s" % (where, _shown_name(ftype, 40), _PDF_FIELD_TYPES_TEXT, hint))
+    position = field.get("position")
+    if not (isinstance(position, dict) and _is_number(position.get("x")) and _is_number(position.get("y"))):
+        problems.append("%s has no `position` with numbers x and y" % where)
+    for key in ("width", "height"):
+        if not _is_number(field.get(key)):
+            problems.append("%s has no number `%s`" % (where, key))
+    if "readOnly" in field and not isinstance(field["readOnly"], bool):
+        problems.append("%s has a `readOnly` that is not true/false" % where)
+    if "rotate" in field and not _is_number(field["rotate"]):
+        problems.append("%s has a `rotate` that is not a number" % where)
+    return problems
+
+
+def _pdf_base_problems(base):
+    """The base of a pdfme template is a blank page -- numbers `width` and `height` and `padding` of four numbers (and a list `staticSchema`, if
+    there) -- or a PDF, given as text. Anything else makes the renderer refuse the template."""
+    if isinstance(base, str):
+        return [] if base.strip() else ["`basePdf` is an empty text"]
+    if not isinstance(base, dict):
+        return ["`basePdf` is neither a blank page ({width, height, padding}) nor a PDF"]
+    problems = ["`basePdf` has no number `%s`" % key for key in ("width", "height") if not _is_number(base.get(key))]
+    padding = base.get("padding")
+    if not (isinstance(padding, list) and len(padding) == 4 and all(_is_number(x) for x in padding)):
+        problems.append("`basePdf.padding` is not four numbers")
+    if "staticSchema" in base and not isinstance(base["staticSchema"], list):
+        problems.append("`basePdf.staticSchema` is not a list")
+    return problems
+
+
+def _pdf_template_problems(obj):
+    """Why the renderer refuses a pdfme template as a whole (see _pdf_field_problems): a base that is a blank page or a PDF (_pdf_base_problems),
+    `schemas` a list of pages, a page a list of fields (or, the legacy way, an object whose values are fields)."""
+    problems = _pdf_base_problems(obj.get("basePdf"))
+    schemas = obj.get("schemas")
+    if not isinstance(schemas, list):
+        return problems + ["`schemas` is not a list of pages"]
+    for number, page in enumerate(schemas, 1):
+        if isinstance(page, list):
+            for index, field in enumerate(page, 1):
+                problems.extend(_pdf_field_problems(field, "field %d of page %d" % (index, number)))
+        elif isinstance(page, dict):
+            for key, field in page.items():
+                problems.extend(_pdf_field_problems(field, "field %s of page %d" % (_shown_name(key, 30), number), named=False))
+        else:
+            problems.append("page %d is not a list of fields" % number)
+    return problems
+
+
 _AUTO_MAIL_ALIASES = {"userRegistration", "passwordRecover", "companyInvitation", "eventReminder"}
 _PDF_GET_RE = re.compile(r"service\.report\.pdf\.get\.(\w+)")
 _MAIL_ALIAS_RE = re.compile(r"service\.(?:report\.pdf\.email|notification\.mail)\.(\w+)")
@@ -4503,18 +4585,34 @@ _PLACEHOLDER_RE = re.compile(r"\{\{([^{}]*)\}\}")
 _NEXTVAL_RE = re.compile(r"nextval\('[^']*?\.?\"?([A-Za-z0-9_]+)\"?'::regclass\)")
 
 
+def _list_of(rep, key, r=None):
+    """A collection of the project's export, as a list: what is not a list is no collection (an ERROR, when there is a report to say it on)."""
+    value = rep.get(key)
+    if isinstance(value, list):
+        return value
+    if value is not None and r is not None:
+        r.err("%s is not a list. (15)" % key)
+    return []
+
+
 def _check_templates(p, r):
     """PDF/mail template integrity: duplicate alias/name (2nd won't save → ERROR); a pdfme `templateJson` that is
-    invalid JSON or lacks basePdf/schemas → ERROR, or has no fields → WARN (blank); an unknown field type → WARN;
+    invalid JSON or lacks basePdf/schemas → ERROR; one the renderer refuses (`schemas` not a list of pages of
+    fields, a field without a text name, one of the renderer's types, a position and a size, or of an unknown type —
+    `list` is not one, use `table`) → ERROR, because then the WHOLE PDF fails; no fields at all → WARN (blank);
     a mail `{{placeholder}}` with a non-word char (incl. surrounding spaces) that is never substituted → WARN; a
     rule referencing `service.report.pdf.get.<alias>` / mail alias with no backing template → WARN."""
     from collections import Counter
     rep = p.rep
-    mails = rep.get("mailTemplates", []) or []
-    pdfs = rep.get("pdfTemplates", []) or []
+    mails = [m for m in _list_of(rep, "mailTemplates", r) if isinstance(m, dict)]
+    pdfs = [t for t in _list_of(rep, "pdfTemplates", r) if isinstance(t, dict)]
+    for coll in ("mailTemplates", "pdfTemplates"):
+        for i, x in enumerate(_list_of(rep, coll), 1):
+            if not isinstance(x, dict):
+                r.err("%s[%d] is not an object. (15)" % (coll, i))
     for coll, items in (("mailTemplate", mails), ("pdfTemplate", pdfs)):
         for key in ("alias", "name"):
-            for v, c in Counter(x.get(key) for x in items if x.get(key)).items():
+            for v, c in Counter(x.get(key) for x in items if isinstance(x.get(key), str) and x.get(key)).items():
                 if c > 1:
                     r.err("%s %s %r appears %d times — duplicate key; the 2nd won't save. (15 §3.5)" % (coll, key, v, c))
     for t in pdfs:
@@ -4523,24 +4621,22 @@ def _check_templates(p, r):
         if isinstance(tj, str):
             try:
                 obj = json.loads(tj)
-            except json.JSONDecodeError:
-                r.err("pdfTemplate %r templateJson is not valid JSON. (15)" % t.get("alias"))
+            except (json.JSONDecodeError, RecursionError):  # (the parser gives up on a text nested deeper than it reads)
+                r.err("pdfTemplate %r templateJson is not valid JSON, or is nested too deep to be a template. (15)" % t.get("alias"))
                 continue
         elif isinstance(tj, dict):
             obj = tj
         if not isinstance(obj, dict) or "basePdf" not in obj or "schemas" not in obj:
             r.err("pdfTemplate %r templateJson missing basePdf/schemas (not a pdfme template). (15)" % t.get("alias"))
             continue
-        schemas = obj.get("schemas")
-        if not (isinstance(schemas, list) and any(isinstance(pg, list) and pg for pg in schemas)):
+        problems = _pdf_template_problems(obj)
+        if problems:
+            r.err("pdfTemplate %r is refused by the renderer, so every render of it fails as a whole (no PDF at all): %s%s. (15)"
+                  % (t.get("alias"), "; ".join(problems[:3]), " (and %d more)" % (len(problems) - 3) if len(problems) > 3 else ""))
+            continue
+        schemas = obj["schemas"]
+        if not any((page if isinstance(page, list) else list(page.values())) for page in schemas):
             r.warn("pdfTemplate %r has no fields on any page — renders blank. (15)" % t.get("alias"))
-        for pg in schemas if isinstance(schemas, list) else []:
-            for fld in pg if isinstance(pg, list) else []:
-                ft = fld.get("type") if isinstance(fld, dict) else None
-                if ft == "list":
-                    r.warn("pdfTemplate %r field type 'list' is not a renderer — use 'table'. (15)" % t.get("alias"))
-                elif ft and ft not in _PDFME_FIELD_TYPES and "barcode" not in ft.lower():
-                    r.warn("pdfTemplate %r field type %r is not in the pdfme renderer set — renders blank. (15)" % (t.get("alias"), ft))
     for m in mails:
         for fld in ("htmlContent", "subject"):
             # Strip HTML comments first — a `{{...}}` inside <!-- ... --> (e.g. an author note about placeholder
@@ -4550,10 +4646,10 @@ def _check_templates(p, r):
                 inner = mt.group(1)
                 if inner and (inner != inner.strip() or re.search(r"[^A-Za-z0-9_ ]", inner)):
                     r.warn("mailTemplate %r %s placeholder {{%s}} has a non-word char / surrounding space — it is never substituted. (15)" % (m.get("alias"), fld, inner))
-    mail_aliases = {m.get("alias") for m in mails} | _AUTO_MAIL_ALIASES
-    pdf_aliases = {t.get("alias") for t in pdfs}
+    mail_aliases = {m.get("alias") for m in mails if isinstance(m.get("alias"), str)} | _AUTO_MAIL_ALIASES
+    pdf_aliases = {t.get("alias") for t in pdfs if isinstance(t.get("alias"), str)}
     sources = [("rule %r" % rl.get("name"), (rl.get("rule") or {}).get("ruleScriptStr", "") if isinstance(rl.get("rule"), dict) else "")
-               for rl in rep.get("rules", []) or []]
+               for rl in _list_of(rep, "rules") if isinstance(rl, dict)]
     for label, body in sources:
         for mt in _PDF_GET_RE.finditer(body or ""):
             if mt.group(1) not in pdf_aliases:

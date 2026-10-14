@@ -98,6 +98,24 @@ def _typed_field(name, ftype, x, y):
     if ftype == "checkbox":
         base.update({"width": 8, "height": 8, "content": "false"})
         return base
+    if ftype == "table":
+        # pdfme's own default table, with one column: a head, the width of each column and the styles. A table made of less (the generic default
+        # below has none of them) does not render at all, and takes the whole PDF with it.
+        base.update({
+            "width": 150, "height": 20, "showHead": True, "repeatHead": False,
+            "head": ["Column"], "headWidthPercentages": [100],
+            "content": json.dumps([[name]]),
+            "tableStyles": {"borderColor": "#000000", "borderWidth": 0.3},
+            "headStyles": {"alignment": "left", "verticalAlignment": "middle", "fontSize": 13, "lineHeight": 1, "characterSpacing": 0,
+                           "fontColor": "#ffffff", "backgroundColor": "#2980ba", "borderColor": "",
+                           "borderWidth": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "padding": {"top": 5, "right": 5, "bottom": 5, "left": 5}},
+            "bodyStyles": {"alignment": "left", "verticalAlignment": "middle", "fontSize": 13, "lineHeight": 1, "characterSpacing": 0,
+                           "fontColor": "#000000", "backgroundColor": "", "borderColor": "#888888",
+                           "borderWidth": {"top": 0.1, "right": 0.1, "bottom": 0.1, "left": 0.1}, "padding": {"top": 5, "right": 5, "bottom": 5, "left": 5},
+                           "alternateBackgroundColor": "#f5f5f5"},
+            "columnStyles": {},
+        })
+        return base
     # date/time/select/radioGroup/list/table etc. — a text-like default is valid.
     base.update({"content": ""})
     return base
@@ -109,7 +127,8 @@ def _sampledata_for(fields):
     for f in fields:
         if f["type"] in ("line", "rectangle", "image"):
             continue
-        row[f["name"]] = f["name"]
+        # (the value of a table is its rows, and that of a multiVariableText its variables, both as JSON text: a bare word is neither, and the render fails)
+        row[f["name"]] = {"table": json.dumps([[f["name"]]]), "multiVariableText": json.dumps({f["name"]: f["name"]})}.get(f["type"], f["name"])
     return row
 
 

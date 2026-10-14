@@ -509,14 +509,14 @@
    "attribution": "unrecorded"
   },
   {
-   "id": "p:non-latin-pdf-transliteration",
+   "id": "p:non-latin-pdf-printed-as-written",
    "type": "pattern",
-   "name": "Transliterate non-Latin text before it reaches a PDF cell",
-   "rule": "The pdfme font cannot render the project's script, so every PDF rule carries a ~40-entry character map plus a digraph pass applied first, and a cn(code,name) helper enforces 'code · transliterated-name' as the only shape allowed into a cell.",
+   "name": "Print non-Latin text in a PDF as written — never transliterate it",
+   "rule": "A PDF rule passes names, labels and addresses into the template unchanged, in whatever script the data is in: the renderer draws each character with the first of its fonts that has it, so there is no font to register and no character map or 'code · transliterated-name' helper to carry. A character that no bundled font has (emoji, for one) is drawn as a placeholder box and noted in the render log (MISSING_GLYPH); it never fails the PDF.",
    "artefact": "rep-objects.json rules whose description starts 'Renders pdf…'",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Running the per-character map before the digraph map, which turns ու into vo.",
+   "antiPattern": "A ~40-entry character map plus a digraph pass in every PDF rule, with a cn(code,name) helper as the only way into a cell — written when the renderer's one font could not set the project's script, and no longer needed. It also loses the text: running the per-character map before the digraph map turns ու into vo.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -4721,12 +4721,12 @@
    "to": "lib:15-pdf-and-mail.md"
   },
   {
-   "from": "p:non-latin-pdf-transliteration",
+   "from": "p:non-latin-pdf-printed-as-written",
    "rel": "explained_in",
    "to": "kb:01-solution-shapes.md"
   },
   {
-   "from": "p:non-latin-pdf-transliteration",
+   "from": "p:non-latin-pdf-printed-as-written",
    "rel": "documented_in",
    "to": "lib:15-pdf-and-mail.md"
   },

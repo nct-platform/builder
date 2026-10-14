@@ -1007,9 +1007,9 @@ tables of ANY kind outside separate tabs** — count
   fields. **For a printout that lists line items, pick a seed that HAS a `table` field** (invoice/quotation/
   packing-slip/delivery-note). Give it a stable `alias` and ship it with `mrjun.py pdftemplate add --alias <a>
   --name <s> --template @file.json` — it rides in `rep-objects.pdfTemplates[]` and is created in the PDF template store on
-  import (the Groovy rule references the same alias). ⚠️ For a `multiVariableText` field the render-time `params` keys
-  are the field's **inner `variables` names** (e.g. `invoiceNumber`, `customerName`), **not** the field `name`
-  (`info`/`billTo`); for a `table` field pass a nested list of rows.
+  import (the Groovy rule references the same alias). ⚠️ `params` is keyed by the field **`name`** (`info`/`billTo`), also for a `multiVariableText` field: its value is a
+  **map of the inner `variables`** (`[invoiceNumber: "…", customerName: "…"]`) — inner names put at the top level of
+  `params` are ignored and the field prints its defaults; for a `table` field pass a nested list of rows.
 - **The flow** — an EXECUTION rule reads the row (`context.<ctx>.<alias>.data.get()`), calls
   `service.report.pdf.get.<alias>(fileName, params)` → a PDF reference, then `service.notification.mail.*` to
   send it. **Decide the trigger:** a CRUD table/tree action-rule ([04](04-crud-table-plugin.md)), a workflow

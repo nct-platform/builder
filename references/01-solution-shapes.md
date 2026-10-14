@@ -411,7 +411,7 @@ against 271 KB-scale Groovy: the arithmetic is in the database and the rules are
 inline help nodes that explain the *interaction model* rather than the field, a mail template triplicated per
 locale with a dynamic alias dispatch, and (in that delivery, which predates the renderer's multi-script fonts) a
 40-entry transliteration table in every PDF rule because the renderer's single font could not set the default script
-— the renderer now prints every script, so a new build needs no such table.
+— the renderer now prints the scripts of its font set (Latin, Cyrillic, Armenian, Georgian, Greek, Hebrew, Arabic, the Indic scripts, Thai, CJK ...: the list, and what it lacks, is in 15-pdf-and-mail.md), so a build in one of them needs no such table.
 
 ### Failure modes this shape invites
 
