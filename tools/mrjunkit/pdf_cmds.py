@@ -1,14 +1,13 @@
 """pdftemplate — pdfme template scaffolding + export inclusion.
 
-PDF templates live in the nct-pdf service DB (`pdf_templates`, PdfTemplateEntity),
-BUT they ARE carried in the `.mrjun` — `rep-objects.json` has a `pdfTemplates[]`
-collection (a list of `PdfTemplateDto`), exported/imported alongside mail templates
-by nct-ui's `CmsProjectServiceImpl` (import saves each into nct-pdf via
-`PdfTemplateClient.save`). See ../15-pdf-and-mail.md part 1.
+PDF templates are stored by the platform's PDF service, BUT they ARE carried in
+the `.mrjun` — `rep-objects.json` has a `pdfTemplates[]` collection,
+exported/imported alongside mail templates (import saves each into the PDF
+service). See ../15-pdf-and-mail.md part 1.
 
 Commands:
   - `add`      — append a pdfme template (from a JSON file) to rep-objects.pdfTemplates[]
-                 so it is created in nct-pdf on import (the real, portable path).
+                 so it is created in the PDF service on import (the real, portable path).
   - `scaffold` — write a BARE standalone pdfme JSON to <file.json> (a skeleton to fill
                  in, or to import by hand); does NOT touch the project.
   - `note`     — print guidance.
@@ -20,10 +19,10 @@ from . import core
 
 # pdfme field types — aligned with the renderer plugin map that decides what
 # actually renders (the PDF renderer's plugin registry). See 15-pdf-and-mail.md 1.3.
-# NOTE: `list` is intentionally EXCLUDED — HintsService/resolveInputs acknowledge it
+# NOTE: `list` is intentionally EXCLUDED — the platform acknowledges it as a type
 # but the renderer registers no `list` plugin, so a `list` field never renders.
-# Shapes (line/rectangle/ellipse) are valid schema types but the extractor skips them
-# (PdfFieldExtractor.java), so they take no params — decoration only.
+# Shapes (line/rectangle/ellipse) are valid schema types but the field extractor skips
+# them, so they take no params — decoration only.
 _FIELD_TYPES = {
     "text", "multiVariableText", "image", "svg", "select", "radioGroup", "checkbox",
     "date", "time", "dateTime", "table", "line", "rectangle", "ellipse",
@@ -31,7 +30,7 @@ _FIELD_TYPES = {
     "japanpost", "gs1datamatrix", "pdf417", "nw7",
 }
 
-# alias pattern is strict on the platform side (PdfTemplateEditorPanel).
+# alias pattern is strict on the platform side.
 _ALIAS_RE = re.compile(r"^[a-z][a-zA-Z0-9]*$")
 
 # A4 blank base PDF (mm), matching the pdfme default the seed templates use.
@@ -159,38 +158,37 @@ def cmd_pdftemplate_scaffold(args):
     core.out("renders nearly blank. FILL IN a real layout, then ship it INTO the project:")
     core.out("  mrjun.py pdftemplate add --alias %s --name '<Name>' --template @%s"
              % (alias, args.out))
-    core.out("    -> appends to rep-objects.pdfTemplates[]; created in nct-pdf on import.")
+    core.out("    -> appends to rep-objects.pdfTemplates[]; created in the PDF service on import.")
     core.out("Then Groovy calls it by alias: service.report.pdf.get.%s(fileName, params)" % alias)
 
 
 def cmd_pdftemplate_note(args):
-    core.out("PDF templates live in nct-pdf (DB table `pdf_templates`), but they ARE")
-    core.out("carried in the .mrjun: `rep-objects.json` has a `pdfTemplates[]` list")
-    core.out("(PdfTemplateDto), exported/imported alongside mail templates by nct-ui")
-    core.out("(`CmsProjectServiceImpl`; import saves each into nct-pdf via PdfTemplateClient).")
+    core.out("PDF templates are stored by the platform's PDF service, but they ARE")
+    core.out("carried in the .mrjun: `rep-objects.json` has a `pdfTemplates[]` list,")
+    core.out("exported/imported alongside mail templates (import saves each into the PDF service).")
     core.out("")
     core.out("How to add one to a project (the PORTABLE path):")
     core.out("  mrjun.py pdftemplate add --alias <a> --name <s> --template @file.json")
-    core.out("    -> appends it to rep-objects.pdfTemplates[]; created in nct-pdf on import.")
+    core.out("    -> appends it to rep-objects.pdfTemplates[]; created in the PDF service on import.")
     core.out("  Author `file.json` as a REAL pdfme template (basePdf + schemas with")
     core.out("  static-label fields + positioned value fields + tables) — copy the closest")
     core.out("  seed in doc/builder/pdftemplates/*.json, or `pdftemplate")
     core.out("  scaffold` a bare skeleton and FILL IN the layout (a raw scaffold renders blank).")
     core.out("")
     core.out("Other ways (non-portable / manual): the browser 'Pdf Templates' page, or a")
-    core.out("REST POST of a PdfTemplateDto to nct-pdf PdfTemplateController.")
+    core.out("REST POST of a PDF-template record to the PDF service.")
     core.out("")
     core.out("How Groovy calls a PDF template (by alias):")
     core.out("  def pdf = service.report.pdf.get.<alias>(fileName, params)   // params keys = field names")
     core.out("  service.report.pdf.email.<mailAlias>(recipients, placeholders, [pdf])  // PDF as attachment")
     core.out("  service.report.pdf.download(fileName, [pdf])                // download in browser")
     core.out("The <alias> resolves dynamically (methodMissing): the rule compiles even")
-    core.out("if the PDF template does not exist yet — it must exist in nct-pdf at runtime.")
+    core.out("if the PDF template does not exist yet — it must exist in the PDF service at runtime.")
 
 
 def cmd_pdftemplate_add(args):
     """Append a pdfme template (from a JSON file) to rep-objects.pdfTemplates[] so
-    the platform creates it in nct-pdf on import (exported/imported like a mail
+    the platform creates it in the PDF service on import (exported/imported like a mail
     template). Idempotent: replaces an existing entry with the same alias/name."""
     p = core.Project(args.project)
     if not _ALIAS_RE.match(args.alias):
@@ -227,6 +225,6 @@ def cmd_pdftemplate_add(args):
     p.mark(core.F_REP)
     p.save()
     core.out("pdfTemplate added: %s (alias=%s, %d fields) -> rep-objects.pdfTemplates[]\n"
-             "  identifier=%s\n  imported into nct-pdf on the next project import "
+             "  identifier=%s\n  imported into the PDF service on the next project import "
              "(referenced from Groovy by service.report.pdf.get.%s)"
              % (args.name, args.alias, nfields, obj["identifier"], args.alias))

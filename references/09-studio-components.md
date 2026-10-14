@@ -873,8 +873,9 @@ library, or better a `chart.js.plugin` child, only when you need axes.
 > w.document.close(); w.focus(); w.print();
 > ```
 > ⚠️ Better still when the layout is fixed: render server-side through the platform's PDF templates
-> ([15](../15-pdf-and-mail.md)) — with the delivery's caveat that **the default PDF font may carry no
-> glyphs for a non-Latin locale**, in which case print is the only path until a font is registered.
+> ([15](../15-pdf-and-mail.md)) — the renderer carries fonts for every script (Armenian, Georgian, Cyrillic,
+> Greek, Hebrew, Arabic, the Indic scripts, Thai, Chinese/Japanese/Korean ...), so a non-Latin locale prints as
+> written, with no font to register and no transliteration.
 
 ### 9.2 T6 — the seam between a studio console and the generated pages
 

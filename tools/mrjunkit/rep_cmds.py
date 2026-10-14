@@ -279,7 +279,7 @@ def _normalize_dbtype(project, requested):
     existing = {s.get("dbType", "").upper() for s in project.rep.get("sources", []) or []}
     if req == "POSTGRESQL":
         # POISTGRESQL is the ONLY value the runtime DbType enum accepts (the enum is
-        # literally misspelled — DbType.java). A source with dbType "POSTGRESQL" fails to
+        # literally misspelled). A source with dbType "POSTGRESQL" fails to
         # deserialize on import (esp. on a greenfield empty base with 0 existing sources),
         # so ALWAYS emit the misspelling regardless of what other sources use.
         return "POISTGRESQL"

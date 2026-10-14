@@ -9,7 +9,7 @@
 > how to make the case findable, and how to verify a chain that nothing offline can run.
 > **Not here:** BPMN grammar, task types, the worklist page and the process binding contract →
 > [07](07-workflows-and-tasks.md); the `start(...)` signature, its options and the generated snippet →
-> [16](16-groovy-service-api.md) §2.12; the `ScheduleDto` export shape, the cron dialect and the two-hop
+> [16](16-groovy-service-api.md) §2.12; the scheduler export shape, the cron dialect and the two-hop
 > pipeline → [12](12-queries-sources-schedulers-and-rest.md) §3; CRUD methods, `param` and the paging shapes →
 > [11](11-business-logic-dynamic-crud.md); rule types, templates and return semantics →
 > [08](08-groovy-rules-and-context.md); where each step sits in the build →
@@ -71,7 +71,7 @@
 > `--type PREDICATE` for the scheduler's gate — `--context` is **required**, so pick the context that exposes
 > every alias the rule reads, §3) → `crud apply` when the trigger is a CRUD **GROOVY** method (§4.4): such a
 > method delegates to a rule by `ruleIdentifier` and is dead without one →
-> hand-author `rep-objects.processGroups[]` and `rep-objects.schedulers[]` — the `ScheduleDto` JSON, field for field, is [12](12-queries-sources-schedulers-and-rest.md) §3.1, and the worklist node's own JSON (model + settings mirror + where in the page tree it must sit) is [05](05-crud-tree-and-process-table.md) "Recipe B". Both are complete; this doc does not repeat them.
+> hand-author `rep-objects.processGroups[]` and `rep-objects.schedulers[]` — the scheduler JSON, field for field, is [12](12-queries-sources-schedulers-and-rest.md) §3.1, and the worklist node's own JSON (model + settings mirror + where in the page tree it must sit) is [05](05-crud-tree-and-process-table.md) "Recipe B". Both are complete; this doc does not repeat them.
 > Then `mrjun.py validate --project <dir>`, and `mrjun.py pack <dir> out.mrjun`.
 > Every entity command takes `--project <unpacked-dir>`. Full index — [`tools/README.md`](tools/README.md).
 
@@ -146,8 +146,7 @@ runs `DO <doc> submit`, which claims the row and calls `service.workflow.start`"
 | Cost of getting it wrong | a case with no document behind it | none, this is the safe default when a document exists | duplicate cases on every tick | — |
 
 **A `direct:"on"` start action starts the process IMMEDIATELY with a synthetic business key and NO context
-data at all** (`ProcessTablePlugin.breadcrumbButtons` → `processService.startProcess`). If your first service
-task reads an id out of `attrs`, a direct start action hands it nothing and the case is unusable. Use
+data at all**. If your first service task reads an id out of `attrs`, a direct start action hands it nothing and the case is unusable. Use
 `direct:"off"` with a `formGroupIdentifier` — that opens the group as a **start form** (the absence of a
 `processIdentifier` is what marks it one) and the process starts carrying what the form collected.
 
@@ -724,10 +723,9 @@ UPDATE requests SET state = 'ESCALATED', escalated_at = now()
 
 It answers a row **Map** when this tick won and Groovy **`null`** when somebody else already claimed it — a real
 `null`, not a JSON null object, so `if (claimed == null)` is the correct test. The chain that makes it one: a
-`returnsArray:false` SQL method with no result row answers the JSON null node
-(`DynamicMethodExecutor.mapResultSet`), the transport serialises that to the four characters `null`
-(`CrudMethodController`), and the executor parses the response with `JsonSlurper` before handing it to the
-script (`ReactorServiceImpl.executeCrudMethod`) — and `JsonSlurper.parseText("null")` is Groovy `null`. That
+`returnsArray:false` SQL method with no result row answers the JSON null node,
+the transport serialises that to the four characters `null`, and the executor parses the response with
+`JsonSlurper` before handing it to the script — and `JsonSlurper.parseText("null")` is Groovy `null`. That
 null is the only atomic primitive this platform gives an author, and it is what closes the window between
 "read the row" and "start the process". Nothing offline exercises it: §8.3 step 4 — run the rule twice, expect
 one case — is the only place this is ever tested. Three rules around it:
@@ -945,7 +943,7 @@ Four more things that decide whether the case is usable:
   seeded. This is why §4's document always carries an `attrs` block
   ([07](07-workflows-and-tasks.md) Rule 6, [16](16-groovy-service-api.md) §2.12,
   [05](05-crud-tree-and-process-table.md)
-  §"Field-by-field: `ProcessTableFormControlSettings`").
+  §"Field-by-field" (process-table form control settings)).
 * **admin and nct_author ROLE access is granted on every programmatic start.** Testing the worklist while
   logged in as the author proves nothing at all — that account matches a role row on every process in the
   project. Test as a member of the role group you passed, and remember that role-group membership is cached for
@@ -1065,8 +1063,8 @@ Follow [26](26-orchestration-and-testing.md) §5, with these steps added for thi
 
 ### 8.4 Reading the logs
 
-* **`log/ui.log`** is the **import** side. What matters here: a Jackson `MismatchedInputException` /
-  `InvalidFormatException` means the whole rep-objects block aborted, so your scheduler, workflow, rules and
+* **`log/ui.log`** is the **import** side. What matters here: a `MismatchedInputException` /
+  `InvalidFormatException` (JSON deserialization error) means the whole rep-objects block aborted, so your scheduler, workflow, rules and
   contexts may never have been saved at all — and the visible symptoms (an empty context, "No source selected",
   missing data) look like three unrelated bugs ([00](00-export-format-and-import.md),
   [23](23-distribution-and-known-gaps.md) §2).
@@ -1140,7 +1138,7 @@ Follow [26](26-orchestration-and-testing.md) §5, with these steps added for thi
 **See also:** [19](19-build-decision-procedure.md) (Phases 11–12 route here) ·
 [07](07-workflows-and-tasks.md) (BPMN, the worklist, shape C, the process binding contract) ·
 [16](16-groovy-service-api.md) §2.12 (the `start(...)` call, its options and the generated snippet) ·
-[12](12-queries-sources-schedulers-and-rest.md) §3 (`ScheduleDto`, the cron dialect, the two-hop pipeline) ·
+[12](12-queries-sources-schedulers-and-rest.md) §3 (the scheduler shape, the cron dialect, the two-hop pipeline) ·
 [11](11-business-logic-dynamic-crud.md) (CRUD methods, `param`, the paging and return shapes) ·
 [08](08-groovy-rules-and-context.md) (rule types, templates, return semantics, numbers) ·
 [05](05-crud-tree-and-process-table.md) (`process.table.pluin`, columns, the process group) ·

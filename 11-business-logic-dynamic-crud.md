@@ -11,12 +11,11 @@ filter fields, sources, and enums. All of this is exported into a separate file 
 (only for dynamic projects; see [00-export-format-and-import.md](00-export-format-and-import.md)).
 
 A dynamic CRUD = a record in the project DB (tables `dynamic_crud`/`dynamic_method`/`dynamic_field`), from which
-the runtime synthesizes a "virtual `@Crud` bean" with the same `ICrud` contract as static Java CRUDs.
+the runtime synthesizes a virtual CRUD with the same contract as static (compiled Java) CRUDs.
 That is why `crud.table.plugin`, forms, Groovy rules, and processes address a dynamic CRUD **exactly the same way**
 as a static one — through `service.crud.<alias>.<method>(...)`. The only difference is where the method's
 implementation lives: compiled Java code (static) vs a string of SQL/Groovy in the project DB (dynamic). All of this is managed
-through the **system CRUD `bl`** (see below) — a thin RSocket wrapper over the `dynamic-integration-core` module
-(the `dynamic-integration*` family of modules; the bean classes — `BlCrud`, `DynamicMethodExecutor`, etc. — live in `-core`).
+through the **system CRUD `bl`** (see below).
 
 > **🔧 Tooling.** For these entities, run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
 > `source add --dbtype POSTGRESQL ...`, `crud add --alias <a> --source <s> --schema <s> --field n:Type... --scaffold-methods` (creates 7 methods + paired queries `crud_<alias>_<method>`), `crud add-method <a> --type SQL|GROOVY`, `crud list`, `query add`. The full index and rules are in [`tools/README.md`](tools/README.md); before re-importing — `mrjun.py validate`.
@@ -27,7 +26,7 @@ through the **system CRUD `bl`** (see below) — a thin RSocket wrapper over the
 > normal shape for a header+lines document) those methods carry `queryIdentifier: null`, nothing ever fills
 > their query records, and they ship as `"query": ""`.
 >
-> `QueryDto.query` is `@NotBlank`. Queries import BEFORE workflows, rules, contexts, form groups, forms,
+> A query's `query` text must be non-blank. Queries import BEFORE workflows, rules, contexts, form groups, forms,
 > settings and process groups — so on a platform that stops at the first rejected object, the project arrives
 > with a database and nothing else: every screen blank, and the only clue a card that says
 > `Imported with warnings`. `validate` now ERRORs on a blank body and WARNs on a leftover paired
@@ -48,8 +47,8 @@ through the **system CRUD `bl`** (see below) — a thin RSocket wrapper over the
 > reference to a deleted query is as silent as the empty body was.
 
 > 🧭 **META-RULE — for any non-trivial dynamic-CRUD method SQL (param casts, null-handling, parent filtering,
-> paging), TRANSCRIBE it from a REAL working export, byte-for-byte; do NOT hand-derive it from platform Java
-> source.** A method's SQL runs through `DynamicMethodExecutor`, whose **param binding is not what a raw `psql`
+> paging), TRANSCRIBE it from a REAL working export, byte-for-byte; do NOT hand-derive it.**
+> A method's SQL runs through the platform's method executor, whose **param binding is not what a raw `psql`
 > test shows** — several traps only bite at runtime and pass every offline gate:
 > - **null / scalar vs map args.** A method called with a single scalar arg binds that value directly; a method
 >   called with a **filter MAP** whose value is null gets that null **unpacked into an empty JSON object `{}`**, and
@@ -70,24 +69,23 @@ through the **system CRUD `bl`** (see below) — a thin RSocket wrapper over the
 > the executor binds it the same way.** So for anything with the traps above, (1) copy the working export's method
 > **and** the rule that calls it, and (2) confirm with a LIVE open, not just `crud verify`. The canonical tree
 > recipe is transcribed this way in [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md); `validate`
-> WARNs on the raw-`::uuid` and `:x * :y` tree traps (`_check_tree_config`).
+> WARNs on the raw-`::uuid` and `:x * :y` tree traps.
 >
 > ⚠️ **`--scaffold-methods` emits PLACEHOLDER SQL, not runnable SQL.** The 6 SQL scripts are literal skeletons —
 > `SELECT * FROM <table> …`, `INSERT INTO <table> (...) VALUES (...)`, `UPDATE <table> SET ... WHERE id = :id`,
-> `DELETE FROM <table> …` (`crud_cmds.py` `_scaffold_methods`) — and the paired queries are created with
+> `DELETE FROM <table> …` — and the paired queries are created with
 > **empty** `query` strings. It also **hardcodes the `id` parameterType to `Integer`** (`id_params = [("id",
 > "Integer")]`). You MUST hand-fill both sides of every SQL method (the method `script` in `:param` form
 > AND its linked query in `{name,type}` form) and, for a uuid PK, override the `id` param to `String`, **before**
 > `validate`/`crud verify`. Scaffolding only lays down the correct method skeleton, ordering, and query linkage.
 
-> **Relationship to static.** The static path (`@Crud`-annotated Java classes, the
-> `ICrud<T,F,ID>` interface, `@FormField`, `@LocalizationField`, `CrudReactor`) is described in
+> **Relationship to static.** The static path (compiled Java CRUD classes) is described in
 > older platform documentation on the CRUD pattern. Those documents describe
 > the **conceptual model that the dynamic side emulates**, but they **do not mention** `dynamic-cruds.json`, `bl`,
-> `MethodType`, `FieldCategory` — i.e. they cannot be used to reconstruct the real export. Rely on the code +
-> the export (below), and read the static docs as background. Important discrepancy: the static `ICrud` lists only
+> method types or field categories — i.e. they cannot be used to reconstruct the real export. Rely on the
+> export (below), and read the static docs as background. Important discrepancy: a static CRUD lists only
 > `create/update/get/find` (no `delete`), whereas the **dynamic skeleton always generates 7 methods, including
-> `delete`** (`10-crud-pattern.md` is incomplete here).
+> `delete`**.
 
 **When to use this document.** When you are assembling `dynamic-cruds.json` by hand: one CRUD record per
 domain entity (table), the standard set of **7 methods** (`find` + 6 CRUD operations), DTO fields from the
@@ -98,7 +96,7 @@ How a table/form reads data from a CRUD — see [04-crud-table-plugin.md](04-cru
 [02-form-controls-reference.md](02-form-controls-reference.md).
 
 **Where this file exists and where it doesn't.** `dynamic-cruds.json` is present **only** in dynamic exports and
-only when `bl` is deployed. A **static** project — one whose CRUDs are compiled Java `@Crud` beans — has **no**
+only when `bl` is deployed. A **static** project — one whose CRUDs are compiled Java classes — has **no**
 such file at all, no matter how rich its domain is. So the presence of `dynamic-cruds.json` in the archive, not
 the size or subject of the project, is what tells you which kind of project you are holding.
 
@@ -150,14 +148,14 @@ never passed it. Nothing in between reads the two together, which is why this pa
 
 ```
 { "exportVersion": 1,
-  "cruds": [ <DynamicCrudDefinitionDto>, ... ] }
+  "cruds": [ <crud record>, ... ] }
 ```
 
 `exportVersion` is the integer `1`. The file is **optional**: it is written only when `bl` is deployed and returned
-at least one CRUD (`CmsProjectServiceImpl.java` — if the `bl` probe throws, the export silently skips the file).
+at least one CRUD (if the `bl` probe throws, the export silently skips the file).
 
-One `cruds[]` record (corresponds to `DynamicCrudDefinitionDto`, `DynamicCrudDefinitionDto.java`). On
-export it is emitted **truncated** (the internal `DynamicCrudsExport.ExportedCrud` does NOT write `id`/`creationTime`/
+One `cruds[]` record. On
+export it is emitted **truncated** (no `id`/`creationTime`/
 `modificationTime`):
 
 ```
@@ -165,12 +163,12 @@ export it is emitted **truncated** (the internal `DynamicCrudsExport.ExportedCru
   "sourceIdentifier", "sourceHost", "sourcePort", "sourceDb", "sourceSchema", "sourceUser", "sourcePassword",
   "localizationField",
   "access"|absent,                                   // who may run the methods — §Execution access
-  "methods":       [ <DynamicMethodDto>, ... ],
-  "dtoFields":     [ <DynamicFieldDto>,  ... ],
-  "filterFields":  [ <DynamicFieldDto>,  ... ] }
+  "methods":       [ <method>, ... ],
+  "dtoFields":     [ <field>,  ... ],
+  "filterFields":  [ <field>,  ... ] }
 ```
 
-`methods[]` (`DynamicMethodDto`, `DynamicMethodDto.java`; in the export without `id`/`crudId`):
+`methods[]` (in the export without `id`/`crudId`):
 
 ```
 { "methodName", "methodType"("SQL"|"GROOVY"), "script",
@@ -186,7 +184,7 @@ export it is emitted **truncated** (the internal `DynamicCrudsExport.ExportedCru
 them; an archive exported before it carries neither, and absent means **signed-in users**
 ([§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods)).
 
-`dtoFields[]` / `filterFields[]` (`DynamicFieldDto`, `DynamicFieldDto.java` — truncated on export, without
+`dtoFields[]` / `filterFields[]` (truncated on export, without
 `id`/`crudId`/`fieldCategory`; `fieldCategory` is implicit from the array: `dtoFields`→`DTO`, `filterFields`→`FILTER`):
 
 ```
@@ -280,7 +278,7 @@ the large majority of CRUDs (auto-find sentinel, see Step 3):
 > i.e. it puts a uuid into an integer-serial column. That is **stale/inconsistent** SQL, and real exports do carry
 > such drift (SQL generated before the column acquired its `nextval` default, or hand-edited afterwards). The
 > **correct** result of the canonical emitter for such a column is to **omit `id` from the INSERT** (the default
-> fires on its own; `isAutoGenerated`, `DefaultMethodsDialog.java`). Do not derive from any export the rule
+> fires on its own). Do not derive from any export the rule
 > "PK is always gen_random_uuid". See Step 2.
 
 A dynamic project carries one such record per domain entity; they all share this structure — **7 methods each**
@@ -296,50 +294,48 @@ A dynamic project carries one such record per domain entity; they all share this
 > Other projects use **bare camelCase** — `salesOrder`, `product`, `billOfMaterials`, `invoice`. For a
 > greenfield CRUD pick ONE convention and apply it identically to the alias AND every consumer.
 
-| Field | Type | Meaning | Req.? | Default | Backing |
-|---|---|---|---|---|---|
-| `alias` | String | Unique CRUD identifier; `service.crud.<alias>` resolves by it. In the export **without** the realm/client prefix (e.g. `tasks_cruid`). UI validator: `^[a-zA-Z][a-zA-Z0-9_]*$`. | yes | — | `DynamicCrudDefinitionDto.alias`; the prefix is added by `CrudKeyGenerator.createAlias` at runtime |
+| Field | Type | Meaning | Req.? | Default |
+|---|---|---|---|---|
+| `alias` | String | Unique CRUD identifier; `service.crud.<alias>` resolves by it. In the export **without** the realm/client prefix (e.g. `tasks_cruid`; the prefix is added at runtime). UI validator: `^[a-zA-Z][a-zA-Z0-9_]*$`. | yes | — |
 
-| `name` | String | Human-readable name (title in the list). | yes | — | `.name` |
-| `sourceIdentifier` | String (UUID) | Reference to a *source* in `rep-objects.json.sources[]`, from which the credentials were taken. | no¹ | null | `.sourceIdentifier` |
-| `sourceHost` | String | **Snapshot** of the source host (JDBC), copied into the CRUD. | no¹ | null | `.sourceHost` |
-| `sourcePort` | Integer | Snapshot of the port (usually `5432`). | no¹ | null | `.sourcePort` |
-| `sourceDb` | String | Snapshot of the DB name (e.g. `prj_<realm>_<client>`). | no¹ | null | `.sourceDb` |
-| `sourceSchema` | String | Snapshot of the schema (e.g. `app_schema`). | no¹ | null | `.sourceSchema` |
-| `sourceUser` | String | Snapshot of the JDBC user. | no¹ | null | `.sourceUser` |
-| `sourcePassword` | String | Snapshot of the JDBC password (in plaintext in the export). | no¹ | null | `.sourcePassword` |
-| `localizationField` | String | Name of the jsonb column for localization (usually `localized`). Makes the CRUD "have `@LocalizationField`". | no | null | `.localizationField`; set via `bl.setLocalizationField` |
-| `access` | object\|null | Who may RUN this CRUD's methods — `{publicAccess, authenticatedUserAccess, roleGroups}`; every method that does not have its own inherits it. Absent/null = **signed-in users**. `mrjun.py crud access`. | no | absent | `.access`; [§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods) |
-| `methods` | array | The CRUD's methods. | yes² | `[]` | `.methods` |
-| `dtoFields` | array | Result fields (form/table/hints). | no | `[]` | `.dtoFields` |
-| `filterFields` | array | Filter fields (for the table's filter form). | no | `[]` | `.filterFields` |
+| `name` | String | Human-readable name (title in the list). | yes | — |
+| `sourceIdentifier` | String (UUID) | Reference to a *source* in `rep-objects.json.sources[]`, from which the credentials were taken. | no¹ | null |
+| `sourceHost` | String | **Snapshot** of the source host (JDBC), copied into the CRUD. | no¹ | null |
+| `sourcePort` | Integer | Snapshot of the port (usually `5432`). | no¹ | null |
+| `sourceDb` | String | Snapshot of the DB name (e.g. `prj_<realm>_<client>`). | no¹ | null |
+| `sourceSchema` | String | Snapshot of the schema (e.g. `app_schema`). | no¹ | null |
+| `sourceUser` | String | Snapshot of the JDBC user. | no¹ | null |
+| `sourcePassword` | String | Snapshot of the JDBC password (in plaintext in the export). | no¹ | null |
+| `localizationField` | String | Name of the jsonb column for localization (usually `localized`). Makes the CRUD localizable. | no | null |
+| `access` | object\|null | Who may RUN this CRUD's methods — `{publicAccess, authenticatedUserAccess, roleGroups}`; every method that does not have its own inherits it. Absent/null = **signed-in users**. `mrjun.py crud access`; see [§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods). | no | absent |
+| `methods` | array | The CRUD's methods. | yes² | `[]` |
+| `dtoFields` | array | Result fields (form/table/hints). | no | `[]` |
+| `filterFields` | array | Filter fields (for the table's filter form). | no | `[]` |
 
 ¹ All `source*` fields are a **local copy** of the source's credentials, written into `dynamic_crud`. The runtime reads JDBC
-from exactly these (`DynamicMethodExecutor.executeSqlMethod`: `crud.getSourceHost()` etc.,
-`DynamicMethodExecutor.java`), not from `sources[]`. If `sourceHost == null`, SQL methods throw
-`"CRUD '<alias>' has no source configured"` (`DynamicMethodExecutor.java`). `sourceIdentifier` is used
-to "re-bind" credentials after a password rotation (`DynamicCrudsPlugin.rebindCrudsToSource`,
-`DynamicCrudsPlugin.java`), and on **import** — to take the **live** credentials from
+from exactly these, not from `sources[]`. If `sourceHost == null`, SQL methods throw
+`"CRUD '<alias>' has no source configured"`. `sourceIdentifier` is used
+to "re-bind" credentials after a password rotation, and on **import** — to take the **live** credentials from
 `rep-objects.sources[]` by this UUID (import prefers live credentials over the snapshot, falling back to the snapshot if the
-source is not found — `CmsProjectServiceImpl.importDynamicCruds`). **When building the export by hand,
+source is not found). **When building the export by hand,
 fill in all 8 fields** with values from the corresponding `sources[]` object (there you have
 `hostName/port/dbName/schemaName/userName/password`).
 
-² Technically you can create a CRUD without methods (`ensureDynamicSide`, `DynamicCrudsPlugin.java` creates
+² Technically you can create a CRUD without methods (the platform can create
 an empty one), but such a CRUD can do nothing. A working CRUD carries the standard set of 7 methods (below).
 
 ### 2. Method level (`methods[]`)
 
-| Field | Type | Meaning | Req.? | Default | Backing |
-|---|---|---|---|---|---|
-| `methodName` | String | Method name. Standard: `find`, `findAll`, `count`, `get`, `create`, `update`, `delete`. Defines the `ICrud` contract. | yes | — | `DynamicMethodDto.methodName` |
-| `methodType` | String | Enum `MethodType` — **exactly two values**: `"SQL"` or `"GROOVY"`. Dispatched in `DynamicMethodExecutor.executeMethod`. | yes | — | `.methodType` |
-| `script` | String | For SQL — the executable text with `:param` placeholders. For GROOVY — the body of the Groovy script. Line breaks in the export are `\r\n` (SQL from a query) or `\n` (generated Groovy). | yes | — | `.script` |
-| `returnType` | String | Simple return type. In **all** observed methods it is `"Object"`. | yes | `"Object"` | `.returnType` |
-| `returnsArray` | Boolean | true → the method returns a list of rows. For `findAll` = true; for the rest = false. | yes | `false`/`true`³ | `.returnsArray` |
-| `methodOrder` | Integer | Display order. Convention: `find`=**-1**, `findAll`=0, `count`=1, `get`=2, `create`=3, `update`=4, `delete`=5. | no | 0 | `.methodOrder` |
-| `queryIdentifier` | String\|null | SQL only: UUID of a saved *query* in `rep-objects.json.queries[]` (mirrors the SQL in `{name:'x',type:'y'}` form). | no⁴ | null | `.queryIdentifier` |
-| `ruleIdentifier` | String\|null | GROOVY only, and **mandatory for every GROOVY method except `find`** — without it the method does not run its script at all (*"has no rule identifier. Apply the CRUD first."*, see §Document CRUD variant). For a generated auto-find `find` = **null** (sentinel); non-empty → `find` is a real hidden rule (see Step 3). | no⁴ | null | `.ruleIdentifier` |
+| Field | Type | Meaning | Req.? | Default |
+|---|---|---|---|---|
+| `methodName` | String | Method name. Standard: `find`, `findAll`, `count`, `get`, `create`, `update`, `delete`. Defines the CRUD contract. | yes | — |
+| `methodType` | String | **Exactly two values**: `"SQL"` or `"GROOVY"`. | yes | — |
+| `script` | String | For SQL — the executable text with `:param` placeholders. For GROOVY — the body of the Groovy script. Line breaks in the export are `\r\n` (SQL from a query) or `\n` (generated Groovy). | yes | — |
+| `returnType` | String | Simple return type. In **all** observed methods it is `"Object"`. | yes | `"Object"` |
+| `returnsArray` | Boolean | true → the method returns a list of rows. For `findAll` = true; for the rest = false. | yes | `false`/`true`³ |
+| `methodOrder` | Integer | Display order. Convention: `find`=**-1**, `findAll`=0, `count`=1, `get`=2, `create`=3, `update`=4, `delete`=5. | no | 0 |
+| `queryIdentifier` | String\|null | SQL only: UUID of a saved *query* in `rep-objects.json.queries[]` (mirrors the SQL in `{name:'x',type:'y'}` form). | no⁴ | null |
+| `ruleIdentifier` | String\|null | GROOVY only, and **mandatory for every GROOVY method except `find`** — without it the method does not run its script at all (*"has no rule identifier. Apply the CRUD first."*, see §Document CRUD variant). For a generated auto-find `find` = **null** (sentinel); non-empty → `find` is a real hidden rule (see Step 3). | no⁴ | null |
 
 > ⛔ **A GROOVY method's script is NOT what executes — the delegate rule named by `ruleIdentifier` is.**
 > The method record and the hidden rule (`crud_<alias>_<method>`) hold two separate copies of the body, and
@@ -359,14 +355,14 @@ an empty one), but such a CRUD can do nothing. A working CRUD carries the standa
 > the driver as unfilled parameter slots and the method dies with *"No value specified for parameter 2"*.
 > Use the function forms instead — `jsonb_exists(col,'k')`, `jsonb_exists_any(col, array['a','b'])`,
 > `jsonb_exists_all(...)` — and note they do not match a GIN index the way the operators do.
-| `contextIdentifiers` | array\|null | Contexts of the Groovy rule. In practice: `[]` for a GROOVY-find with a real rule, `null` for auto-find and for all SQL methods. | no | null | `.contextIdentifiers` |
-| `returnFields` | {col:Type}\|null | Result schema (for Groovy hints), `Map<String,String>`. Filled as a **side effect** of running the method via the Run dialog (`CrudEditorPanel.saveReturnFields`). Before the first Run = null. | no | null | `.returnFields` |
-| `parameters` | array | The method's parameter list (see below). For SQL — extracted from `:param` automatically. | yes⁵ | `[]` | `.parameters` |
-| `inheritAccess` | Boolean\|null | Absent/null/`true` = the method runs with the CRUD's `access`; `false` = with its own `access` below. | no | absent | `.inheritAccess`; [§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods) |
-| `access` | object\|null | The method's own access (same object as the CRUD's), read **only** when `inheritAccess` is `false`; `false` with no `access` = signed-in users. `mrjun.py crud method-access`. | no | absent | `.access` |
+| `contextIdentifiers` | array\|null | Contexts of the Groovy rule. In practice: `[]` for a GROOVY-find with a real rule, `null` for auto-find and for all SQL methods. | no | null |
+| `returnFields` | {col:Type}\|null | Result schema (for Groovy hints), a map of column → type name. Filled as a **side effect** of running the method via the Run dialog. Before the first Run = null. | no | null |
+| `parameters` | array | The method's parameter list (see below). For SQL — extracted from `:param` automatically. | yes⁵ | `[]` |
+| `inheritAccess` | Boolean\|null | Absent/null/`true` = the method runs with the CRUD's `access`; `false` = with its own `access` below ([§ Execution access](#execution-access--who-may-run-a-crud-and-its-methods)). | no | absent |
+| `access` | object\|null | The method's own access (same object as the CRUD's), read **only** when `inheritAccess` is `false`; `false` with no `access` = signed-in users. `mrjun.py crud method-access`. | no | absent |
 
-³ In the UI model `MethodFormModel.returnsArray` defaults to `true` (`CrudEditorPanel.java`), but the canonical
-emitter sets it explicitly: for `findAll` → true, for all others → false (`DefaultMethodsDialog.java`).
+³ In the UI model `returnsArray` defaults to `true`, but the canonical
+emitter sets it explicitly: for `findAll` → true, for all others → false.
 
 ⁴ A SQL method is executable even without a query (it runs its own `:param` `script`), but the UI always creates a paired query so that the SQL
 is editable. Groovy method: `find` with `ruleIdentifier==null` is executable (auto-find sentinel); **any other
@@ -374,7 +370,7 @@ Groovy method without a rule is not executable — it throws on the first call.*
 `mrjun.py crud apply`.
 
 ⁵ Parameter order is critical: `parameterOrder` = position in the SQL / in the declaration. The executor unpacks
-a single-argument Map by parameter names (`DynamicMethodExecutor.java`).
+a single-argument Map by parameter names.
 
 > **Searchable-dropdown methods (`ac*` pipeline) are NOT in this 7-method set.** A CRUD-backed *searchable*
 > dropdown/autocomplete (`settings.searchEnabled`) needs, per search field `X`, an extra SQL method
@@ -395,11 +391,11 @@ and `find` (real rule) — a fixed PageResult schema:
 
 #### 2a. Parameter (`parameters[]`)
 
-| Field | Type | Meaning | Req.? | Backing |
-|---|---|---|---|---|
-| `parameterName` | String | Name = the SQL placeholder name without `:` (e.g. `rowsInPage`, `id`, `equipment_event_type`). | yes | `DynamicParameterDto.parameterName` |
-| `parameterType` | String | Java type. Observed in the export: `Integer`, `String`, `Boolean`, `BigDecimal`, `Instant`, `LocalDate`. The full set from `mapParamType` (`CrudEditorPanel.java`): `Integer`/`Long`/`Boolean`/`Double`/`LocalDate`/`LocalDateTime`/`LocalTime`/`Instant`/`BigDecimal`/`String`(default). | yes | `.parameterType` |
-| `parameterOrder` | Integer | 0-based position. | yes | `.parameterOrder` |
+| Field | Type | Meaning | Req.? |
+|---|---|---|---|
+| `parameterName` | String | Name = the SQL placeholder name without `:` (e.g. `rowsInPage`, `id`, `equipment_event_type`). | yes |
+| `parameterType` | String | Java type (a data value in the export). Observed in the export: `Integer`, `String`, `Boolean`, `BigDecimal`, `Instant`, `LocalDate`. The full set: `Integer`/`Long`/`Boolean`/`Double`/`LocalDate`/`LocalDateTime`/`LocalTime`/`Instant`/`BigDecimal`/`String`(default). | yes |
+| `parameterOrder` | Integer | 0-based position. | yes |
 
 > Note: the SQL parameter names for `create`/`update` are **snake_case** (matching the column:
 > `equipment_event_type`), whereas the DTO field names are **camelCase** (`equipmentEventType`). Pagination and
@@ -407,17 +403,16 @@ and `find` (real rule) — a fixed PageResult schema:
 
 ### 3. Field level (`dtoFields[]` / `filterFields[]`)
 
-| Field | Type | Meaning | Req.? | Backing |
-|---|---|---|---|---|
-| `fieldName` | String | The DTO property name in **camelCase** (`toCamelCase(columnName)`). The form/table binds the value by it; this is the `expression` in `CrudExtendedDto`. | yes | `DynamicFieldDto.fieldName` |
-| `displayName` | String | ⚠️ **Not a human-readable label!** Here lies the source column name in **snake_case** (`equipment_event_type`). This is the inverse of the static `@FormField.displayName`. | yes | `.displayName` |
-| `fieldType` | String | The field's Java type. **Commonly seen in dtoFields**: `Integer`, `BigDecimal`, `Boolean`, `LocalDate`, `Instant`, `String`, `ObjectNode`. The mapper's full set also includes `Long`/`Float`/`Double`, and for pg_enum columns `resolveFieldType` returns the **enum's name** (e.g. `OrderStatus`). Mapping: `DefaultMethodsDialog.mapDbTypeToFieldType` : `jsonb/json→ObjectNode`, `uuid→String`, `int4/smallint→Integer`, `int8→Long`, `numeric→BigDecimal`, `timestamp*→Instant`, `date→LocalDate`, default→String. | yes | `.fieldType` |
-| `fieldOrder` | Integer | 0-based order (= the table's column order). | yes | `.fieldOrder` |
+| Field | Type | Meaning | Req.? |
+|---|---|---|---|
+| `fieldName` | String | The DTO property name in **camelCase** (the column name camel-cased). The form/table binds the value by it; this is the control's `expression`. | yes |
+| `displayName` | String | ⚠️ **Not a human-readable label!** Here lies the source column name in **snake_case** (`equipment_event_type`). This is the inverse of a static CRUD's field display name. | yes |
+| `fieldType` | String | The field's Java type. **Commonly seen in dtoFields**: `Integer`, `BigDecimal`, `Boolean`, `LocalDate`, `Instant`, `String`, `ObjectNode`. The mapper's full set also includes `Long`/`Float`/`Double`, and for pg_enum columns the field type is the **enum's name** (e.g. `OrderStatus`). Mapping from the DB type: `jsonb/json→ObjectNode`, `uuid→String`, `int4/smallint→Integer`, `int8→Long`, `numeric→BigDecimal`, `timestamp*→Instant`, `date→LocalDate`, default→String. | yes |
+| `fieldOrder` | Integer | 0-based order (= the table's column order). | yes |
 
-`fieldCategory` — enum `FieldCategory ∈ {DTO, FILTER}` (`entity/enums/FieldCategory.java`) — is **not** written to the
+`fieldCategory` (`DTO` or `FILTER`) is **not** written to the
 export; it is implicit from which array the field lies in. `filterFields[]` has the same structure; it differs in
-its origin: it is generated from the **parameters of `findAll`** (except `rowsInPage`/`pageNumber`),
-see `DefaultMethodsDialog.java`. Most CRUDs carry `filterFields: []` — a filter field appears only where the
+its origin: it is generated from the **parameters of `findAll`** (except `rowsInPage`/`pageNumber`). Most CRUDs carry `filterFields: []` — a filter field appears only where the
 `findAll` SQL was given a real filter column (e.g. `tasks_cruid` filtering on `assigned_to`), and such fields are
 typically `String`:
 
@@ -428,7 +423,7 @@ typically `String`:
 ## How to construct from scratch
 
 Task: assemble a dynamic CRUD `dim_equipment_event_types` by hand and obtain **the same JSON** that
-the UI exports. The order mirrors `DefaultMethodsDialog.doCreate`.
+the UI exports. The order mirrors the UI's default-methods dialog.
 
 ### Step 0 — source and schema
 
@@ -460,11 +455,11 @@ the UI exports. The order mirrors `DefaultMethodsDialog.doCreate`.
 
 ### Step 2 — the six SQL methods (findAll/count/get/create/update/delete)
 
-`DefaultMethodsDialog.buildMethodDefsInternal`  emits the canonical SQL from the columns and the PK. Rules:
+The UI's default-methods dialog emits the canonical SQL from the columns and the PK. Rules:
 
 - **PK** is determined from the table; if there is none, the first column is taken.
 - **create**: columns with a DB `DEFAULT` of the form `nextval`/`gen_random_uuid`/`uuid_generate` are **skipped** from the INSERT
-  (`isAutoGenerated`) — the DB will set the value itself. The column `id integer DEFAULT nextval(...)`
+  — the DB will set the value itself. The column `id integer DEFAULT nextval(...)`
   (as in this table) → **skipped**. A PK of type `uuid` **without** a DB default → `gen_random_uuid()` is emitted.
   Other non-PK columns (except auto-generated) → `:param` placeholders.
 - **findAll**: `SELECT * FROM t WHERE 1=1[<filter>] ORDER BY <pk> LIMIT :rowsInPage OFFSET (CAST(:pageNumber AS integer) * CAST(:rowsInPage AS integer))`.
@@ -480,13 +475,13 @@ the UI exports. The order mirrors `DefaultMethodsDialog.doCreate`.
 ([26-orchestration-and-testing.md](26-orchestration-and-testing.md) §3, tier **T3** — "real-row failures: CHECK
 literal, NOT NULL, FK, no-op UPDATE"); `validate` and every other offline check stay **green** on it (verified:
 `mrjun.py validate` on a project carrying the defect below emits nothing about the method — its only NOT-NULL rule
-is "a `create` INSERT that OMITS a NOT NULL column", `tools/mrjunkit/validate_cmds.py:3058-3070`, and an UPDATE
+is "a `create` INSERT that OMITS a NOT NULL column", and an UPDATE
 that *computes* NULL into one is invisible to it).
 
 **A dynamic-CRUD parameter is not a typed null when the caller omits it or the user clears the field.** The
-executor binds an absent key as `stmt.setNull(idx, Types.NULL)` (`DynamicMethodExecutor.java`) and coerces
-every *present* value **out of its text form** — `bindAs` is `value.asText()` + parse in every arm
-(numeric and string alike; `normalizeDecimal` even strips human thousand separators). So the value
+executor binds an absent key as an untyped SQL NULL and coerces
+every *present* value **out of its text form** — it takes the value as text and parses it, in every case
+(numeric and string alike; it even strips human thousand separators). So the value
 that actually reaches the slot is SQL `NULL` (absent) or `""` (a blank input) — and **both** destroy an arithmetic
 write:
 
@@ -505,7 +500,7 @@ What each case does (every cell below was executed against a throwaway Postgres 
 | `:amount` arrives as | ⛔ unguarded | ✅ guarded |
 |---|---|---|
 | **absent** (`setNull`) | `amount + NULL` → **NULL** → `ERROR: null value in column "amount" of relation "<entity>" violates not-null constraint` | delta `0` → row unchanged, `UPDATE 1` |
-| **blank `""`** | slot inferred `numeric` → `new BigDecimal("")` throws; the same SQL run literally: `ERROR: invalid input syntax for type numeric: ""` | delta `0` → row unchanged, `UPDATE 1` |
+| **blank `""`** | slot inferred `numeric` → parsing `""` as a decimal throws; the same SQL run literally: `ERROR: invalid input syntax for type numeric: ""` | delta `0` → row unchanged, `UPDATE 1` |
 | **`"2.5"`** | applies | applies (10.000 → 12.500) |
 
 State the consequence precisely: it is **not** "the delta is skipped". The expression evaluates to NULL, the
@@ -513,17 +508,16 @@ statement **sets the NOT NULL column to NULL**, and Postgres aborts it on the co
 that the user asked for is lost and the error surfaces from the form, not from any build step.
 
 Why `NULLIF` is what makes it work: `CAST(:amount AS numeric)` makes Postgres infer the slot as `numeric`, so
-`bindAs` takes the numeric arm and chokes on `""`; `NULLIF(:amount,'')` anchors the slot to a **text** literal, so
-the executor takes the `setString` arm (`:413`), `''` survives as `''` → `NULL`, and `COALESCE(…, 0)` neutralizes
+the executor takes the numeric path and chokes on `""`; `NULLIF(:amount,'')` anchors the slot to a **text** literal, so
+the executor binds it as text, `''` survives as `''` → `NULL`, and `COALESCE(…, 0)` neutralizes
 it. (Verified with `PREPARE`+`SELECT parameter_types FROM pg_prepared_statements`: unguarded → `{numeric,uuid}`,
 guarded → `{text,uuid}`.) It is the **same anchoring trick** as the tree's `CAST(NULLIF(:parentId,'') AS uuid)`
 (the META-RULE at the top of this doc; [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)
 §"Tree fetch-rule") and as the NOT-NULL defaults in
 [18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §1
 (`COALESCE(NULLIF(:status,''), 'DRAFT')`, `COALESCE(NULLIF(:<c>,''), '<PREFIX>-' || …)`) — the toolkit's own
-verifier names it *"the canonical write guard"* (`tools/mrjunkit/crudverify_cmds.py:112-113`). The platform's
-Create-Default-Methods emitter never emits it (it only COALESCEs *filters*, `DefaultMethodsDialog.java` around
-`buildFilterWhere`), so on every hand-written or lifecycle method **you** must add it.
+verifier names it *"the canonical write guard"*. The platform's
+Create-Default-Methods emitter never emits it (it only COALESCEs *filters*), so on every hand-written or lifecycle method **you** must add it.
 
 > **THE RULE.** In any SQL method, **every** `:param` that reaches a **NOT NULL** column — directly (`SET c = :c`)
 > or through an expression (`c + :c`, `c * :c`, `<fn>(:c)`) — must be written
@@ -554,9 +548,8 @@ The key detail about the **two forms of SQL** — the same query is stored in tw
 
 1. In the saved **query** (`rep-objects.json`) the SQL is in editable form with
    `{name:'rowsInPage', type:'integer'}` placeholders (example `crud_tasks_cruid_findAll` below).
-2. In `methods[].script` (`dynamic-cruds.json`) the same SQL is **already converted** to `:name` form
-   (`CrudEditorPanel.convertToNamedParams`). The executor runs precisely the `:name` version through its own JDBC
-   (`executeSqlMethod`), and `queryIdentifier` is a reference into the query registry — **but not a passive
+2. In `methods[].script` (`dynamic-cruds.json`) the same SQL is **already converted** to `:name` form.
+   The executor runs precisely the `:name` version through its own JDBC, and `queryIdentifier` is a reference into the query registry — **but not a passive
    one**: opening that method in the CRUD editor loads the script FROM the saved query and saving it writes
    the regenerated script back. So a fix applied to `methods[].script` alone runs correctly and is then
    silently reverted by a screen somebody only opened to look at. The two must be kept in sync; `validate`
@@ -566,17 +559,15 @@ For each method:
 
 - Create a query in `rep-objects.json.queries[]` with `name = "crud_<alias>_<methodName>"`,
   `sourceIdentifier` = the same UUID, `query` = the SQL in `{name,type}` form. **`hidden` is NOT set on the default
-  Create-Default-Methods path** and remains `null` — `createQuery` (`DefaultMethodsDialog.java`) does not
-  call `setHidden`. So in a real export the overwhelming majority of `crud_*` queries carry `hidden: null`; the
-  odd `hidden: true` marks a method that was later re-saved through the per-method editor, where
-  `CrudEditorPanel.saveQuery` calls `setHidden(true)`. **When building by hand, set
+  Create-Default-Methods path** and remains `null`. So in a real export the overwhelming majority of `crud_*` queries carry `hidden: null`; the
+  odd `hidden: true` marks a method that was later re-saved through the per-method editor, which sets `hidden: true`. **When building by hand, set
   `hidden: null` (or omit the field).** Take the query's `identifier` (UUID) → this is the method's `queryIdentifier`.
-  Prefix: `"crud_" + crudAlias` (`DefaultMethodsDialog.java`).
+  Prefix: `"crud_" + crudAlias`.
 - In `methods[]` add the method object with `script` = the `:name` form, `methodType:"SQL"`, `queryIdentifier` from
   the previous point, `returnType:"Object"`, `returnsArray` (true only for `findAll`), `methodOrder`
   (findAll=0…delete=5).
-- `parameters[]`: extract the names from the `{name:'…'}` placeholders **in order of first appearance, without duplicates**
-  (`extractParams`); `parameterType` = `mapParamType(type-tag)`:
+- `parameters[]`: extract the names from the `{name:'…'}` placeholders **in order of first appearance, without duplicates**;
+  `parameterType` is derived from the type tag:
   `integer`→`Integer`, `long`→`Long`, `boolean`→`Boolean`, `uuid`/`jsonb`/other→`String`, …).
 
 Example pair (`tasks_cruid.findAll`, a CRUD whose `findAll` carries a filter column): the **query** in
@@ -610,8 +601,7 @@ Add the seventh method (`methodOrder: -1`, `methodType:"GROOVY"`, `queryIdentifi
 
 **Variant A — auto-find sentinel (the norm for the great majority of CRUDs).** `ruleIdentifier: null`,
 `contextIdentifiers: null`, `returnFields: null`. The executor recognizes this case
-(`isAutoFindWrapper`: `methodName=="find" && methodType==GROOVY && ruleIdentifier is empty`,
-`DynamicMethodExecutor.java`) and executes `findAll`+`count` **directly on the server** (`executeAutoFindWrapper`), NOT running the Groovy. `script` is stored only as documentation/fallback. **The script form that
+(`methodName=="find"`, `methodType=="GROOVY"`, empty `ruleIdentifier`) and executes `findAll`+`count` **directly on the server**, NOT running the Groovy. `script` is stored only as documentation/fallback. **The script form that
 older emitters produced** (this is what you will see in exports generated before the current source, see below):
 
 ```groovy
@@ -639,15 +629,15 @@ return [
 
 > ⚠️ **Script vs current source.** An export produced by an older emitter carries the **fallback** form
 > `def filter = param ?: [:]` and `service.crud.<alias>.count()` **without arguments** (with a filtered CRUD
-> spelling its defaults as `param ?: ['assignedTo': null]`). The **current** source `buildFindGroovyScript`
-> (`DefaultMethodsDialog.java`) emits the **merge** form
+> spelling its defaults as `param ?: ['assignedTo': null]`). The **current** emitter
+> emits the **merge** form
 > `def filter = [<defaults>] + (param ?: [:])` and `.count(filter)`. For variant A the **script is not executable**
-> (auto-find intercepts `find` in Java before Groovy), so the discrepancy is harmless; but if you are matching an
+> (auto-find intercepts `find` before the Groovy runs), so the discrepancy is harmless; but if you are matching an
 > existing export byte-for-byte, use whichever form that export already uses rather than "upgrading" it.
 
-The Java semantics of auto-find (important when building a CRUD by hand without `count`): `executeAutoFindWrapper`
-(`DynamicMethodExecutor.java`) **requires** a sibling `findAll` (throws at if there is none), calls
-`count` with the **same** `jsonParameters` as `findAll`, and if there is no `count` method — falls back
+The semantics of auto-find (important when building a CRUD by hand without `count`): it
+**requires** a sibling `findAll` (throws if there is none), calls
+`count` with the **same** parameters as `findAll`, and if there is no `count` method — falls back
 `totalElements` to `rows.size()`. The resulting shape: `{content, totalElements, totalPages, pageNumber}`.
 
 > ⛔⛔ **A method whose `parameters[]` holds EXACTLY ONE entry must be NAMED by the map that calls it —
@@ -726,9 +716,9 @@ return [ content: rows, totalElements: total,
 
 > **The variant-B rule is hidden and is NOT in `rep-objects.json.rules[]`.** Every variant-B `find.ruleIdentifier`
 > resolves to nothing in `rules[]` — searching the export for that UUID returns no rule object.
-> The rule is `hidden:true`, and `RuleServiceImpl.findAll`
-> filters hidden rules out of the export. **Import re-creates it** from the method itself:
-> `ensureHiddenGroovyRule` (`CmsProjectServiceImpl.java`) builds a `RuleDto` with
+> The rule is `hidden:true`, and the export
+> filters hidden rules out. **Import re-creates it** from the method itself:
+> it builds a rule with
 > `identifier=ruleIdentifier`, `name="crud_<alias>_<methodName>"`, `executor="GroovyExecutionRule"`,
 > `ruleType=EXECUTION_RULE`, `status=ACTIVE`, `hidden=true`, `rule.ruleScriptStr = method.script`. **Implication
 > for the builder:** if you set `find.ruleIdentifier`, be sure to include a genuine `script` (import
@@ -737,12 +727,12 @@ return [ content: rows, totalElements: total,
 
 ### Step 4 — dtoFields
 
-One per table column (`DefaultMethodsDialog.java`):
-`fieldName = toCamelCase(columnName)`, `displayName = columnName` (snake_case!),
-`fieldType = resolveFieldType(col)` (pg_enum → enum name, otherwise `mapDbTypeToFieldType`), `fieldOrder = index`.
+One per table column:
+`fieldName` = the column name camel-cased, `displayName = columnName` (snake_case!),
+`fieldType` = the mapped DB type (pg_enum → enum name), `fieldOrder = index`.
 
 > **⚠️ A foreign-key column keeps its `_id`/`Id` suffix in the DTO field — name it `<ref>Id`, NEVER `<ref>`.**
-> `toCamelCase` (`DefaultMethodsDialog.java`) only uppercases the letter after each `_`; it does **not** strip
+> Camel-casing only uppercases the letter after each `_`; it does **not** strip
 > the suffix. So an FK column `category_id` → field **`categoryId`** (`displayName: "category_id"`), a column
 > `counterparty_id` → **`counterpartyId`**, `created_by` → `createdBy`. A CRUD over an invoice table therefore
 > carries `counterpartyId` / `statusId` / `createdBy`, never `counterparty` / `status`. **Do not "helpfully"
@@ -750,8 +740,8 @@ One per table column (`DefaultMethodsDialog.java`):
 > things break:
 > - **write side** — `create`/`update` bind `:category_id`; the field must carry that raw FK value;
 > - **the Join feature** — its reference name is *derived* by dropping `Id` off the FK field
-> (`categoryId` → `category`, `FieldEditorDialog.java`), and FK auto-detection tries
-> `camelToSnake(fieldName)` and `<field>_id` (`findFksForField`, `CrudJoinServiceImpl.java`); a field
+> (`categoryId` → `category`), and FK auto-detection tries
+> the snake_case of the field name and `<field>_id`; a field
 >   already named `category` confuses both;
 > - **`displayName` = the raw column** (`category_id`) — must stay the exact column name.
 >
@@ -764,8 +754,8 @@ One per table column (`DefaultMethodsDialog.java`):
 ### Step 5 — filterFields
 
 Only if `findAll` has filter parameters (other than `rowsInPage`/`pageNumber`). For each:
-`fieldName = toCamelCase(paramName)`, `displayName = paramName`, `fieldType = mapParamType(paramType)`,
-`fieldOrder` incrementing (`DefaultMethodsDialog.java`). For a pure enum CRUD — `filterFields: []`.
+`fieldName` = the param name camel-cased, `displayName = paramName`, `fieldType` = the param type,
+`fieldOrder` incrementing. For a pure enum CRUD — `filterFields: []`.
 
 ### Result
 
@@ -783,7 +773,7 @@ Open a **DTO field** of a dynamic CRUD in Business Logic and the field editor sh
 you **lift columns from a referenced table into this CRUD's own DTO without writing SQL** — the dynamic analogue
 of following a foreign key to show a human label (`counterpartyName`) next to the raw FK id (`counterpartyId`).
 On **Apply** the
-platform (`CrudJoinServiceImpl`) does two things at once:
+platform does two things at once:
 
 1. **Rewrites the CRUD's `dynamic_field` rows** — keeps the original FK field and adds one sibling flat field per
    lifted column.
@@ -800,12 +790,12 @@ it in exactly two methods — `findAll` and `get`.
 
 ### ⚠️ Two join conventions in the platform — do not confuse them
 
-The executor's `mapRow` (`DynamicMethodExecutor.java`) branches on the **SELECT alias** of a joined column:
+The executor branches on the **SELECT alias** of a joined column:
 
 | Convention | SELECT alias | Wire shape | Emitted by |
 |---|---|---|---|
-| **FLAT** (this feature, current) | `jN.<col> AS <ref>_<col>` — **single** `_` | flat key `<ref><Col>` (`counterparty_name` → `counterpartyName`) via plain `toCamelCase` (`mapRow`) | the UI Join feature — `buildJoinedSelectList` (`CrudJoinServiceImpl.java`) |
-| **NESTED** (hand-authored) | `jN.<col> AS <ref>__<col>` — **double** `__` | true nested ObjectNode `{ref:{col}}` — `mapRow` splits on `__` and `container.with(...)` per segment  | hand-written SQL for a form sub-object / ObjectSelector — see [18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §1 |
+| **FLAT** (this feature, current) | `jN.<col> AS <ref>_<col>` — **single** `_` | flat key `<ref><Col>` (`counterparty_name` → `counterpartyName`) via plain camel-casing | the UI Join feature |
+| **NESTED** (hand-authored) | `jN.<col> AS <ref>__<col>` — **double** `__` | true nested object `{ref:{col}}` — the executor splits the alias on `__` and nests per segment | hand-written SQL for a form sub-object / ObjectSelector — see [18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §1 |
 
 Both share the same `LEFT JOIN … jN … ON t.<fk> = jN.<pk>` skeleton and the base alias `t`; they differ **only**
 in the number of underscores in the SELECT alias, and therefore in the wire shape (flat label vs nested object).
@@ -813,26 +803,25 @@ in the number of underscores in the SELECT alias, and therefore in the wire shap
 `category_code AS`). Use the single-`_` flat form when you want a plain label column; use the double-`__` nested
 form (doc 18) only when a consumer expects `{counterparty:{id,name}}`.
 
-> **Stale in-code comments — trust the emitted SQL.** The `CrudJoinServiceImpl` class javadoc  and the
-> `mapRow` comment  both say the Join feature emits `<ref>__<col>` / nested ObjectNodes. The
-> **actual** `buildJoinedSelectList`  emits **single-`_` flat** aliases, and real exports agree. The
+> **Trust the emitted SQL.** Some platform comments say the Join feature emits `<ref>__<col>` / nested objects. The
+> **actual** feature emits **single-`_` flat** aliases, and real exports agree. The
 > comments describe an **older** scheme (there were three historically: dotted `cathegory.id`, then `__`-nested,
-> now flat `<ref><Col>`); `rewriteDtoFields` even deletes leftover dotted rows on apply.
+> now flat `<ref><Col>`); applying a join even deletes leftover dotted rows.
 
 ### What Apply regenerates (the crux)
 
-`applyJoin` walks a **fixed method set** and, for each, compares the stored SQL against the freshly generated
-joined SQL (`CrudJoinServiceImpl.java`):
+Apply walks a **fixed method set** and, for each, compares the stored SQL against the freshly generated
+joined SQL:
 
 | Method | Touched by join? | What happens |
 |---|---|---|
-| `findAll` | **YES** | rebuilt: explicit `t.<col>` list + `LEFT JOIN`s + `jN.<col> AS <ref>_<col>` (`buildJoinedFindAll`) |
-| `get` | **YES** | same JOIN pattern, `WHERE t.<pk> = :id` (`buildJoinedGet`) |
-| `findAllByParent` | **YES, only if it already exists** (tree CRUD) | JOINs + the parent-id predicate; never auto-created here — owned by `CrudTreeMethodService` |
+| `findAll` | **YES** | rebuilt: explicit `t.<col>` list + `LEFT JOIN`s + `jN.<col> AS <ref>_<col>` |
+| `get` | **YES** | same JOIN pattern, `WHERE t.<pk> = :id` |
+| `findAllByParent` | **YES, only if it already exists** (tree CRUD) | JOINs + the parent-id predicate; never auto-created here — owned by the tree feature |
 | `create` | **NO — invariant** | FK column placeholder (`:counterparty_id`) stays; returns pre-join canonical INSERT. The original FK field carries the write value unchanged |
 | `update` | **NO — invariant** | same — pre-join canonical UPDATE |
-| `count` | **NEVER** | stays `SELECT COUNT(*) as total FROM <t> WHERE 1=1[filter]` — **no `t` alias, no JOIN**. Only the optional equality-filter predicate is preserved (`generateMethodSql`) |
-| `find` (GROOVY) | **NO — params only** | body **untouched**; only its **paramDefs** are resynced to mirror `findAll`'s (`resyncFindMethodParams`) |
+| `count` | **NEVER** | stays `SELECT COUNT(*) as total FROM <t> WHERE 1=1[filter]` — **no `t` alias, no JOIN**. Only the optional equality-filter predicate is preserved |
+| `find` (GROOVY) | **NO — params only** | body **untouched**; only its **parameter list** is resynced to mirror `findAll`'s |
 
 The SELECT transformation, stated precisely (base alias is always `t`):
 
@@ -840,12 +829,11 @@ The SELECT transformation, stated precisely (base alias is always `t`):
   joined columns can be added unambiguously);
 - one `LEFT JOIN <target> jN ON t.<fkCol> = jN.<targetPk>` per join, **numbered `j1`, `j2`, … in join order**;
 - one `jN.<col> AS <ref>_<col>` per lifted column — **except the FK target column itself** (`id`), which is
-  skipped because the original FK field already carries that value (`buildJoinedSelectList` /
-  `rewriteDtoFields`).
+  skipped because the original FK field already carries that value.
 
 ### DTO-field rewrite
 
-`rewriteDtoFields` (`CrudJoinServiceImpl.java`): the original FK field (`counterpartyId`) **stays**; for each lifted
+When a join is applied, the original FK field (`counterpartyId`) **stays**; for each lifted
 column it adds a sibling field inserted **immediately after** the FK field, shifting the `fieldOrder` of every
 following field to make room :
 
@@ -853,15 +841,15 @@ following field to make room :
 |---|---|---|
 | `fieldName` | `<referenceName><CapitalizedCamelCol>` (e.g. `counterparty` + `Name` = `counterpartyName`) | — |
 | `displayName` | the **raw target column name** in snake_case (e.g. `name`) — same "displayName = column" inversion as normal dtoFields | — |
-| `fieldType` | the target column's Java type (from the target CRUD's DTO field, or `javaTypeOfPgColumn`) | — |
+| `fieldType` | the target column's Java type (from the target CRUD's DTO field, or mapped from the target column's DB type) | — |
 
 ### Reference name
 
-The **reference name** (`JoinRequest.referenceName`) is a user field in the dialog; it is the prefix for **both**
-the SQL alias (`<ref>_<col>`) and the DTO field (`<ref><Col>`). Default (`FieldEditorDialog.java`): the FK
+The **reference name** is a user field in the dialog; it is the prefix for **both**
+the SQL alias (`<ref>_<col>`) and the DTO field (`<ref><Col>`). Default: the FK
 field name minus a trailing `Id` (`counterpartyId` → `counterparty`), else the camelCase of the target table.
-On a **re-apply**, `parseJoinsFromSql` recovers the prior reference name from the SELECT alias prefix so a
-user-customized name round-trips (`CrudJoinServiceImpl.java`).
+On a **re-apply**, the platform recovers the prior reference name from the SELECT alias prefix so a
+user-customized name round-trips.
 
 ### Worked example — `invoices_cruid` (two joins)
 
@@ -903,7 +891,7 @@ once `counterpartyName` is inserted at 3. `create` is **unchanged** by the join 
 
 ### Single-join canonical form — `warehouses_ref`
 
-A single-join `findAll` shows the **exact multi-line shape `buildJoinedFindAll` emits** (before the
+A single-join `findAll` shows the **exact multi-line shape the Join feature emits** (before the
 `:name` conversion collapses whitespace), here lifting one column `warehouse_type` off `dim_warehouse_types`:
 
 ```sql
@@ -921,30 +909,30 @@ OFFSET (:pageNumber * :rowsInPage)
 ```
 
 Reference name `warehouseType` (from `warehouse_type_id` minus `Id`) → alias `warehouse_type_warehouse_type`
-(`camelToSnake("warehouseType")` = `warehouse_type`, `+ "_" + "warehouse_type"`) → DTO field
+(snake_case of `warehouseType` = `warehouse_type`, `+ "_" + "warehouse_type"`) → DTO field
 `warehouseTypeWarehouseType`, placed right after `warehouseTypeId`. This CRUD uses a `_ref` alias suffix rather
 than `_cruid` — the suffix is arbitrary (see the alias note in §1).
 
 ### Multi-join safety & conflict resolution
 
-- **Applying a second join must not strip the first.** `applyJoin` re-parses every prior `LEFT JOIN` out of the
-  **stored `findAll` SQL** (`parseJoinsFromSql`, structural, robust against custom reference names), then
-  `mergeWithInFlight`  either **replaces** the entry whose FK source column matches the new join
+- **Applying a second join must not strip the first.** Apply re-parses every prior `LEFT JOIN` out of the
+  **stored `findAll` SQL** (structural, robust against custom reference names), then
+  either **replaces** the entry whose FK source column matches the new join
   (user re-edited the same FK) or **appends** it, re-numbering `j1/j2/…`. So `findAll` accretes joins. (Fallback
-  when nothing parses: `discoverAllJoins` walks FK metadata + the flat-name pattern in the current DTO.)
+  when nothing parses: it walks FK metadata + the flat-name pattern in the current DTO.)
 - **User-customized methods surface a diff, never silent-overwrite.** A method whose stored SQL differs from
-  **both** the new joined form **and** the pre-join canonical (modulo whitespace — `normalizeSql`) is queued into
-  a single combined `MultiMethodConflictResolvePanel` diff. The user reviews every conflicting
+  **both** the new joined form **and** the pre-join canonical (modulo whitespace) is queued into
+  a single combined diff. The user reviews every conflicting
   method side-by-side and clicks Override-all or Cancel; **Cancel leaves that method's custom SQL untouched** —
   which is one way `get` ends up lagging `findAll`.
 
 ### Manual (no-FK) join
 
 A field **without a declared FK** can still join: pick any other table on the same source and any **type-compatible**
-column to join on (`typeClassOf` groups pg types into NUMERIC/STRING/BOOL/DATE/…, `FieldEditorDialog.java`),
+column to join on (pg types are grouped into NUMERIC/STRING/BOOL/DATE/…),
 after acking a *"no foreign key … no referential integrity is enforced"* warning. Downstream
-`applyJoin` treats it identically — the same `LEFT JOIN` template, keyed on the current field's underlying
-column vs the picked column (`FieldEditorDialog.java`, the `else` branch).
+Apply treats it identically — the same `LEFT JOIN` template, keyed on the current field's underlying
+column vs the picked column.
 
 ### How to author a join by hand (no toolkit command)
 
@@ -963,7 +951,7 @@ lifting target columns `c1,c2,…` under reference name `<ref>`:
 5. Update **both representations** of each regenerated method: the `methods[].script` (`:name` form) **and** its
    paired query `crud_<alias>_<method>` in `rep-objects.json` (`{name,type}` form) — see Step 2 above; they must
    stay in sync.
-6. If the CRUD's Groovy `find` is variant B (a real rule), its paramDefs should mirror `findAll`'s (the UI
+6. If the CRUD's Groovy `find` is variant B (a real rule), its parameter list should mirror `findAll`'s (the UI
    resyncs them; for a pure auto-find `find` the JOIN doesn't add parameters so nothing changes).
 7. **Underscore choice:** single `_` (`<ref>_<col>`) for a flat label field (this feature's default); double `__`
    (`<ref>__<col>`) **only** if you deliberately want a nested `{ref:{…}}` wire object — see
@@ -1007,12 +995,9 @@ The shape:
 > `"parameters": []` on the GROOVY `create`/`update`/`delete`, so copying such a file verbatim reproduces the bug.)
 >
 > `param` inside the delegated rule is assembled **only** from `methods[].parameters`:
-> `DynamicMethodExecutor.executeGroovyMethod` (`dynamic-integration-core/.../DynamicMethodExecutor.java`)
-> fills its result map by iterating `paramDefs` — the DTO-unpack branch is gated on `!paramDefs.isEmpty()` and the
-> positional fallback loops `i < paramDefs.size()`, so with an empty list **both branches are no-ops**. Then
-> `ReactorServiceImpl.executeDelegatedRule` (`nct-executor/.../ReactorServiceImpl.groovy`) does
-> `if (parameters) { executionVariables.put("__methodParams", …) }` — an empty Map is falsy in Groovy, so the
-> marker is never sent — and `GroovyExecutionRule` binds `param` to an **empty HashMap**.
+> the executor fills it by iterating the declared parameters — both the DTO-unpack branch and the
+> positional fallback loop over that list, so with an empty list **both branches are no-ops**. The
+> method-parameters marker is then never sent (an empty Map is falsy in Groovy) and `param` is bound to an **empty map**.
 >
 > Symptom: the form submits, the rule runs, and `createHeader(param)` writes NULL into every column →
 > *"null value in column "doc_number" … violates not-null constraint"*. `delete` is worse: the single-param
@@ -1024,18 +1009,14 @@ The shape:
 > (`doc_number`, `doc_date`, `partner__id`, …) plus the lines array key (`lines`) and, for update/delete, `id`.
 > `mrjun.py validate` now ERRORs on a GROOVY method that mentions `param` with `parameters: []`.
 >
-> ⚠️ **A declared non-scalar parameter arrives as a raw Jackson `JsonNode`** — `GroovyExecutionRule` converts only
+> ⚠️ **A declared non-scalar parameter arrives as a raw Jackson `JsonNode`** — the executor converts only
 > textual/number/boolean values. Read `lines` with the JsonNode API (`.size()`, `.get(i)`, `.has(k)`, `.isNull()`,
 > `.asText()`, `.numberValue()`) — the same API a `Find — …` rule uses for `attrs` — or via a
 > shape-agnostic accessor; `x.someProperty` on a JsonNode throws `MissingPropertyException`.
 
 > ⛔⛔ **Declare the FK BOTH ways: `<ref>__id` AND the plain `<ref>` — a form dropdown sends a scalar.**
-> The executor fills `:<ref>__id` by WALKING the path: `walkParamPath` splits `purchaseOrder__id` into
-> `purchaseOrder` → `id` and descends through the submitted map, giving up at the first non-object:
->
-> ```java
-> if (current == null || !current.isObject()) return null;      // DynamicMethodExecutor.walkParamPath
-> ```
+> The executor fills `:<ref>__id` by WALKING the path: it splits `purchaseOrder__id` into
+> `purchaseOrder` → `id` and descends through the submitted map, giving up (and yielding null) at the first non-object.
 >
 > An engine RULE passing `{purchaseOrder: {id: …}}` walks fine. A FORM does not: the dropdown bound to
 > that nested dtoField (`fieldExpression: "purchaseOrder"`, `dataClass: java.lang.String`) puts the bare
@@ -1124,28 +1105,15 @@ The shape:
 > control is actually bound to that field (the submit will fail), otherwise a WARNING.
 
 > ⛔⛔ **A GROOVY method other than `find` MUST carry a `ruleIdentifier` — with `null` it does not run at all.**
-> The `script` sitting next to the method is NOT what executes. `DynamicMethodExecutor.executeGroovyMethod`
-> refuses before it looks at anything else:
->
-> ```java
-> if (method.getRuleIdentifier() == null || method.getRuleIdentifier().isBlank())
->     throw new IllegalStateException("Groovy method '" + name
->             + "' has no rule identifier. Apply the CRUD first.");
-> ```
->
+> The `script` sitting next to the method is NOT what executes. The executor refuses a GROOVY method with a blank
+> `ruleIdentifier` before it looks at anything else (*"Groovy method '<name>' has no rule identifier. Apply the CRUD first."*)
 > and otherwise returns `{ruleIdentifier, status:"delegated", parameters}` — the script runs as an ordinary
 > EXECUTION_RULE **looked up by that identifier**, with the arguments bound as `param`.
 >
-> In the UI that rule is written by the **Apply** button (`CrudEditorPanel.saveGroovyRule`, `hidden(true)`).
+> In the UI that rule is written by the **Apply** button (as a hidden rule).
 > Hidden rules are filtered out of the export, so `rep-objects.json` legitimately carries **none** of them —
-> the importer re-creates each one from the method's own `script`
-> (`CmsProjectServiceImpl.ensureHiddenGroovyRule`). But that re-creation is guarded:
->
-> ```java
-> if (isBlank(em.getRuleIdentifier()) || isBlank(em.getScript())) return;
-> ```
->
-> so **the identifier is the entire hinge**, and it is the one thing a file-first build has no reason to invent.
+> the importer re-creates each one from the method's own `script`. But that re-creation is skipped
+> when the identifier or the script is blank, so **the identifier is the entire hinge**, and it is the one thing a file-first build has no reason to invent.
 > Any UUID will do — the platform builds the rule around it. Absent, the method is dead in the imported project
 > and the symptom never names it: a choices rule calling it renders an **empty dropdown**; a form action calling
 > it reports *"Form submission failed: … Groovy method 'create' has no rule identifier. Apply the CRUD first."*
@@ -1155,8 +1123,8 @@ The shape:
 > copy drifts from the script.
 >
 > ⚠️ **`find` is the exception, and only `find`.** A GROOVY `find` with a blank `ruleIdentifier` is the
-> **auto-find sentinel** of §Step 3 Variant A: `isAutoFindWrapper` catches it ahead of the delegation branch and
-> `executeAutoFindWrapper` runs the sibling `findAll` + `count` in-process. Leave it null.
+> **auto-find sentinel** of §Step 3 Variant A: the executor catches it ahead of the delegation branch and
+> runs the sibling `findAll` + `count` in-process. Leave it null.
 
 ### ⛔ A derived header column must be recomputed where the lines are written
 
@@ -1230,7 +1198,7 @@ of CRUDs already wired — do not rebuild it; apply a surgical delta and re-vali
   touching anything.
 - **`crud add --alias <a> --source <s> --schema <s> --field n:Type... --context <ctx> [--scaffold-methods]`** —
   add a NEW entity. `--context` appends the alias to that context's `crudAliases` **in the same call**
-  (idempotent; `crud_cmds.py`), so the new CRUD is registered where consumers resolve it. Then hand-fill the
+  (idempotent), so the new CRUD is registered where consumers resolve it. Then hand-fill the
   scaffolded SQL (see the scaffold callout above) and add the entity's `dtoFields`.
 - **`crud add-method <a> --name <m> --type SQL|GROOVY [--query <qid>|--rule <rid>] --script @file`** — add a new
   lifecycle/helper method to an existing CRUD (a new `insertLine`, a `post`/`cancel` status method, etc.).
@@ -1240,11 +1208,10 @@ of CRUDs already wired — do not rebuild it; apply a surgical delta and re-vali
 
 ## `bl` — the control system CRUD (admin surface)
 
-`bl` is a globally registered `@Crud` bean from `dynamic-integration-core`, with entry type = `DynamicCrudDefinitionDto`.
-It **deliberately has no `@FormField`** (to avoid cluttering the field-expression dropdowns) and is edited only through
-`DynamicCrudsPlugin`. All operations go over RSocket:
-`reactorCrudService.executeCrudMethod(realm, client, "bl", <method>, args)`. The `bl` methods involved in
-export/import (`CmsProjectServiceImpl`):
+`bl` is the globally registered system CRUD of the dynamic-integration side.
+It **deliberately exposes no form fields** (to avoid cluttering the field-expression dropdowns) and is edited only through
+the Business Logic plugin. All operations go over RSocket. The `bl` methods involved in
+export/import:
 
 | `bl` method | Purpose |
 |---|---|
@@ -1256,11 +1223,11 @@ export/import (`CmsProjectServiceImpl`):
 | `getDtoFields(crudId)` / `getFilterFields(crudId)` / `getMethods(crudId)` | reading |
 | `addMethod(crudId, methodDtoMap)` | method → map with method `id` |
 | `addParameter(methodId, paramDtoMap)` | method parameter |
-| `setReturnFields(methodId, Map<String,String>)` | result schema (hints) |
+| `setReturnFields(methodId, {col:Type})` | result schema (hints) |
 | `addDtoField(crudId, fieldDtoMap)` / `addFilterField(crudId, fieldDtoMap)` | fields |
-| `addEnum({name, kind:"FREE", baseType})` | FREE enum (`CreateEnumDialog`, baseType ∈ {STRING, INTEGER}) |
+| `addEnum({name, kind:"FREE", baseType})` | FREE enum (baseType ∈ {STRING, INTEGER}) |
 
-**Import of `dynamic-cruds.json` — idempotent, optional** (`importDynamicCruds`, `CmsProjectServiceImpl.java`):
+**Import of `dynamic-cruds.json` — idempotent, optional:**
 1. Staged during the `.mrjun` import: JSON → tenant-property `"initDynamicCrudsOnImport"`,
    replayed later, once the sources have already been created (the replay step removes the property).
 2. `bl.getCruds` probe — if `bl` is not deployed (the probe throws), the entire dynamic-cruds import is **silently
@@ -1268,7 +1235,7 @@ export/import (`CmsProjectServiceImpl`):
 3. Clean slate: `bl.deleteCrud(id)` for each existing dynamic CRUD (scope realm/client).
 4. Pulls the live sources by `sourceIdentifier` (for fresh credentials).
 5. Per crud: `bl.create` → `bl.setSource` (live credentials preferred over the snapshot) → `bl.setLocalizationField`
-   (if set); per method: `ensureHiddenGroovyRule` (for GROOVY with a non-empty ruleId) → `bl.addMethod` →
+   (if set); per method: the hidden rule is re-created (for GROOVY with a non-empty ruleId) → `bl.addMethod` →
    per param `bl.addParameter` → `bl.setReturnFields`; per dtoField `bl.addDtoField`; per
    filterField `bl.addFilterField`. A CRUD's `access` travels in the `bl.create` map and a method's
    `inheritAccess`/`access` in the `bl.addMethod` map; absent stays absent (= signed-in users).
@@ -1328,31 +1295,12 @@ them — [19](19-build-decision-procedure.md) Phase 6).
 A refused method answers **HTTP 403** `Not authorized to run <alias>.<method>`; in a table or form that surfaces
 as the call's error, in `ctx.callBl` as a rejected promise.
 
-### Java (static) CRUDs — `@CrudAccess`, in code
+### Compiled (static) CRUDs — access in code
 
-A compiled CRUD declares its access with `@CrudAccess` (package `com.devsegment.execreactor.crud`, next to
-`@Crud`), on the class (the CRUD's) and/or on a method (that method's own). The attributes mirror the JSON:
+A compiled Java CRUD declares its access in code, on the CRUD and/or on a method (that method's own). The attributes mirror the JSON:
 `publicAccess` (default `false`), `authenticatedUserAccess` (default `false`), `roleGroups` (default `{}`).
-No `@CrudAccess` on the class = signed-in users; no annotation on a method = it inherits the class; a bare
-`@CrudAccess` = administrators and authors only.
-
-```java
-@Crud(alias = "order", name = "Order")
-@CrudAccess(roleGroups = {"<Group>"})                 // the CRUD: members of <Group>
-public class OrderCrud implements ICrud<...> {
-
-    public OrderDto confirm(String id) { ... }        // inherits: members of <Group>
-
-    @CrudAccess(roleGroups = {"<Manager Group>"})     // its own: members of <Manager Group>
-    public OrderDto cancel(String id) { ... }
-
-    @CrudAccess(publicAccess = true)                  // anyone, anonymous visitors included
-    public List<ProductDto> catalog() { ... }
-
-    @CrudAccess                                       // administrators and authors only
-    public void purge() { ... }
-}
-```
+No declaration on the CRUD = signed-in users; none on a method = it inherits the CRUD; a bare
+declaration with no attributes = administrators and authors only.
 
 It is shown **read-only** in the Business Logic console and is **not in the export** — it is code, so no command
 edits it and `crud access` refuses a non-dynamic alias. `bl` is always administrators and authors only.
@@ -1442,44 +1390,40 @@ Three more things the pattern needs:
 ## Localization (`localizationField`)
 
 - `localizationField` = the **column name** (usually `"localized"`, jsonb) or `null` (localization off) —
-  the dynamic analogue of the static `@LocalizationField`. The DTO field for this column has `fieldType: "ObjectNode"`.
-- On the wire the executor **aliases the chosen column to the canonical key `"localize"`** on read (in `mapRow`,
-  `DynamicMethodExecutor.java`) and accepts it back under `"localize"` on write
-  (`LOCALIZATION_CANONICAL_KEY = "localize"`). Therefore for all UI consumers (`LocalizedValueUtil`
-  `FormPlugin`, `BaseFormControl`, `CrudTableColumnPanel`) the dynamic CRUD looks identical to a static one
+  the dynamic analogue of a static CRUD's localization field. The DTO field for this column has `fieldType: "ObjectNode"`.
+- On the wire the executor **aliases the chosen column to the canonical key `"localize"`** on read and accepts it back under `"localize"` on write.
+  Therefore for all UI consumers (forms, tables) the dynamic CRUD looks identical to a static one
   whose field is literally named `localize`.
 - Value structure: `localize[fieldName][localeKey] = value` (locale keys `en_US`, `ru_RU`, `hy_AM`). In the raw DB
   rows the value is usually `null` until localization has been run.
-- **Bulk "Localize" background task (`CrudDataLocalizeService`).** The "Localize" button on a DTO field kicks off a
+- **Bulk "Localize" background task.** The "Localize" button on a DTO field kicks off a
   per-field background task (a fixed thread pool + task-id progress map) that walks **every** row of the CRUD (paged
-  `find`, or recursive `find` by a parent-field filter for a tree — `CrudDataLocalizeService.java`) and, for each non-blank base value, fills the row's
+  `find`, or recursive `find` by a parent-field filter for a tree) and, for each non-blank base value, fills the row's
   `localize[fieldExpression][localeKey]`: the default locale is copied verbatim from the base field, and each other
-  target locale is machine-translated via `localizeService.translatePure(sourceValue, sourceLang, targetLang)`
-  (`nct-ui/.../service/CrudDataLocalizeService.java`); a row already carrying all locales is skipped. Every changed
+  target locale is machine-translated; a row already carrying all locales is skipped. Every changed
   row is persisted with an ordinary `service.crud.<alias>.update(entity)` call  — i.e. it writes back
   through the CRUD's own `update` method, so the localization column must be writable there (see the `:localize` /
   `COALESCE(:localize, localize)` rule in [18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md)
-  §1). Full localization model: [20-localization.md](20-localization.md) (see also memory
-  `project_dyncrud_field_data_localize`).
+  §1). Full localization model: [20-localization.md](20-localization.md).
 
 ## Dynamic vs static — how `service.crud.<alias>` resolves
 
-Both styles yield the same `ICrud` contract; the difference is in the **resolver** and in what is in the export.
+Both styles yield the same CRUD contract; the difference is in the **resolver** and in what is in the export.
 
 | Aspect | DYNAMIC | STATIC |
 |---|---|---|
-| Where the implementation lives | Strings of SQL/Groovy in the `dynamic_crud`/`dynamic_method` tables of the project DB | A compiled Java `@Crud` bean in a separate microservice |
+| Where the implementation lives | Strings of SQL/Groovy in the `dynamic_crud`/`dynamic_method` tables of the project DB | A compiled Java CRUD in a separate microservice |
 | Export | Has `dynamic-cruds.json` (one record per entity) | **No** `dynamic-cruds.json`; the logic cannot be reconstructed from the export |
-| Call resolution | `DynamicCrudMethodResolver` (`@Order(100)`, `DynamicCrudMethodResolver.java`) intercepts **before** reflection: if the alias has a row in `dynamic_crud` and the method exists in `dynamic_method` → `DynamicMethodExecutor.executeMethod` | The resolver returns `Optional.empty()` (no `dynamic_crud` row) → `CrudServiceImpl` defaults to reflection over the `@Crud` bean (`InvoiceCrud.find()` etc.) |
-| SQL vs Groovy | `methodType` in `dynamic_method`: SQL → raw JDBC (`executeSqlMethod`); GROOVY → Groovy rule (`executeGroovyMethod`); `find` without a rule → auto-find | N/A — the method body = Java code |
-| DTO fields/filters | Rows in `dynamic_field` (in the export `dtoFields`/`filterFields`) | Reflection over the DTO class's `@FormField` fields; marked `readonly=true` in `CrudExtendedDto` |
-| Hybrid | An alias can have **both** a static `@Crud` bean **and** a `dynamic_crud` row (e.g. add a custom method to `TicketCrud`) — dynamic members are `readonly=false`. | Static members stay `readonly=true`; `DynamicCrudMethodResolver` returns empty for static method names → reflection over the bean (javadoc bullets, `DynamicCrudMethodResolver.java`). |
+| Call resolution | The dynamic resolver intercepts **before** the static path: if the alias has a row in `dynamic_crud` and the method exists in `dynamic_method`, the dynamic executor runs it | The resolver finds no `dynamic_crud` row and steps aside → the call goes to the compiled CRUD's own method |
+| SQL vs Groovy | `methodType` in `dynamic_method`: SQL → raw JDBC; GROOVY → Groovy rule; `find` without a rule → auto-find | N/A — the method body = Java code |
+| DTO fields/filters | Rows in `dynamic_field` (in the export `dtoFields`/`filterFields`) | Taken from the compiled DTO's form fields; marked read-only |
+| Hybrid | An alias can have **both** a compiled CRUD **and** a `dynamic_crud` row (e.g. add a custom method to an existing compiled CRUD) — dynamic members are editable. | Static members stay read-only; the resolver steps aside for static method names → the compiled CRUD answers. |
 
 > A static export simply has **no** `dynamic-cruds.json`. Judge a project by that file's presence, never by how
 > business-heavy its screens look.
 
-The plugin shows **both** kinds in the left-hand list (`crudClient.findAll` returns everything, `DynamicCrudsPlugin.java`),
-but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
+The plugin shows **both** kinds in the left-hand list,
+but edits only the dynamic members (Edit/Delete are hidden for read-only rows).
 
 ## Gotchas
 
@@ -1540,7 +1484,7 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
   | `a ?\| ARRAY[…]` | `jsonb_exists_any(a, ARRAY[…])` |
   | `a ?& ARRAY[…]` | `jsonb_exists_all(a, ARRAY[…])` |
 
-  `validate` ERRORs on any literal `?` in a SQL method script (`dyncheck.jdbc_question_marks`); quoted string
+  `validate` ERRORs on any literal `?` in a SQL method script; quoted string
   literals are excluded, so `WHERE note = 'what? no'` does not trip it. The same `?` IS fine in an ad-hoc query
   you run outside a method — it is the method's parameter binding that breaks, not Postgres.
 - **A GROOVY method has the SAME `service.*` surface as an execution rule** — it IS one
@@ -1561,15 +1505,15 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
   test never triggers it). CHECK constraints live in the dump's `schema.checkConstraints[]`, not the table `ddl` —
   inspect with `mrjun.py db show <table>`. `mrjun.py validate` flags a literal write outside the allowed set as an ERROR.
 - **A parameter that reaches a NOT NULL column must be `COALESCE(CAST(NULLIF(:x,'') AS <type>), <neutral>)`.**
-  Params arrive as text (`bindAs` = `asText()`+parse, `DynamicMethodExecutor.java`) and an absent one binds
-  `setNull(Types.NULL)`, so `SET amount = amount + CAST(:amount AS numeric)` **sets the column to NULL**
+  Params arrive as text (the executor parses them) and an absent one binds
+  an untyped NULL, so `SET amount = amount + CAST(:amount AS numeric)` **sets the column to NULL**
   and aborts on the constraint the moment the delta is omitted or blank — while `validate` and every other offline
   gate stay green. Only `crud verify --db` ([26](26-orchestration-and-testing.md) §3 T3) catches it. Sweep for it:
   `grep -oE 'CAST\(:[A-Za-z0-9_]+ AS [a-z ]+\)'` over `dynamic-cruds.json` (a guarded param can never match).
   Full treatment + the neutral-value table: **[§ Step 2 — Guard EVERY parameter that reaches a NOT NULL column](#-guard-every-parameter-that-reaches-a-not-null-column)**.
 - **An enum dropdown (`dataClass=<app>.dto.enums.<E>`, no `ruleIdentifier`) renders BLANK after import unless it
-  carries a persisted `enumValues` snapshot.** The DynamicEnum registry is empty post-import and `Class.forName`
-  of the integration enum fails in a REPORT project, so the only surviving option source is
+  carries a persisted `enumValues` snapshot.** The dynamic enum registry is empty post-import and the integration enum class cannot be loaded
+  in a REPORT project, so the only surviving option source is
   `settings.enumValues = {CONST:{name,displayName}}`. Populate it from the `lookup_<enum>` table's rows. `validate`
   warns on an enum dropdown with neither `enumValues` nor a choices rule. See [18](18-existing-schema-to-dynamic-wiring.md) §2.
   **A choices rule for a dropdown/autocomplete is NOT a raw row fetch — it MUST convert rows to option pairs:
@@ -1579,89 +1523,82 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
   (`validate` now ERRORs on this). Searchable dropdown → the `acFindAllBy<Cap(X)>Like` pipeline. Full contract:
   [02-form-controls-reference.md](02-form-controls-reference.md) §4a.**
 - **A document `delete` must cascade to its child lines.** A bare `DELETE FROM <header>` FK-fails on any document
-  that has lines (the line FK is NO ACTION; the static app cascaded via JPA). Make `delete` a GROOVY method that
+  that has lines (the line FK is NO ACTION; the static app cascaded this itself). Make `delete` a GROOVY method that
   calls `deleteLines` then the header delete. `validate` warns. See [18](18-existing-schema-to-dynamic-wiring.md) §3.
 - **The `find` script in the export is the fallback form, not the current merge form.** Export: `def filter = param ?: [:]` +
-  `.count()`. Current source (`buildFindGroovyScript`, `DefaultMethodsDialog.java`): `[<defaults>] +
-  (param ?: [:])` + `.count(filter)`. For a variant-A find the script **is not executed** (auto-find intercepts in
-  Java), so the discrepancy is harmless; to match the export — use the fallback form.
-- **`find.ruleIdentifier == null` is a feature, not an omission.** The auto-find sentinel
-  (`isAutoFindWrapper`, `DynamicMethodExecutor.java`). Do NOT add a rule for "completeness" — with a non-empty
-  `ruleIdentifier` the executor will take the Groovy path and require a valid rule (re-created on import via
-  `ensureHiddenGroovyRule`).
-- **Auto-find requires a sibling `findAll`.** `executeAutoFindWrapper` throws if the CRUD has no `findAll`
-  (`DynamicMethodExecutor.java`). `count` is optional — without it `totalElements = rows.size()`.
-- **`hidden` for `crud_*` queries defaults to `null`.** The default Create-Default-Methods path (`createQuery`,
-  `DefaultMethodsDialog.java`) does NOT set `hidden`. `hidden:true` appears only after re-saving
-  a method in the per-method editor (`CrudEditorPanel.saveQuery`) — a small minority of the `crud_*`
+  `.count()`. Current emitter: `[<defaults>] +
+  (param ?: [:])` + `.count(filter)`. For a variant-A find the script **is not executed** (auto-find intercepts it
+  on the server), so the discrepancy is harmless; to match the export — use the fallback form.
+- **`find.ruleIdentifier == null` is a feature, not an omission.** The auto-find sentinel. Do NOT add a rule for "completeness" — with a non-empty
+  `ruleIdentifier` the executor will take the Groovy path and require a valid rule (re-created on import).
+- **Auto-find requires a sibling `findAll`.** Auto-find throws if the CRUD has no `findAll`. `count` is optional — without it `totalElements = rows.size()`.
+- **`hidden` for `crud_*` queries defaults to `null`.** The default Create-Default-Methods path does NOT set `hidden`. `hidden:true` appears only after re-saving
+  a method in the per-method editor — a small minority of the `crud_*`
   queries in any real export. When building by hand, set `hidden: null`.
 - **`ruleIdentifier` (find, variant B) is absent from `rep-objects.json`.** The query for the SQL is present in
   `queries[]` (by `name = crud_<alias>_<method>`), but the hidden find-rule is **not** in `rules[]`: import creates it
-  from `method.script` via `ensureHiddenGroovyRule`. Do not rely on every `ruleIdentifier` resolving in
+  from `method.script`. Do not rely on every `ruleIdentifier` resolving in
   `rep-objects`.
 - **Optional filters in SQL — only via `COALESCE`.** Write
   `<col> IS NOT DISTINCT FROM COALESCE({name:'<col>',type:'<t>'}, <col>)`, and **not** `(:col IS NULL OR col=:col)`
   and not `col = :col`. The executor hand-scans `:name` and emits a fresh `?` for **each** occurrence, plus binds a
-  missing filter as `setNull(Types.NULL)` (OID 0) → Postgres "could not determine data type" precisely on
-  an empty filter. The canonical emitter already does it right (`buildFilterWhere`, `DefaultMethodsDialog.java`).
+  missing filter as an untyped NULL → Postgres "could not determine data type" precisely on
+  an empty filter. The canonical emitter already does it right.
   **Caller-side corollary:** the same failure fires from
   Groovy — `service.crud.<alias>.findAll(partialMap)` binds every declared filter param NOT in the map as
-  `setNull(Types.NULL)` → untyped-`$1`, unless that column is COALESCE-guarded. `findAll([:])` (ALL keys absent) is
+  an untyped NULL → untyped-`$1`, unless that column is COALESCE-guarded. `findAll([:])` (ALL keys absent) is
   safe; a PARTIAL map like `findAll([active:"true"])` when the CRUD declares other filter params is the trap. This
   bites choices rules especially — never `findAll([...])` in a dropdown choices rule; use `findAll([:])` or the
   `acFindBy<Cap(X)>Like` pipeline ([02-form-controls-reference.md](02-form-controls-reference.md) §4a).
-- **`find`-merge vs `find`-fallback + the Java path.** The fallback script `param ?: [:]` calls `count()` without a Map, and
+- **`find`-merge vs `find`-fallback + the server-side path.** The fallback script `param ?: [:]` calls `count()` without a Map, and
   `findAll(filter)` — with a partial Map (`rowsInPage`/`pageNumber`). The executor unpacks a single-argument Map by
-  parameter names **only if** the key is present (`mapParam.has(onlyParam)`,
-  `DynamicMethodExecutor.java`); otherwise it binds the whole Map into a single slot. But remember: for a variant-A find the script is not
-  executed — the "count=0 → empty table" story is in fact decided by the **Java auto-find** (it calls `count` with the
+  parameter names **only if** the key is present; otherwise it binds the whole Map into a single slot. But remember: for a variant-A find the script is not
+  executed — the "count=0 → empty table" story is in fact decided by the **server-side auto-find** (it calls `count` with the
   same `jsonParameters` as `findAll`). **Caveat — do NOT generalize "a partial Map to `findAll` is fine":** it
-  is safe here ONLY because auto-find intercepts variant-A in Java. In an *executed* rule (a choices rule, a
-  variant-B `find`, an action rule) a partial-map `findAll` binds unlisted filter params as `setNull` → untyped-`$1`
+  is safe here ONLY because auto-find intercepts variant-A on the server. In an *executed* rule (a choices rule, a
+  variant-B `find`, an action rule) a partial-map `findAll` binds unlisted filter params as untyped NULL → untyped-`$1`
   unless the SQL is COALESCE-canonical (see the Optional-filters gotcha above). Use `findAll([:])` — ALL keys
   absent — for a no-filter fetch.
 - **Parameter order and names are critical.** `parameterOrder` = the position of the `:param` appearance; duplicates are collapsed
-  (first occurrence, `extractParams`). For `create`/`update` the parameter names are **snake_case** (matching the
+  (first occurrence). For `create`/`update` the parameter names are **snake_case** (matching the
   column), for pagination/filters — **camelCase**. A name mismatch will break the Map unpacking.
-- **`displayName` in dtoFields is the snake_case column name, NOT a label.** The inverse of the static
-  `@FormField.displayName`. `fieldName` is camelCase. Do not carry over the static meaning of `displayName`.
-- **A foreign-key column keeps its `_id` suffix: field = `<ref>Id`, never `<ref>`.** `toCamelCase("counterparty_id")` =
+- **`displayName` in dtoFields is the snake_case column name, NOT a label.** The inverse of a static CRUD's
+  field display name. `fieldName` is camelCase. Do not carry over the static meaning of `displayName`.
+- **A foreign-key column keeps its `_id` suffix: field = `<ref>Id`, never `<ref>`.** Camel-casing `counterparty_id` gives
   `counterpartyId` (the suffix is retained, not stripped). Naming the FK field after the entity (`counterparty`
   instead of `counterpartyId`) breaks the write side (`:counterparty_id`), the Join feature's reference-name derivation, and FK
   auto-detection. The bare `<ref>` form is only for the join reference name / SQL alias, or the deliberate
   nested-object convention ([18](18-existing-schema-to-dynamic-wiring.md) §1). See Step 4.
 - **`source*` is a snapshot, not a reference.** The runtime reads JDBC from the CRUD record's `sourceHost/…/sourcePassword`, not from
-  `sources[]`. When building by hand, duplicate the credentials; otherwise SQL methods will fail with "has no source configured"
-  (`DynamicMethodExecutor.java`). `sourcePassword` in the export is in plaintext; **import** prefers
+  `sources[]`. When building by hand, duplicate the credentials; otherwise SQL methods will fail with "has no source configured". `sourcePassword` in the export is in plaintext; **import** prefers
   live credentials from `sources[]` by `sourceIdentifier`, falling back to the snapshot.
 - **The alias is unprefixed in the export, prefixed at runtime.** In `dynamic-cruds.json` the alias is "bare"
   (`tasks_cruid`); the full key `realm______________client______________alias` is assembled by
-  `CrudKeyGenerator.createAlias`. Do not write the prefix into the export by hand.
+  the platform. Do not write the prefix into the export by hand.
 - **`returnFields` = null until the first Run.** The result schema for Groovy hints
-  (`CrudEditorPanel.saveReturnFields`; filled via the Run dialog,
-  `RunMethodDialog.java`). Its absence does not hinder the method's operation — only the hints in the rule editor (see
+  (filled via the Run dialog). Its absence does not hinder the method's operation — only the hints in the rule editor (see
   [09-groovy-hints-and-live-context.md](09-groovy-hints-and-live-context.md)).
 - **Enums do not live in `dynamic-cruds.json`.** STATIC/DB enums = pg_enum types in `project-db.dump` (see
   [10-database-management.md](10-database-management.md)); FREE enums are created via `bl.addEnum`
-  (`CreateEnumDialog.java`, fields `name` + `baseType ∈ {STRING, INTEGER}`, `kind:"FREE"`) and stored on the
+  (fields `name` + `baseType ∈ {STRING, INTEGER}`, `kind:"FREE"`) and stored on the
   dynamic-integration side — there is **no** separate enum section in the export at all. In a CRUD an enum is visible only as
   the `fieldType` of a DTO field (e.g. `OrderStatus` instead of `String`), if the pg_enum is registered.
-  > ⚠️ **A FREE enum is NOT round-tripped — you cannot author one in a hand-built export.** `ExportedCrud`
-  > (`CmsProjectServiceImpl.java`) carries **no** enum field, `DynamicCrudsExport` holds only `exportVersion` + `cruds` (no enum field),
-  > and `importDynamicCruds` **never** calls `bl.addEnum` (0 hits for `addEnum` in the whole `CmsProjectServiceImpl.java`).
+  > ⚠️ **A FREE enum is NOT round-tripped — you cannot author one in a hand-built export.** The exported CRUD
+  > carries **no** enum field, the file holds only `exportVersion` + `cruds` (no enum field),
+  > and the import **never** calls `bl.addEnum`.
   > So a FREE enum lives **only** in the dynamic-integration DB — export drops it and import never recreates it. For a
   > user-editable enum in a hand-built project use a **pg_enum type** (`project-db.dump` `enumTypes[]`,
   > [10-database-management.md](10-database-management.md)) or a **`lookup_*` table**
   > ([18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §2) instead — do NOT plan a
   > FREE enum, it produces an un-reconstructable project.
 - **A pg_enum (`USER-DEFINED`) column needs NO manual `::enum_type` cast in `create`/`update`.** Bind a plain
-  `:status`; the executor resolves the column's enum type from `ParameterMetaData` (fallback:
-  `information_schema.columns.udt_name`, `DynamicMethodExecutor.lookupTargetTableColumnTypes`) and binds the value
-  through a `PGobject` tagged with that type name (`bindAs` default branch), so Postgres applies the
+  `:status`; the executor resolves the column's enum type from the statement metadata (fallback:
+  `information_schema.columns.udt_name`) and binds the value
+  tagged with that type name, so Postgres applies the
   enum's input function. The `:status::<enum_type>` cast is needed **only** for a non-canonical write whose single
   target table the executor can't parse (a multi-table write / `INSERT … SELECT`), where the slot falls back to its
   declared type and an enum column bound as `character varying` throws `column "status" is of type … but expression is
-  of type character varying`. This rule is derived from the executor's binding code, not from a worked example —
+  of type character varying`. This rule is derived from the executor's binding behaviour, not from a worked example —
   pg_enum columns are rare in practice. Detail: [10-database-management.md](10-database-management.md) §enumTypes.
 - **An FK-join regenerates `findAll`/`get` (and `findAllByParent`), NOT `create`/`update`/`count`.** Full
   treatment: **[§ FK-join on a DTO field](#fk-join-on-a-dto-field-the-field-dialog-join-feature)**. In short: the
@@ -1669,8 +1606,8 @@ but edits only the dynamic members (Edit/Delete are hidden for `readonly` rows).
   `jN.<col> AS <ref>_<col>` (base alias `t`; example `invoices_cruid.findAll`:
   `LEFT JOIN counterparties j1 ON t.counterparty_id = j1.id`, flat DTO field `counterpartyName`). `create`/`update` are
   invariant (the FK placeholder `:counterparty_id` carries the write). `count` is **never** joined (no `t`, no JOIN) — so
-  a join-based **filter** column must be threaded through both `findAll` and `count`, otherwise the two diverge
- (`CrudJoinServiceImpl`). **Single `_` = flat label field;
+  a join-based **filter** column must be threaded through both `findAll` and `count`, otherwise the two diverge.
+  **Single `_` = flat label field;
   double `__` = nested `{ref:{…}}` object** — do not mix them up.
 - **The source's `dbType` in the export is `"POISTGRESQL"` (typo).** Do not "fix" it to `POSTGRESQL`; copy it as
   is from `sources[]`.

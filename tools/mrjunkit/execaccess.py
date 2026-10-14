@@ -18,7 +18,7 @@ neither flag and no group = administrators and authors only.
 before the setting existed. So the toolkit never writes the key unless asked: a command run without an access
 flag leaves the file exactly as it was, and opening something to anonymous visitors is always an explicit act.
 
-A Java (static) CRUD declares its access in code (`@CrudAccess`) — it is not in the export, and nothing here
+A built-in (static) CRUD declares its access in the platform's own code — it is not in the export, and nothing here
 edits it. The integration's own CRUD-management CRUD (`bl`) is always administrators and authors only.
 """
 

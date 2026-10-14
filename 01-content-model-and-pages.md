@@ -10,18 +10,14 @@
 > [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) ·
 > [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md)
 
-> **About the component names below.** Claims are stated as behaviour you can observe in a running project or
-> in the export JSON; class names are given only so you can ask the platform team a precise question. Two
-> families of names appear: `mrjun-*` components belong to the **mrjun CMS library** (the content/page/plugin
-> engine the platform embeds), `nct-*` components belong to the **Dokie application** on top of it. That split
-> matters when you report a bug — it tells the platform team which side owns the behaviour. Export shapes
-> below are stated as they appear in real exported projects; you can confirm every one of them with `jq`
-> against your own export.
+> **About the claims below.** They are stated as behaviour you can observe in a running project or
+> in the export JSON. Export shapes below are stated as they appear in real exported projects; you can confirm
+> every one of them with `jq` against your own export.
 
 ## What it is / when to use
 
 Each project is **one content tree** (`branches.json[0].rootContent`), a recursive structure of
-`ContentDomain` nodes. Each node is a "plugin": `pluginName` selects the Java class, and all configuration
+content nodes. Each node is a "plugin": `pluginName` selects the plugin, and all configuration
 lives in `properties` (typed slots). Pages (`siteMapPage`), tabs (`nct.tab.plugin`), grids
 (`nct.html.plugin`/`html.plugin`), texts (`nct.label.plugin`), images (`nct.image.plugin`), and content
 "holes" (`nct.parsis.plugin`, `parsis.plugin`) — all of these are nodes of one tree. CRUD tables, forms, filters —
@@ -46,54 +42,30 @@ Read this doc when you need to **manually add a page, tab, column grid, set acce
 Two id fields on every node. They are **not** interchangeable, and swapping them fails
 **silently** — no exception, no log line, just an empty panel or a "not found" from a tool.
 This is the most expensive confusion in the whole content model, so it is stated here with
-the source that decides it.
+the evidence that decides it.
 
 | | `identifier` | `uniqueIdentifier` |
 |---|---|---|
 | **Scope** | unique **only among one parent's children** | unique **across the entire project** |
 | **Shape** | a UUID **or a plain string** (`"parsis"`, `"header"`, `"left-nav"`) | always a UUID |
-| **Who sets it** | **you** — it is the `id=` you type in `<plugin id="…">` | the platform (`@PrePersist`), or you by hand |
-| **Column** | `s_identifier` — no NOT NULL, no unique constraint | `content_unique_identifier` — **`nullable = false`** |
-| **Getter** | `getIdentifier()` **lazily mints a random UUID** when null | `getUniqueIdentifier()` returns the field as-is, never generates |
+| **Who sets it** | **you** — it is the `id=` you type in `<plugin id="…">` | the platform (on save), or you by hand |
+| **Constraint** | no NOT NULL, no unique constraint | **NOT NULL** |
+| **When empty** | the platform **lazily mints a random UUID** when it is read | never generated on read |
 | **Referenced by** | `<plugin id=…>` tags · a form's `contentIdentifier` · a form group's `contentPageIdentifier` | MCP `nct_ui_*` content lookups · `componentIdentifier` refresh targets · Hidden-Content `contentIdentifiers` · the settings-mirror `name` |
 
-### The code that decides it
+### How the platform resolves it
 
-`<plugin id="X" name="nct.parsis.plugin">` in a layout's HTML is parsed by
-`AbstractHtmlPlugin.constructListModel` (`mrjun-cms-view/.../html/AbstractHtmlPlugin.java`):
-
-```java
-String id = plugin.attr("id");                     // the id you typed
-ListModel.createPlugin(id, name, vpId, props, behaviors);
-```
-
-and resolved by `PluginUtils.getOrCreateChildContent`
-(`mrjun-cms-view/.../kicker/utils/PluginUtils.java`) — note the parameter is literally
-named `identifier`, and the search set is **this parent's children only**:
-
-```java
-private ContentDomain getOrCreateChildContent(..., String identifier, ...) {
-    Set<ContentDomain> parsisContents = parent.getChildren();      // ← scope: ONE html plugin
-    for (ContentDomain child : parsisContents) {
-        if (Objects.equals(child.getIdentifier(), identifier)) {   // ← matched on identifier
-            ...
-            return child;
-        }
-    }
-    ContentDomain contant = ...;
-    contant.setIdentifier(identifier);
-    contant.setName(identifier);                                   // ← name == identifier on creation
-    ...
-}
-```
+`<plugin id="X" name="nct.parsis.plugin">` in a layout's HTML is resolved against the **children of that one html
+plugin only**: the child whose `identifier` equals the `id` you typed is reused; if there is none, the platform
+creates a new child with `identifier = name = id`.
 
 So: **the `id` in your markup IS the child's `identifier`, and it only has to be unique
 inside that one html plugin.** That is why `"header"`, `"parsis"` and `"left-nav"` legitimately
 repeat on every page in the tree.
 
 > Because auto-created children get `name == identifier`, some tooling matches slots by
-> `name`/`alias` instead — e.g. `ContentMcpTools.resolveParsisSlots` (`nct-ui`) indexes
-> parsis children by name and alias and reports `parsisSlots: {slotId → uniqueIdentifier}`.
+> `name`/`alias` instead — e.g. the MCP page tools index
+> parsis children by name and alias and report `parsisSlots: {slotId → uniqueIdentifier}`.
 > That map is the bridge between the two worlds: **key = what you write in HTML, value = what
 > the MCP tools want.**
 
@@ -154,13 +126,13 @@ for n in nodes:                                                          # expec
 
 ---
 
-> **Don't confuse "Page" with the MCP `PageDto`.** The persistent page model is a `ContentDomain` with
-> `pluginName="siteMapPage"` and a typed `properties` map (see below). The class
-> `PageDto.java` (fields `layoutName`, `navigationGroup`,
+> **Don't confuse "Page" with the MCP page object.** The persistent page model is a content node with
+> `pluginName="siteMapPage"` and a typed `properties` map (see below). The MCP page object
+> (fields `layoutName`, `navigationGroup`,
 > `sortOrder`, `hasForms`, `hasWorkflows`) is a **read-only projection for MCP**, not a serializable
-> configuration. Menu order comes from `ContentDomain.order`, grouping from the property `group`,
+> configuration. Menu order comes from the node's `order`, grouping from the property `group`,
 > position in navigation from the tree structure (`parentId`/nesting). When assembling by hand, write
-> `ContentDomain` properties, not `PageDto` fields.
+> the node's properties, not the MCP page fields.
 
 ## Export shape — a tree node
 
@@ -184,7 +156,7 @@ matter — the platform reads by name.
 > for a version of content** — that's what's in `branches.json` (`{name, rootContent, tenantId, virtualPlugins}`).
 > In the export it always means (b).
 
-### Full schema of a single node (`ContentDomain`)
+### Full schema of a single node
 
 ```jsonc
 {
@@ -192,7 +164,7 @@ matter — the platform reads by name.
   "identifier":        "34c97297-185b-41b7-a255-f37895984a1c",  // logical id (references point to it)
   "uniqueIdentifier":  "1fff8460-c128-4af7-82cb-9695008a9267",  // globally unique UUID
   "name":              "Home",                                   // human-readable name (not alias)
-  "pluginName":        "siteMapPage",                            // selects the Java class from the registry
+  "pluginName":        "siteMapPage",                            // selects the plugin from the registry
   "isBehaviour":       false,                                    // true = behaviour plugin, not visual
   "active":            true,
   "treeOpened":        true,                                     // UI state of the authoring tree
@@ -212,37 +184,30 @@ matter — the platform reads by name.
 **Full set of a node's JSON keys** (`jq keys` on any node in `branches.json`): `active`,
 `branchId`, `childPluginAdded`, `children`, `id`, `identifier`, `includedInParsis`, `isBehaviour`, `name`,
 `order`, `pluginName`, `properties`, `roleAccess`, `treeDisabled`, `treeOpened`, `treeSelected`,
-`uniqueIdentifier`, `virtualContent`. Additional `ContentDomain` model fields, not always serialized:
+`uniqueIdentifier`, `virtualContent`. Additional node fields, not always serialized:
 `alias`, `parentId`, `depth`, `linkContentIdentifier` (reference to a common vp), `tenantId`
 `createdDate`/`updatedDate`.
-
-Field names and types are from `ContentDomain.java`: `id/identifier/uniqueIdentifier/name/pluginName`
-`isBehaviour` (getter `getBehaviour`), `active`, `alias`
-`children` = `Set<ContentDomain>` with `@OrderBy("order")`, `order`, `branchId`
-`roleAccess`, `virtualContent`.
 
 **Key facts:**
 - `id` vs `identifier` vs `uniqueIdentifier`: `id` is the surrogate PK; `identifier` is what
   forms/groups/`<plugin>` tags reference; `uniqueIdentifier` is a global UUID. If `identifier` is not set,
-  `getIdentifier()` **lazily** generates a random UUID right in the getter (`ContentDomain.java`).
-  `getUniqueIdentifier()`, unlike `getIdentifier()`, does **not** generate in the getter —
-  it returns the field as-is. However `@PrePersist`, when saving to the DB, auto-fills `id`
+  the platform **lazily** generates a random UUID when it is read.
+  `uniqueIdentifier`, unlike `identifier`, is **not** generated on read —
+  it is returned as-is. However, when saving to the DB the platform auto-fills `id`
   `uniqueIdentifier` **and** `virtualContent` if they are `null`. **When assembling by hand, set all three to explicit
   UUIDs**, otherwise references (e.g. a form's `contentPageIdentifier`) won't match and will depend on the
   UUIDs assigned on persist.
-- `children` are sorted by `order` (`ContentDomain.java` `@OrderBy`). Duplicate `order` values → undefined
+- `children` are sorted by `order`. Duplicate `order` values → undefined
   ordering; keep them unique within a single parent.
 - `linkContentIdentifier` — if the node references a common virtualPlugin, its identifier is here.
 - Some "service" nodes use a **string identifier instead of a UUID**: a page's parsis is always
-  `identifier = "siteMapPageParsis"` (`SiteMapPage.SITE_MAP_PAGE_PARSIS`, `nct-ui/.../page/SiteMapPage.java`),
+  `identifier = "siteMapPageParsis"`,
   the internal layout slots — `"parsis"`, `"header"`, `"footer"`, `"logo-plugin"` etc. (they match the `id`
   in `<plugin id=…>`).
 
 ### Schema of `properties` — typed slots
 
-`properties` is an object `{key → ContentProperty}`; in the DB the column `g_properties` is TEXT
-(`columnDefinition = "text"`), a JSON string serialized via `ContentPropertiesLinkedHashMapConverter`
-(`ContentDomain.java`). Each slot carries **exactly one** typed value, the type given by
+`properties` is an object `{key → slot}`, stored in the DB as a JSON string. Each slot carries **exactly one** typed value, the type given by
 `propertyType`:
 
 ```jsonc
@@ -258,27 +223,27 @@ Field names and types are from `ContentDomain.java`: `id/identifier/uniqueIdenti
 }
 ```
 
-Correspondence of `propertyType → value field` (from `PropertyType.java` + `ContentProperty.java`):
+Correspondence of `propertyType → value field`:
 
-| `propertyType` | Carrier field | Java type | Example slot |
-|---|---|---|---|
-| `STRING` | `stringValue` | `String` | `settings`, `model`, `html`, `className`, `Redirect` |
-| `BOOLEAN` | `booleanValue` | `Boolean` | `isParsis`, `showCard`, `reuseItems` |
-| `INTEGER` | `intValue` | `Integer` | `width`, `height`, `minHeight`, `aliasParamsMaxCount` |
-| `LONG` | `longValue` | `Long` | — |
-| `FLOAT` | `floatValue` | `Float` | — |
-| `DOUBLE` | `doubleValue` | `Double` | — |
-| `BIG_DECIMAL` | `bigDecimalValue` | `BigDecimal` | — |
-| `LOCALIZED_STRING` | `localizedStringValue` | `Map<String,String>` (key = `Locale.toString()`, e.g. `en_US`) | `pageTitle`, `pageDescription`, `text` (label) |
-| `LOCAL_DATE` | `dateValue` | `LocalDate` | — |
-| `LOCAL_DATE_TIME` | `dateTimeValue` | `LocalDateTime` | — |
-| `LOCAL_TIME` | `timeValue` | `LocalTime` | — |
+| `propertyType` | Carrier field | Example slot |
+|---|---|---|
+| `STRING` | `stringValue` | `settings`, `model`, `html`, `className`, `Redirect` |
+| `BOOLEAN` | `booleanValue` | `isParsis`, `showCard`, `reuseItems` |
+| `INTEGER` | `intValue` | `width`, `height`, `minHeight`, `aliasParamsMaxCount` |
+| `LONG` | `longValue` | — |
+| `FLOAT` | `floatValue` | — |
+| `DOUBLE` | `doubleValue` | — |
+| `BIG_DECIMAL` | `bigDecimalValue` | — |
+| `LOCALIZED_STRING` | `localizedStringValue` (`{locale → text}`, key e.g. `en_US`) | `pageTitle`, `pageDescription`, `text` (label) |
+| `LOCAL_DATE` | `dateValue` | — |
+| `LOCAL_DATE_TIME` | `dateTimeValue` | — |
+| `LOCAL_TIME` | `timeValue` | — |
 
-`fieldPanelClass` — which Wicket panel edits the property in authoring; for hand-assembly it's enough
+`fieldPanelClass` — which authoring panel edits the property; for hand-assembly it's enough
 to set the default by type (`PropertyBaseTextFieldPanel` for STRING/INTEGER, `PropertyBaseCheckboxFieldPanel`
 for BOOLEAN, `PropertyBaseLocalizedTextFieldPanel` for LOCALIZED_STRING, `PropertyBaseTextAreaFieldPanel`
-for `metaTags`) — if you leave it `null`, the platform substitutes it itself
-(`ContentDomain.java`). `arguments` is usually `{}`. (In exports, `metaTags` may carry
+for `metaTags`) — if you leave it `null`, the platform substitutes it itself.
+`arguments` is usually `{}`. (In exports, `metaTags` may carry
 `PropertyBaseTextFieldPanel` — an authoring artifact; `fieldPanelClass` is not load-bearing, any value
 imports fine.)
 
@@ -289,11 +254,10 @@ imports fine.)
 > - **table plugins** — `crud.table.plugin`, `crud.tree.plugin`, `process.table.pluin` — in
 >   **`properties.model.stringValue`** (NOT `settings`; see
 >   [04-crud-table-plugin.md](04-crud-table-plugin.md), [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md));
-> - **`chart.js.plugin`** — in **`properties.Javascript.stringValue`** (NOT `model`;
->   `ChartJsPlugin` writes `setJsonProperty(JS_MODEL_NAME="Javascript", …)`). A chart written into `model` renders empty;
+> - **`chart.js.plugin`** — in **`properties.Javascript.stringValue`** (NOT `model`). A chart written into `model` renders empty;
 > - tabs — `properties.tabModel.stringValue` (below).
 >
-> This is `getJsonProperty/setJsonProperty` (`ContentDomain.java`). So to change a setting,
+> So to change a setting,
 > you edit the JSON **inside** JSON.
 
 A real example of an "empty" slot (from `empty/branches.json`, any page):
@@ -310,7 +274,7 @@ A real example of an "empty" slot (from `empty/branches.json`, any page):
 
 ## Pages — `siteMapPage`
 
-A page = a `ContentDomain` with `pluginName="siteMapPage"`. Every export has
+A page = a content node with `pluginName="siteMapPage"`. Every export has
 `rootContent.pluginName="siteMapPage"` and a common base set of property keys.
 
 ### Full example (root `Home`, `empty/branches.json` `rootContent`)
@@ -384,18 +348,18 @@ Besides those listed, `Body Class` occurs as a real property key (a separate slo
 of the form-mode rule; carried by form pages only, so its node count tracks how many forms the project has; see
 [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)).
 
-| Key | Type | Meaning | Req.? | Default | Source |
-|---|---|---|---|---|---|
-| `Redirect` | STRING | A non-empty value → the page does `setResponsePage(redirect)` (server-side redirect). | no | `""` | client-side `nct-ui/.../page/SiteMapPage.java`; `SiteMapPageDefaultPropertiesBuilder.REDIRECT="Redirect"` |
-| `Body Class` / `additionalCss` | STRING | Extra CSS class/string on `<body>`. The builder declares **`"Body Class"`**; in exports the slot is called `additionalCss` (not declared by any builder — manual). | no | `""` | `SiteMapPageDefaultPropertiesBuilder.java` |
-| `pageTitle` | LOCALIZED_STRING | `<title>` by locale. | no | `{}` | `PluginPage.PAGE_TITLE="pageTitle"` (`PluginPage.java`); builder; read at `PluginPage.java` |
-| `pageDescription` | LOCALIZED_STRING | `<meta description>` by locale. | no | `{}` | `PluginPage.PAGE_DESCRIPTION="pageDescription"`; builder |
-| `aliasParamsMaxCount` | INTEGER | How many URL segments after the alias to treat as parameters. | no | — | `SiteMapPageDefaultPropertiesBuilder.java` |
-| `metaTags` | STRING | Raw `<meta>` tags. Declared **only** by the nct-ui builder. | no | `""` | `SiteMapPageNctPropertyBuilder.java` |
-| `layout` | STRING | **Name of the virtualPlugin layout** for client rendering (see "Layout"). Value = one of the vp names. Not declared by any default builder. | no | `""` (default on read, `SiteMapPage.java`) | observed on all pages |
-| `group` | STRING | Grouping in the left menu. Not declared by a builder; empty in exports. | no | `""` | observed |
-| `isParsis` | BOOLEAN | Service flag "this node is a parsis container". For a page usually `false`. | no | `false` | `ParsisPlugin.java` |
-| `alias` | (**node field, not property**) | **The page's URL segment — set it on EVERY page you author.** In `ContentDomain` this is a separate field `alias`, not in `properties`. A page's URL is the `alias` of each ancestor joined down from the root, so a page with a null alias has **no reachable URL**: its left-nav/quick-link entry lands on the project root, no `Redirect` can target it ([21](21-homepage-and-redirect.md)), and a typed path never resolves it. Lowercase slug, unique among its siblings (form + landing pages: unique **project-wide** — see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)). Only the structural root `Home` legitimately has none: in `empty` all 29 other `siteMapPage` nodes carry one (`sources`, `queries`, `bl`, `database`, …). | **yes** | — | `ContentDomain.java` |
+| Key | Type | Meaning | Req.? | Default |
+|---|---|---|---|---|
+| `Redirect` | STRING | A non-empty value → the page does a server-side redirect to that value. | no | `""` |
+| `Body Class` / `additionalCss` | STRING | Extra CSS class/string on `<body>`. The authoring UI declares **`"Body Class"`**; in exports the slot is called `additionalCss` (added manually). | no | `""` |
+| `pageTitle` | LOCALIZED_STRING | `<title>` by locale. | no | `{}` |
+| `pageDescription` | LOCALIZED_STRING | `<meta description>` by locale. | no | `{}` |
+| `aliasParamsMaxCount` | INTEGER | How many URL segments after the alias to treat as parameters. | no | — |
+| `metaTags` | STRING | Raw `<meta>` tags. Declared **only** by the Dokie authoring UI. | no | `""` |
+| `layout` | STRING | **Name of the virtualPlugin layout** for client rendering (see "Layout"). Value = one of the vp names. Not declared by any default builder. | no | `""` (default on read) |
+| `group` | STRING | Grouping in the left menu. Not declared by a builder; empty in exports. | no | `""` |
+| `isParsis` | BOOLEAN | Service flag "this node is a parsis container". For a page usually `false`. | no | `false` |
+| `alias` | (**node field, not property**) | **The page's URL segment — set it on EVERY page you author.** It is a separate node field `alias`, not in `properties`. A page's URL is the `alias` of each ancestor joined down from the root, so a page with a null alias has **no reachable URL**: its left-nav/quick-link entry lands on the project root, no `Redirect` can target it ([21](21-homepage-and-redirect.md)), and a typed path never resolves it. Lowercase slug, unique among its siblings (form + landing pages: unique **project-wide** — see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)). Only the structural root `Home` legitimately has none: in `empty` all 29 other `siteMapPage` nodes carry one (`sources`, `queries`, `bl`, `database`, …). | **yes** | — |
 
 **Page `layout` values (`siteMapPage`)** — run `jq` over your own `siteMapPage` nodes and you get a small set:
 `null`, `"Nct layout"`, `"Main"`, `"Form"`, plus whatever an author once typed by hand (stray one-off names do
@@ -409,8 +373,7 @@ correspond to virtualPlugins (see "virtualPlugins"); the fictitious `default`/`t
 ### Page structure: page → parsis → layout → inner parsis → content
 
 Each `siteMapPage` contains **exactly one** child `parsis.plugin` with
-`identifier = "siteMapPageParsis"` — it is materialized via `pluginUtils.getOrCreateParsis(...,
-SITE_MAP_PAGE_PARSIS, "parsis")` (`nct-ui/.../page/SiteMapPage.java`). An empty admin page
+`identifier = "siteMapPageParsis"` — it is materialized by the page on render. An empty admin page
 (`empty`, `Sources`) looks like this (the order of the layout children matches the real export):
 
 ```
@@ -446,12 +409,12 @@ siteMapPage "Products"
 
 ### Client rendering of `layout`: cloning a virtualPlugin (important for Step-2)
 
-The client-side `SiteMapPage.getParsis()` (`nct-ui/.../page/SiteMapPage.java`), on render:
+The client-side page, on render:
 
 1. finds/creates `siteMapPageParsis`
 2. **only if it has 0 children** — reads the property `layout` (default `""`), looks for a
-   virtualPlugin with that name (`findAllVirtualPluginsByBranchId`);
-3. if the vp is found — **clones its `content`** (`contentService.cloneContent(vp.get().getContent())`),
+   virtualPlugin with that name;
+3. if the vp is found — **clones its `content`**,
    assigns new `uniqueIdentifier`s, places the clone into parsis, saves and re-renders.
 
 The consequence for hand-assembly — **two valid variants**:
@@ -466,7 +429,7 @@ An export taken from a project that was already rendered in authoring always sho
 > **(C) Built on demand — only on a LIVE project, never in an export.** In support mode
 > `nct_ui_apply_layout_to_page` performs steps (2)–(3) on the spot, so the page has its tree before anybody
 > opens it in a browser. It stops exactly where step (3) stops: the shell's own `<plugin>` slots are still
-> created by `AbstractHtmlPlugin` at render time, so the inner `nct.parsis.plugin` appears on first view and
+> created by the HTML plugin at render time, so the inner `nct.parsis.plugin` appears on first view and
 > not before. It exists because `nct_ui_create_page` does the naming half only: a page created
 > over MCP IS variant (B), stays empty until a human renders it, and until then the plugin tools have no
 > parsis to address. This is not a route for a generated export — nothing in a `.mrjun` executes, so (A) is
@@ -485,11 +448,11 @@ An export taken from a project that was already rendered in authoring always sho
 ## Layout — how embedded HTML + `<plugin>` assembles the page
 
 The nodes `html.plugin` and `nct.html.plugin` carry an **HTML string** in the property `html` (STRING). Inside it,
-`<plugin id="X" name="Y">…</plugin>` tags are allowed. On render, `AbstractHtmlPlugin`:
+`<plugin id="X" name="Y">…</plugin>` tags are allowed. On render, the HTML plugin:
 
-1. parses the HTML via Jsoup (`AbstractHtmlPlugin.java`);
+1. parses the HTML;
 2. for each root `<plugin>` (not nested inside another `<plugin>`) creates/finds a **child
-   ContentDomain** with `identifier = id` and `pluginName = name` (`getOrCreateChildContentComponent`)
+   content node** with `identifier = id` and `pluginName = name`
    and renders it in place of the tag;
 3. child `<property name= value= type=/>` / `<prop …/>` inside the tag become properties of that
    child node.
@@ -556,7 +519,7 @@ Both must be present: the `<plugin>` in the string and the corresponding child i
 >
 > So the preserve-set is **`siteMapPageParsis` + `Layout` + `parsis` + `left-nav` + `form.parsis` +
 > `filter.parsis` + every id any html in the subtree references.**
-> `validate._check_page_top_parsis` ERRORs on a page whose top parsis lost the name, and on a page carrying
+> `validate` ERRORs on a page whose top parsis lost the name, and on a page carrying
 > more than one top-level `parsis.plugin`.
 >
 > ### Just call `core.regen_ids` — it already gets this right
@@ -596,7 +559,7 @@ Both must be present: the `<plugin>` in the string and the corresponding child i
 > The same applies to the row/column/slot shells you emit yourself (`gen_row_*` → `gen_col*` → `gen_slot_*`):
 > the `<plugin id="…">` inside each wrapper's html **must** equal the child node's `identifier`.
 >
-> `mrjun.py validate` now catches this (`_check_html_plugin_refs`): a dangling `<plugin id>` paired with an
+> `mrjun.py validate` now catches this: a dangling `<plugin id>` paired with an
 > unreferenced child of the same plugin type is an **ERROR** (that pairing means an id was regenerated — it never
 > occurs in a healthy export, and appears in the thousands once the bug is present); a merely-absent optional
 > plugin, or a child an html deliberately does not draw, is a **WARN**.
@@ -640,8 +603,7 @@ Both must be present: the `<plugin>` in the string and the corresponding child i
 <div class="app-drawer-overlay d-none animated fadeIn"></div>
 ```
 
-Note: `<prop>` and `<property>` are both supported, `type` is parsed into `PropertyType`
-(`AbstractHtmlPlugin.java`), default STRING if the type is unknown. `abs(...)` in `url` is
+Note: `<prop>` and `<property>` are both supported, `type` is one of the property types (see above), default STRING if the type is unknown. `abs(...)` in `url` is
 a macro for the absolute path to an asset.
 
 ### `html.plugin` — by field
@@ -652,7 +614,7 @@ a macro for the absolute path to an asset.
 | `className` | STRING | CSS class on the plugin wrapper. | `""` |
 | `styleName` | STRING | inline style. | `""` |
 | `tagProperties` | STRING | extra tag attributes. | `""` |
-| `reuseItems` | BOOLEAN | reuse Wicket ListItems (`AbstractHtmlPlugin.java`). | `false` |
+| `reuseItems` | BOOLEAN | reuse list items. | `false` |
 | `editorHeight` / `editorWidth` | STRING | code editor size in authoring (e.g. `"700px"`/`"100%"`). Doesn't affect rendering. | — |
 | `isParsis` | BOOLEAN | service flag. | `false` |
 
@@ -715,35 +677,31 @@ A label/field can be declared right in the HTML via nested `<prop>`. An example 
 </plugin>
 ```
 
-`type="LOCALIZED_STRING"` → the value is parsed as JSON `{locale→text}` (`PropertyType.parse`,
-`PropertyType.java`). Without `type` — STRING.
+`type="LOCALIZED_STRING"` → the value is parsed as JSON `{locale→text}` . Without `type` — STRING.
 
 ---
 
 ## Parsis — a "content hole"
 
-`parsis.plugin` (mrjun, `Constants.Plugins.PARSIS_PLUGIN`) and `nct.parsis.plugin`
-(nct-ui `NctParsisPlugin extends ParsisPlugin`, `nct-ui/.../plugin/common/NctParsisPlugin.java`) are
+`parsis.plugin` and `nct.parsis.plugin` are
 containers into which an ordered list of child plugins is placed. Parsis is exactly what gives the
-drag-and-drop zone in authoring and renders children by `order` with an access check on each
-(`ParsisPlugin.java`).
+drag-and-drop zone in authoring and renders children by `order` with an access check on each.
 
 ### `nct.parsis.plugin` / `parsis.plugin` — by field (all properties optional)
 
-| Key | Type | Meaning | Default | Source |
-|---|---|---|---|---|
-| `isParsis` | BOOLEAN | Marks the node as parsis; if `false`, the plugin sets `true` itself and saves (`ParsisPlugin.java`). | `true` (in export) | `ParsisPlugin.java` |
-| `reuseItems` | BOOLEAN | reuse Wicket ListItems. | `false` | `ParsisPlugin.java` |
-| `minHeight` | INTEGER | min-height of the empty zone in authoring (px). | `40` | `ParsisPlugin.java` |
-| `emptyPlaceholder` | STRING | "Drop … here" text for an empty parsis. | `""` | `ParsisPlugin.java` |
-| `style` | STRING | inline style; when non-empty renders a wrapper (`ParsisPlugin.java`). | — | `ParsisPlugin.java` |
-| `className` / `styleName` / `tagProperties` | STRING | styling. | `""` | observed |
+| Key | Type | Meaning | Default |
+|---|---|---|---|
+| `isParsis` | BOOLEAN | Marks the node as parsis; if `false`, the plugin sets `true` itself and saves. | `true` (in export) |
+| `reuseItems` | BOOLEAN | reuse list items. | `false` |
+| `minHeight` | INTEGER | min-height of the empty zone in authoring (px). | `40` |
+| `emptyPlaceholder` | STRING | "Drop … here" text for an empty parsis. | `""` |
+| `style` | STRING | inline style; when non-empty renders a wrapper. | — |
+| `className` / `styleName` / `tagProperties` | STRING | styling. | `""` |
 
-**Important:** parsis checks access **on each child** (`cmsSecurityService.hasAccess(listContent,
-tenant(), RoleAccess.RoleAccessType.view)`, `ParsisPlugin.java`). A child without view access for the current
+**Important:** parsis checks access **on each child**. A child without view access for the current
 role simply doesn't render — this is the "hide a plugin from a role" mechanism, separate from the page's own
 `roleAccess`. `includedInParsis` (a node flag) marks that a node is materialized inside parsis (e.g.
-a cloned layout, `SiteMapPage.java`).
+a cloned layout).
 
 ---
 
@@ -751,10 +709,10 @@ a cloned layout, `SiteMapPage.java`).
 
 Tabs. The `nct.tab.plugin` node carries a property `tabModel` (STRING with **nested JSON**), and **each
 tab = a child `nct.parsis.plugin` whose `identifier` equals the tab item's `id`**
-(`TabPlugin.java` creates an `nct.parsis.plugin` with identifier = `modelObject.getId()`).
+(the platform creates an `nct.parsis.plugin` with identifier = the tab item's `id`).
 
-> ⛔ **Always write `"size": "SMALL"`.** Omit it and you get `BIG` twice over — the field initialiser is
-> `TabSize.BIG` (`TabModel.java`) and `getSize()` coerces null→`BIG` . BIG is a chunky bar that
+> ⛔ **Always write `"size": "SMALL"`.** Omit it and you get `BIG` twice over — the default is
+> `BIG`, and a null size is coerced to `BIG`. BIG is a chunky bar that
 > eats vertical space above every grid; SMALL is the compact `nav-tabs` strip the platform's own screens
 > use. Full rule → [14 §1.8](14-plugin-catalog-all.md).
 >
@@ -793,20 +751,18 @@ The `children` of this node (one parsis per tab, identifier = the tab's `id`):
 ]
 ```
 
-### `tabModel` / `TabItem` — by field
-
-The class `TabModel` (`nct-ui/.../switcher/TabModel.java`), `TabSize` (`TabSize.java`):
+### `tabModel` — by field
 
 | Field | Type | Meaning | Default |
 |---|---|---|---|
-| `items` | `List<TabItem>` | List of tabs; sorted by `order` on render (`TabPlugin.java`). | `[]` (`TabModel.java`) |
-| `size` | enum `TabSize` | `"BIG"` or `"SMALL"` — tab size (`TabPlugin.java`, `TabSize.java`). | `BIG` (`TabModel.java`) |
-| `TabItem.id` | String (UUID) | tab id = identifier of the child `nct.parsis.plugin`. | random UUID (`TabModel.java`) |
-| `TabItem.name` | String | base tab name (fallback). | — (`TabModel.java`) |
-| `TabItem.order` | int | tab order. | 0 (`TabModel.java`) |
-| `TabItem.iconClass` | String | icon CSS class (e.g. `fa fa-box`); when non-empty an `<i>` is rendered (`TabPlugin.java`). | — (`TabModel.java`) |
-| `TabItem.localizedNames` | `Map<String,String>` | per-locale caption (key `Locale.toString()`), the canonical storage (`TabModel.java`). | `{}` |
-| `localizedMap.name` | `Map<String,String>` | Legacy caption storage (`TabItem extends MicroserviceTranslatedLocalizedBean`, `TabModel.java`) — **this is what authored exports actually carry** (see example; the exported items usually have no `localizedNames` key at all). | — |
+| `items` | array of tab items | List of tabs; sorted by `order` on render. | `[]` |
+| `size` | enum | `"BIG"` or `"SMALL"` — tab size. | `BIG` |
+| `items[].id` | String (UUID) | tab id = identifier of the child `nct.parsis.plugin`. | random UUID |
+| `items[].name` | String | base tab name (fallback). | — |
+| `items[].order` | int | tab order. | 0 |
+| `items[].iconClass` | String | icon CSS class (e.g. `fa fa-box`); when non-empty an `<i>` is rendered. | — |
+| `items[].localizedNames` | object `{locale → caption}` | per-locale caption (key e.g. `en_US`), the canonical storage. | `{}` |
+| `items[].localizedMap.name` | object `{locale → caption}` | Legacy caption storage — **this is what authored exports actually carry** (see example; the exported items usually have no `localizedNames` key at all). | — |
 | `needToBeSaved` | boolean | authoring UI flag; `false` in export. | `false` |
 
 > In exports, tabs store captions under the key `localizedMap.name` (legacy), while the new code writes
@@ -815,11 +771,11 @@ The class `TabModel` (`nct-ui/.../switcher/TabModel.java`), `TabSize` (`TabSize.
 
 ### Other `nct.tab.plugin` properties
 
-| Key | Type | Meaning | Default | Source |
-|---|---|---|---|---|
-| `showCard` | BOOLEAN | Wrap the tab content in a bootstrap `card`. | `false` | `TabPlugin.java` |
-| `tabModel` | STRING (JSON) | see above. | `{"items":[],"size":"BIG"}` | `TabPlugin.java` |
-| `className` / `styleName` / `tagProperties` | STRING | styling. | `""` | observed |
+| Key | Type | Meaning | Default |
+|---|---|---|---|
+| `showCard` | BOOLEAN | Wrap the tab content in a bootstrap `card`. | `false` |
+| `tabModel` | STRING (JSON) | see above. | `{"items":[],"size":"BIG"}` |
+| `className` / `styleName` / `tagProperties` | STRING | styling. | `""` |
 
 Which tab opens is **not** part of the export: the URL's `?tab=<tab id | tab name>` first, else the tab the user used
 last on this node in this browser session, else the first by `order`. A link that lands on a record page should name
@@ -829,7 +785,7 @@ the tab it wants — [14a](14a-plugin-config-reference.md) §`nct.tab.plugin` �
 
 ## Access — `roleAccess`
 
-`roleAccess` (`RoleAccess.java`) — access to the node (JSONB on the node itself, doesn't require a separate
+`roleAccess` — access to the node (JSONB on the node itself, doesn't require a separate
 save). Present on **any** node and honoured on any node: a `siteMapPage` gates the whole page, and every other
 node gates the one component it belongs to (see §"Hidden content" below).
 
@@ -851,28 +807,28 @@ node gates the one component it belongs to (see §"Hidden content" below).
 
 ### Fields
 
-| Field | Type | Meaning | **Default (Java)** | Source |
-|---|---|---|---|---|
-| `publicReadAccess` | boolean | Page accessible anonymously (public). | **`true`** | `RoleAccess.java` |
-| `authenticatedUserAccess` | boolean | Accessible to any logged-in user. | **`false`** | `RoleAccess.java` |
-| `accessors` | `Map<String, {view,edit,advancedEdit}>` | Access by system roles. | `{}` | `RoleAccess.java` |
-| `roleGroupAccessors` | `Map<String, {view,edit,advancedEdit}>` | Keyed by role-group name; membership **is** checked, so this is the map that gates a business **persona** (see the note below). | `{}` | `RoleAccess.java` |
+| Field | Type | Meaning | **Default** |
+|---|---|---|---|
+| `publicReadAccess` | boolean | Page accessible anonymously (public). | **`true`** |
+| `authenticatedUserAccess` | boolean | Accessible to any logged-in user. | **`false`** |
+| `accessors` | object `{<role>: {view,edit,advancedEdit}}` | Access by system roles. | `{}` |
+| `roleGroupAccessors` | object `{<group>: {view,edit,advancedEdit}}` | Keyed by role-group name; membership **is** checked, so this is the map that gates a business **persona** (see the note below). | `{}` |
 
-`RoleAccessor`/`RoleGroupAccessor`: fields `view`/`edit`/`advancedEdit`, all default `false`.
+Each accessor entry has `view`/`edit`/`advancedEdit`, all default `false`.
 
 **System roles occurring in `accessors` (across the exports):** `admin`, `nct_author`, `user_view`,
 `user_edit`, `user_create`, `user_delete`, `role_group_view/edit/create/delete`, `file_storage_view/edit`,
 `source_view/edit/view_any/edit_any`, `scheduler_view/edit/view_any/edit_any`,
 `report_view/edit/view_any/edit_any`, `store_execute/store_execute_any`, `oyo_project_configuration`,
 `project_view/project_edit`.
-The client-side `SiteMapPage` additionally gates rendering with **three** disjuncts (`SiteMapPage.java`:
-`isPublicReadAccess() || user() != null || !sso()`): anonymous access is allowed with `publicReadAccess`, with the
-presence of a user, **or when SSO is disabled** (`!sso()`) — so with SSO off the parsis renders for anonymous
+The client-side page additionally gates rendering with **three** alternatives:
+anonymous access is allowed with `publicReadAccess`, with the
+presence of a user, **or when SSO is disabled** — so with SSO off the parsis renders for anonymous
 visitors regardless of `roleAccess`.
 
 ### Three page access policies
 
-1. **Public** (anonymous): `"publicReadAccess": true`. This is how a new `ContentDomain` page is created
+1. **Public** (anonymous): `"publicReadAccess": true`. This is how a new page is created
  by default. The 401/404 pages in `empty` are public
    (`404: publicReadAccess=true, authenticatedUserAccess=false`).
 2. **Authenticated only:** `"publicReadAccess": false, "authenticatedUserAccess": true`. This is the **newer
@@ -914,7 +870,7 @@ visitors regardless of `roleAccess`.
 > ⛔ This is still **not** row-level security: it decides whether a node renders, never which rows a list
 > returns. For "the clerk sees only their own" see [19](19-build-decision-procedure.md) Phase 6.
 
-> **RoleAccess defaults**: `new RoleAccess()` gives `publicReadAccess=true` (`RoleAccess.java`). So
+> **`roleAccess` defaults**: a node without access settings gets `publicReadAccess=true`. So
 > if you simply **omit** `roleAccess` in a JSON node, the page becomes **public**. For a private
 > page, always serialize `roleAccess` with `publicReadAccess=false` and the needed accessors.
 
@@ -960,7 +916,7 @@ Hiding form fields by predicate (prohibited/hidden) is a runtime form mechanism,
 
 ## virtualPlugins — reusable fragments
 
-`branches.json[0].virtualPlugins` is an array of `VirtualPluginDomain` (`VirtualPluginDomain.java`):
+`branches.json[0].virtualPlugins` is an array of virtualPlugin objects:
 named, grouped content templates (layouts, label fields, "Card", the logo, ready form controls). A client
 page references a layout vp by **name** via the property `layout`, and on the first render of an empty
 parsis the platform clones its content (see "Client rendering of `layout`").
@@ -981,17 +937,17 @@ parsis the platform clones its content (see "Client rendering of `layout`").
 }
 ```
 
-| Field | Type | Meaning | Default | Source |
-|---|---|---|---|---|
-| `id` | String (UUID) | vp id. | random UUID | `VirtualPluginDomain.java` |
-| `name` | String | Name; page.`layout` = this name. | — | |
-| `group` | String | Group in the palette: `Layout`, `Layouts`, `Label Fields`, `Form Controls`, `Logo`, `Common`. | — | |
-| `commonContent` | Boolean | `true` = a shared template (referenceable via `linkContentIdentifier`); `false` = tenant-specific. | `false` | |
-| `content` | ContentDomain | A tree fragment (same node format). Its `identifier` is materialized in the page (e.g. `fdcdca35-…`). | — | |
-| `templateNames` | `List<String>` | For which site-templates it's available (e.g. `["architectui-html-pro"]`). | — | |
-| `hidden` | Boolean | Hidden in the palette. | `false` | |
-| `isLayout` | Boolean | Marks the vp as a layout. **⚠ not a reliable marker: "Nct layout" has `isLayout=false`**; `isLayout=true` only on `Main`/`Form`. | `false` | |
-| `useContentChildren` | Boolean | Use the content's children directly. | `false` | |
+| Field | Type | Meaning | Default |
+|---|---|---|---|
+| `id` | String (UUID) | vp id. | random UUID |
+| `name` | String | Name; page.`layout` = this name. | — |
+| `group` | String | Group in the palette: `Layout`, `Layouts`, `Label Fields`, `Form Controls`, `Logo`, `Common`. | — |
+| `commonContent` | Boolean | `true` = a shared template (referenceable via `linkContentIdentifier`); `false` = tenant-specific. | `false` |
+| `content` | object | A tree fragment (same node format). Its `identifier` is materialized in the page (e.g. `fdcdca35-…`). | — |
+| `templateNames` | `List<String>` | For which site-templates it's available (e.g. `["architectui-html-pro"]`). | — |
+| `hidden` | Boolean | Hidden in the palette. | `false` |
+| `isLayout` | Boolean | Marks the vp as a layout. **⚠ not a reliable marker: "Nct layout" has `isLayout=false`**; `isLayout=true` only on `Main`/`Form`. | `false` |
+| `useContentChildren` | Boolean | Use the content's children directly. | `false` |
 
 `commonContent` and `isLayout` are **independent** booleans (e.g. `Nct left nav`: `commonContent=true`,
 `isLayout=false`), not a mutually exclusive triple "Common/Layout/Standard".
@@ -1029,22 +985,22 @@ Full list of vps in `empty` (all projects start with it):
 
 ## Other layout plugins (for reference)
 
-| pluginName | Class/purpose | Key properties |
+| pluginName | Purpose | Key properties |
 |---|---|---|
-| `nct.label.plugin` | Text label (form label, header). `NctLabelPlugin extends LocalizedHeaderPlugin`. | `text` (LOCALIZED_STRING), `tagName` (STRING, **default `"p"`**), `className`, `styleName`, `tagProperties` |
+| `nct.label.plugin` | Text label (form label, header). | `text` (LOCALIZED_STRING), `tagName` (STRING, **default `"p"`**), `className`, `styleName`, `tagProperties` |
 | `nct.image.plugin` | Image. | `url` (STRING, supports `abs(...)`), `width`/`height` (INTEGER), `tooltip`/`description` (STRING), `className`, `styleName`, `tagProperties` |
 | `nct.html.plugin` | HTML container (grids, label fields, Card). | `html` (STRING with `<plugin>`), `className`, `styleName`, `tagProperties`, `reuseItems` |
 | `html.plugin` | Top-level HTML container (page layout). | same + `editorHeight`/`editorWidth` |
 | `nct.parsis.plugin` / `parsis.plugin` | Content zone (see "Parsis"). | `isParsis`, `reuseItems`, `minHeight`, `emptyPlaceholder`, `style` |
 | `nct.link.plugin` / `nct.label.link.plugin` | Link / label-link. | `link` (LOCALIZED), `params` (LOCALIZED), `internal` (BOOLEAN, default `true`), `identifier` (the **destination** content node for an internal link — not the link node's own id; only used when `internal:true`), `style`, `className` — plus `label` (LOCALIZED) for the label-link variant (**not** `text`/`url`; see [14 §1.6](14-plugin-catalog-all.md)) |
 | `nct.help.plugin` | Help icon with a message (the "?" tooltip beside a generated field label). | `message` (LOCALIZED), `helpSettings` (JSON) |
-| `global.replacement.plugin` | Global replacements plugin (visual `@PluginConfig`, `isBehaviour=false`; in `empty` — 2 nodes inside the pages' content parsis, `nct.parsis.plugin` `id="parsis"`). | `className`, `styleName`, `tagProperties` |
+| `global.replacement.plugin` | Global replacements plugin (visual, `isBehaviour=false`; in `empty` — 2 nodes inside the pages' content parsis, `nct.parsis.plugin` `id="parsis"`). | `className`, `styleName`, `tagProperties` |
 
 **`tagName` on `nct.label.plugin`:** allowed values — `[h1, h2, h3, h4, h5, h6, p, span, i, label,
-small]`, **default `"p"`** (`LocalizedHeaderPropertiesBuilder.java`; runtime fallback to `"p"` when
-empty — `LocalizedHeaderPlugin.java`). In exports you see `label`/`h5`/`span` — these are specific
-set values, not the default. Generated Generate-fields labels get `tagName="label"` explicitly
-(`nct-ui/.../form/generate/FormFieldsGenerator.java`). **A hand-written label without `tagName` renders as
+small]`, **default `"p"`** (runtime fallback to `"p"` when
+empty). In exports you see `label`/`h5`/`span` — these are specific
+set values, not the default. Generated Generate-fields labels get `tagName="label"` explicitly.
+**A hand-written label without `tagName` renders as
 `<p>`, not `<label>`.**
 
 `nct.label.plugin` example (a generated form label, verbatim):
@@ -1067,27 +1023,23 @@ set values, not the default. Generated Generate-fields labels get `tagName="labe
 
 ---
 
-## Plugin = `@PluginConfig` (mrjun) + optional `@NctPlugin` (nct-ui)
+## Plugin = a registry key (`pluginName`)
 
 > 📚 **The full catalog of all `pluginName`s one by one** (content/layout, `action.button`, `chart.js`,
-> `global.replacement`, PDF/mail, all `admin.*`/system — with class, config slot, and node example) —
-> [14-plugin-catalog-all.md](14-plugin-catalog-all.md). Below — how the annotation itself is structured.
+> `global.replacement`, PDF/mail, all `admin.*`/system — with config slot and node example) —
+> [14-plugin-catalog-all.md](14-plugin-catalog-all.md).
 
-A plugin's identity (its `pluginName`) is defined by the annotation **`@PluginConfig`** (mrjun
-`...cms.kicker.utils.PluginConfig`): `pluginName`, `displayName`, `group`, plus `siteTemplate`,
-`renderBodyOnly`, `hideInKicker`, `editBorderSelector`, `defaultPropertiesBuilder`. Example:
-`NctLabelPlugin.java`. A separate nct-ui annotation **`@NctPlugin`** carries only `icon` (default
-`"lnr-cog"`, Linear Icons), `canDelete` (default true), `projectTypes` (default
-`{ORGANIZATION_MANAGER, PRODUCTS_MANAGER, REPORT}` — exactly `REPORT`, not `REPORT_APP`). Example:
-`NctLabelPlugin.java`. **Don't confuse them** — the registry is built by `@PluginConfig.pluginName`.
+A plugin's identity is its `pluginName`, the key in the plugin registry. A plugin is available only for certain
+project types — by default `ORGANIZATION_MANAGER`, `PRODUCTS_MANAGER` and `REPORT` (exactly `REPORT`, not
+`REPORT_APP`).
 
-### Full catalog of `pluginName` (64 nct-ui `pluginName`s + 2 mrjun: `parsis.plugin`, `html.plugin` — the authoritative list)
+### Full catalog of `pluginName` (66 names — the authoritative list)
 
-Below — all the real `pluginName`s from nct-ui (`@PluginConfig`). Lines with `sic` contain a **real typo
-in the code** — keep it verbatim. These are registry keys; the "corrected" spelling doesn't resolve.
+Below — all the real `pluginName`s. Lines with `sic` contain a **real typo
+in the platform** — keep it verbatim. These are registry keys; the "corrected" spelling doesn't resolve.
 
-**Page / containers:** `siteMapPage`, `nct.parsis.plugin`, `parsis.plugin` (mrjun), `html.plugin`
-(mrjun), `nct.html.plugin`, `nct.tab.plugin`, `nct.label.plugin`, `nct.label.link.plugin`, `nct.link.plugin`,
+**Page / containers:** `siteMapPage`, `nct.parsis.plugin`, `parsis.plugin`, `html.plugin`,
+`nct.html.plugin`, `nct.tab.plugin`, `nct.label.plugin`, `nct.label.link.plugin`, `nct.link.plugin`,
 `nct.image.plugin`, `nct.help.plugin`, `global.replacement.plugin`.
 
 **Template chrome (`site.*`):** `site.header.plugin`, `site.footer.plugin`, `site.kicker.plugin` (left menu),
@@ -1100,7 +1052,7 @@ in the code** — keep it verbatim. These are registry keys; the "corrected" spe
 `dynaform.form.groups.landingplugin`, `dynaform.filter.form.plugin`, `dynaform.filter.submit.button.plugin`,
 `dynaform.context.list.plugin`, `dynaform.list.item.plugin`.
 
-**Form controls (extends `BaseFormControl<FormControlSettings>`; config in `properties.settings`):**
+**Form controls (config in `properties.settings`):**
 `dynaform.form.text.field.plugin`, `dynaform.form.textarea.field.plugin`,
 `dynaform.form.rimm.drop.down.field.plugin`, `dynaform.form.rimm.autocomplete.field.plugin`,
 `dynaform.form.datepicker.field.plugin`, `dynaform.form.file.upload.field.plugin`,
@@ -1135,15 +1087,15 @@ library — catalogued in [14-plugin-catalog-all.md](14-plugin-catalog-all.md)).
 >
 > **Separately — the legacy PDF pair `pdf.report.plugin`/`pdf.report.page.plugin`.** This is NOT a fabrication: a
 > node of each is carried over into practically every project (they have `layout="portrait"` — the PDF orientation,
-> see above about "portrait"). But no class declares these names via `@PluginConfig`, so on the current code they
-> render as `mrjun.plugin.not.found`. **The current PDF plugin is `report.pdf.templates.plugin`** (pdfme,
-> `@PluginConfig` present — `PdfTemplatesPlugin.java`); write new nodes under it.
+> see above about "portrait"). But no plugin is registered under these names, so on the current platform they
+> render as `mrjun.plugin.not.found`. **The current PDF plugin is `report.pdf.templates.plugin`** (pdfme);
+> write new nodes under it.
 >
 > **Separately — the legacy `processes.plugin`.** Same story: a node of it survives in the baseline admin scaffold
-> (on the `Processes` page, beside a live `processes.selectedplugin` sibling), but **no class declares that name
-> via `@PluginConfig`** on the current platform, so it too renders as `mrjun.plugin.not.found`. The old two-plugin
+> (on the `Processes` page, beside a live `processes.selectedplugin` sibling), but **no plugin is registered under that name**
+> on the current platform, so it too renders as `mrjun.plugin.not.found`. The old two-plugin
 > layout it belonged to (a list node firing an event at a sibling diagram node) is gone. **The process list plugin
-> to author is `processes.selectedplugin`** (`ProcessSelectedPlugin.java`) — one self-contained master-detail node.
+> to author is `processes.selectedplugin`** — one self-contained master-detail node.
 
 **What dominates a real tree** (run `jq '.. | .pluginName? // empty' branches.json | sort | uniq -c | sort -rn`
 on your own export): the wrappers win by a wide margin — `nct.html.plugin`, `nct.label.plugin` and
@@ -1236,7 +1188,7 @@ as your own; don't change `pluginName`/structure).
   > Same identifier, structurally incompatible internals. Before copying, grep the candidate node's `html`: it MUST
   > contain `<plugin id="parsis">`, else Step 4 has no node to receive the table/chart. (See Gotcha #8.)
 - **(B) Lazy:** leave `siteMapPageParsis.children` **empty** and rely on the property
-  `layout="Nct layout"` (Step 1) — the client-side `SiteMapPage.getParsis()` (`SiteMapPage.java`) on
+  `layout="Nct layout"` (Step 1) — the client-side page on
   the first render clones the vp "Nct layout" into parsis. The export files always carry (A); (B) is convenient if you
   don't want to duplicate the large layout node, but then the result depends on the presence of a vp named "Nct layout".
   > ⛔ **(B) is valid ONLY for a page you will populate LIVE in the authoring UI — NEVER for a self-contained import
@@ -1269,9 +1221,7 @@ and in its `children` — one `nct.parsis.plugin` per tab with an `identifier` e
 (`"TAB1-uuid"`). Each tab's content goes into its parsis. **These per-tab child `nct.parsis.plugin` nodes
 must be PRE-POPULATED in the export with the tab's actual content** (in the "Tabs" example above each tab-parsis
 already holds a `crud.table.plugin` with its `properties.model`). If you omit a tab's child parsis, the
-platform auto-creates it **EMPTY** on first render (`PluginWrapperOfContentPanel` →
-`getOrCreateChildContentComponent`, `mrjun-.../PluginWrapperOfContentPanel.java`; identifier =
-`modelObject.getId()`, `TabPlugin.java`) — useless for a self-contained import.
+platform auto-creates it **EMPTY** on first render — useless for a self-contained import.
 
 > **MODIFY (add/remove a tab).** To **add** a tab: push `{id,name,order,iconClass,localizedMap,localizedNames}`
 > to `tabModel.items[]` AND add a sibling `nct.parsis.plugin` in the tab node's `children` whose
@@ -1289,20 +1239,19 @@ two `nct.parsis.plugin` with `identifier` `"left"` and `"right"`.
 ## Gotchas
 
 1. **The `identifier` in `<plugin id="X">` must match the `identifier` of the real child node.** The tag in HTML
-   and the node in `children` are the same place, stitched by id (`AbstractHtmlPlugin.java`). Forgot the child →
+   and the node in `children` are the same place, stitched by id. Forgot the child →
    "Not valid plugin …".
-2. **`siteMapPageParsis` must strictly be `identifier="siteMapPageParsis"`** — otherwise `getOrCreateParsis` creates its own
-   parallel one (`nct-ui/.../page/SiteMapPage.java`) and your content "disappears".
+2. **`siteMapPageParsis` must strictly be `identifier="siteMapPageParsis"`** — otherwise the page creates its own
+   parallel one and your content "disappears".
 3. **Tab ↔ parsis by `id`.** The identifier of the child `nct.parsis.plugin` must be equal to the `id`
-   of the `tabModel.items[]` element (`TabPlugin.java`). A mismatch → an empty tab.
+   of the `tabModel.items[]` element. A mismatch → an empty tab.
 4. **`tabModel` captions: in exports the key is `localizedMap.name`, in the code — `localizedNames`.** Specify
    both, so as not to lose the localized captions (exported items typically carry no `localizedNames` key at all).
-5. **RoleAccess defaults `publicReadAccess=true`** (`RoleAccess.java`). Omitting `roleAccess` = making the
+5. **`roleAccess` defaults `publicReadAccess=true`.** Omitting `roleAccess` = making the
    page public. For a private one always serialize `publicReadAccess:false` + accessors.
-6. **`order` is unique within a parent.** children are sorted by `order` (`ContentDomain.java`
-   `@OrderBy`); collisions → undefined ordering of tabs/fields/actions.
-7. **layout is a runtime lookup, not just a label.** The client-side `SiteMapPage.getParsis()` reads the property
-   `layout` (`SiteMapPage.java`), finds the vp by name and **clones** it into an empty parsis.
+6. **`order` is unique within a parent.** children are sorted by `order`; collisions → undefined ordering of tabs/fields/actions.
+7. **layout is a runtime lookup, not just a label.** The client-side page reads the property
+   `layout`, finds the vp by name and **clones** it into an empty parsis.
    **(A) — a materialized html.plugin child — is REQUIRED for any page whose business content ships in the export.**
    (B) (an empty parsis + `layout="Nct layout"`) only DEFERS materialization to the first live render and always clones an
    **EMPTY content parsis** on import (the `"Nct layout"` vp carries only the chrome; its `content.children` is `[]`) — it
@@ -1323,27 +1272,26 @@ two `nct.parsis.plugin` with `identifier` `"left"` and `"right"`.
    parsis) against the `fdcdca35` node of the corresponding list page (parsis slot). (See Step 3A.)
 9. **Table plugins store config in `properties.model`, not `settings`.** This applies to
    `crud.table.plugin`/`crud.tree.plugin`/`process.table.pluin`. **`chart.js.plugin` is an exception: its config is
-   in `properties.Javascript`** (not `model`, `JS_MODEL_NAME="Javascript"`). Form controls — in
+   in `properties.Javascript`** (not `model`). Form controls — in
    `settings`. Tabs — in `tabModel`. Mixing up the slot = the plugin reads an empty config.
 10. **`process.table.pluin` is a real typo** (`pluin`, not `plugin`). Keep it verbatim; the "corrected"
     name doesn't resolve in the registry.
-11. **`nct.label.plugin` without `tagName` renders `<p>`, not `<label>`** (`LocalizedHeaderPlugin.java`).
+11. **`nct.label.plugin` without `tagName` renders `<p>`, not `<label>`.**
     For a form always set `tagName="label"`. Allowed set: `[h1..h6,p,span,i,label,small]`.
-12. **`alias` is a node field, not a property** (`ContentDomain.java`) — **and it is what routes the page.** The
+12. **`alias` is a node field, not a property** — **and it is what routes the page.** The
     URL is the `alias` of every ancestor joined down from the root, so a page with no alias is unreachable: its
     nav link lands on the project root and no `Redirect` can target it. Set one on **every** page you author
     (`page add` does it for you — `--alias`, else a slug of the name); only the structural root `Home`
     legitimately has none. Uniqueness of child-page aliases matters for form groups — see
  [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md).
-13. **`ContentProperty.fieldPanelClass` can be left null** — the platform substitutes the default by type
-    (`ContentDomain.java`). But `propertyType` and the correct `*Value` field are required:
+13. **`fieldPanelClass` can be left null** — the platform substitutes the default by type. But `propertyType` and the correct `*Value` field are required:
     STRING→`stringValue`, BOOLEAN→`booleanValue`, INTEGER→`intValue`, LOCALIZED_STRING→`localizedStringValue`.
 14. **The settings of complex plugins are a JSON string in `stringValue`**, not separate properties
-    (`getJsonProperty`, `ContentDomain.java`). You edit JSON inside JSON.
-15. **The MCP `PageDto` ≠ the persistent model.** `layoutName`/`navigationGroup`/`sortOrder`/`hasForms`/
-    `hasWorkflows` are a read-only projection (`nct-ui/.../mcp/dto/PageDto.java`); they can't be written into the
-    export. Write `ContentDomain.properties`.
+    You edit JSON inside JSON.
+15. **The MCP page object ≠ the persistent model.** `layoutName`/`navigationGroup`/`sortOrder`/`hasForms`/
+    `hasWorkflows` are a read-only projection; they can't be written into the
+    export. Write the node's `properties`.
 16. **`isBehaviour=true` / behaviour plugins** don't render visible content; don't confuse them with the visual
     plugins in parsis. (In practice you will not meet one: authored trees carry visual nodes only.
-    In particular `global.replacement.plugin` is an ordinary visual `@PluginConfig` plugin
+    In particular `global.replacement.plugin` is an ordinary visual plugin with
     `isBehaviour=false`, and NOT a behaviour plugin.)

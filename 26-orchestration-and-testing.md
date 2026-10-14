@@ -80,7 +80,7 @@ its own DONE gate:
    **workflow** it opens (`kind:"workflow"`, keyed by the workflow `name`), and its **start rule** (`kind:"rule"`
    — the EXECUTION rule that calls `service.workflow.start`). One row buys you a scheduler and nothing more:
    `coverage` indexes schedulers by `name` alone (`addrep("schedulers", "scheduler", "name")`,
-   [`tools/mrjunkit/coverage_cmds.py`](tools/mrjunkit/coverage_cmds.py) line 64) and never opens the object, so a
+   [`tools/mrjunkit/coverage_cmds.py`](tools/mrjunkit/coverage_cmds.py)) and never opens the object, so a
    scheduler that only sends mail resolves exactly as well as one that opens a case — and the downgrade 19
    forbids ("a trigger whose product is a CASE is a WORKFLOW START, not a notification") ships green. Three rows
    are what make the case machine-checkable.
@@ -149,13 +149,13 @@ what here renders wrong under a real run?"
 **T3 is the only gate that EXECUTES the project's SQL.** T1/T2 read JSON and prove *shape*; `crud verify --db` runs
 every SQL method of every dynamic CRUD against a real server — reads direct, writes inside `BEGIN … ROLLBACK`, and a
 fixture row seeded from the CRUD's own `create` when the table is empty
-([`tools/mrjunkit/crudverify_cmds.py`](tools/mrjunkit/crudverify_cmds.py) lines 150–177). It does **not** need the
+([`tools/mrjunkit/crudverify_cmds.py`](tools/mrjunkit/crudverify_cmds.py)). It does **not** need the
 platform running, so *"no DB was reachable"* is almost never true: a throwaway Postgres is four commands away.
 
 > ⛔ **It shells out to the `psql` BINARY.** `crudverify_cmds.py:45` refuses before doing anything else —
 > `` if not shutil.which("psql"): raise core.ToolError("psql not found on PATH (required for `crud verify --db`)") `` —
 > and every statement runs as `subprocess.run(["psql", conninfo, "-q", "-v", "ON_ERROR_STOP=off", "-tAc", body])`
-> (line 32). No driver, no libpq bindings: a program named `psql`, on PATH. That is the entire install requirement.
+> No driver, no libpq bindings: a program named `psql`, on PATH. That is the entire install requirement.
 
 **Step 1 — a database you can throw away.** Any reachable Postgres: one the environment already runs, one the case
 ships, or a fresh one. Verified from zero with:
@@ -218,7 +218,7 @@ psql "host=localhost user=<user> password=<password> dbname=probe" -q < load.sql
 > → no match (exit 1); the same line with `2>&1` → `ERROR: function no_such_fn() does not exist`.
 
 > ⚠️ **Load the ROWS, not just the DDL.** The verifier binds every FK-ish parameter to a **live id it reads out of
-> the DB** (`SELECT id::text FROM <t> LIMIT 1`, line 64; consumed at lines 84–93). On an empty schema there are no
+> the DB** (`SELECT id::text FROM <t> LIMIT 1`). On an empty schema there are no
 > ids, every FK param becomes `NULL`, and the run drowns in NOT NULL noise. Measured on one project, same commands,
 > same build: **schema only → `OK: 53 FAIL: 70`**; **schema + rows → `OK: 108 FAIL: 15`**.
 
@@ -238,28 +238,28 @@ crud verify @ host=localhost (schema <schema>)
 ```
 
 That `108 / 15 / 4` is a real run: 131 SQL methods over 12 CRUDs, of which 127 are **attempted** and 123 actually
-reach the server (`_`-prefixed helpers are skipped by design before the loop, line 146 — they run through their
-GROOVY caller; the 4 in the `skipped` counter are the `insertLine` methods, line 156). **All 15 triaged to the
+reach the server (`_`-prefixed helpers are skipped by design before the loop — they run through their
+GROOVY caller; the 4 in the `skipped` counter are the `insertLine` methods). **All 15 triaged to the
 verifier's own parameter substitution; none was a defect** — while the same gate, on the same project one edit
 earlier, caught two that were **real**, of exactly the shape in the 🚨 row below.
 
-> ⚠️ **Exit code is 1 on any FAIL** (line 189), substitution artifacts included. Do **not** wire this into an
+> ⚠️ **Exit code is 1 on any FAIL**, substitution artifacts included. Do **not** wire this into an
 > unattended gate the way you wire `validate` / `coverage` (§6a). It is a gate **you read**.
 
 #### The triage — which failures are the verifier's guess, and which are yours
 
-The verifier *fabricates* a value for every parameter (`val_for()`, lines 67–115) and string-replaces it into the
-script (`subst()`, lines 117–127). It knows CHECK allowed-sets and FK targets, but it is still guessing — so **most
+The verifier *fabricates* a value for every parameter (`val_for()`) and string-replaces it into the
+script (`subst()`). It knows CHECK allowed-sets and FK targets, but it is still guessing — so **most
 FAILs are its guess, not your SQL**. Classify every line before changing anything:
 
 | Verifier says | What it actually did | Verdict | The one command that decides |
 |---|---|---|---|
-| `invalid input syntax for type boolean` (or `integer` / `numeric`) `: ""` | dropped a **typed** literal (`false`, `1`, `now()`, `'T'` — lines 102–114) into your `NULLIF(:p,'')` guard, so PG must coerce `''` to that type | **verifier substitution** | `psql "<c>" -tAc "SELECT NULLIF(false,'');"` → the same error; `psql "<c>" -tAc "SELECT COALESCE(CAST(NULLIF('false','') AS boolean), true);"` → `f`. The guard is fine. |
-| `update or delete on table "<parent>" violates foreign key constraint … on table "<child>"` | ran your `delete` against the **first live row** (line 64) — a seeded parent that has children | **substitution** — real only if the UI truly offers Delete on a parent and nothing cascades or guards it | `psql "<c>" -tAc "SELECT count(*) FROM <schema>.<child> WHERE <fk> = (SELECT id FROM <schema>.<parent> LIMIT 1);"` → non-zero ⇒ it was the row choice |
-| `duplicate key value violates unique constraint "<uq>"` on `create` | bound a **live** FK id (lines 84–93) plus a typed literal (`1`), reproducing a seeded row's unique pair | **substitution** — real only if two legitimate runtime calls can mint the same key with no next-value helper | re-run the INSERT as `BEGIN; … ROLLBACK;` with the colliding field set to a free value (`'999'`) → it inserts |
-| `null value in column "<c>" … violates not-null constraint`, `<c>` a **mandatory FK on a `create`** | could not infer the param: a surfaced-FK param `<alias>__id` is looked up as column `<alias>_id` (lines 89–93), which misses whenever the FK column is named differently → falls through to `NULL` (line 115) | **substitution** — the statement fails **loudly**, nothing is corrupted; if anything is wrong it is the form (make the field mandatory), not the SQL | re-run with a live id **as a string** → it inserts. Confirm the miss with `mrjun.py db show <table>` — the FK column name won't match the param stem |
+| `invalid input syntax for type boolean` (or `integer` / `numeric`) `: ""` | dropped a **typed** literal (`false`, `1`, `now()`, `'T'`) into your `NULLIF(:p,'')` guard, so PG must coerce `''` to that type | **verifier substitution** | `psql "<c>" -tAc "SELECT NULLIF(false,'');"` → the same error; `psql "<c>" -tAc "SELECT COALESCE(CAST(NULLIF('false','') AS boolean), true);"` → `f`. The guard is fine. |
+| `update or delete on table "<parent>" violates foreign key constraint … on table "<child>"` | ran your `delete` against the **first live row** — a seeded parent that has children | **substitution** — real only if the UI truly offers Delete on a parent and nothing cascades or guards it | `psql "<c>" -tAc "SELECT count(*) FROM <schema>.<child> WHERE <fk> = (SELECT id FROM <schema>.<parent> LIMIT 1);"` → non-zero ⇒ it was the row choice |
+| `duplicate key value violates unique constraint "<uq>"` on `create` | bound a **live** FK id plus a typed literal (`1`), reproducing a seeded row's unique pair | **substitution** — real only if two legitimate runtime calls can mint the same key with no next-value helper | re-run the INSERT as `BEGIN; … ROLLBACK;` with the colliding field set to a free value (`'999'`) → it inserts |
+| `null value in column "<c>" … violates not-null constraint`, `<c>` a **mandatory FK on a `create`** | could not infer the param: a surfaced-FK param `<alias>__id` is looked up as column `<alias>_id`, which misses whenever the FK column is named differently → falls through to `NULL` | **substitution** — the statement fails **loudly**, nothing is corrupted; if anything is wrong it is the form (make the field mandatory), not the SQL | re-run with a live id **as a string** → it inserts. Confirm the miss with `mrjun.py db show <table>` — the FK column name won't match the param stem |
 | `null value in column "<c>" … violates not-null constraint`, `<c>` written by an **UPDATE from a bare param** — `SET qty_col = qty_col + CAST(:qty AS numeric)` | bound `:qty` to `NULL` (it is not a column of the table) — precisely what the runtime does when the caller omits it | 🚨 **REAL DEFECT.** Params arrive as **strings**: absent/empty ⇒ the whole expression is NULL ⇒ the stored value is **wiped**. No offline gate can see this. | `jq -r '.cruds[]\|select(.alias=="<alias>").methods[]\|select(.methodName=="<m>").script' <workdir>/dynamic-cruds.json` — if the failing column's expression carries **no** `COALESCE(…, <fallback>)`, it is real |
-| `skipped(no seed row): N` | `insertLine` always skips (it needs a parent header — line 156); anything else skips when the table has no live row **and** the CRUD has no `create` to seed from (line 176) | **neither** — *unproven* | load the rows (Step 3) and re-run; never read a skip as a pass |
+| `skipped(no seed row): N` | `insertLine` always skips (it needs a parent header); anything else skips when the table has no live row **and** the CRUD has no `create` to seed from | **neither** — *unproven* | load the rows (Step 3) and re-run; never read a skip as a pass |
 
 **The fix for the real one** is the guard the same build already uses everywhere else — an absent delta becomes a no-op:
 
@@ -379,7 +379,7 @@ pass from fail ([23](23-distribution-and-known-gaps.md) §2 is the reference for
    refusals, with expected codes ([32 §9](32-public-api.md)); a call that writes is checked like a form — read the
    item back.
 6. **Templates** — trigger a mail and a PDF; they render branded (logo, layout), placeholders substituted.
-7. **`log/ui.log`** — scan for the scattered import-aborts (Jackson `MismatchedInputException`/`InvalidFormatException`)
+7. **`log/ui.log`** — scan for the scattered import-aborts (`MismatchedInputException`/`InvalidFormatException`)
    that show as "No source selected" / empty context / "data gone" rather than a clean error.
 
 Every one of them that applies is a scenario in `test-scenarios.md`, with its expected result written down. Your own

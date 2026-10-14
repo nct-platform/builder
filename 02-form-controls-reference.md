@@ -24,10 +24,8 @@ rules are described in [03-generate-fields-from-crud.md](03-generate-fields-from
 > `node add --plugin <field-plugin> --settings @f`, `node set-settings <id>`, `node patch-settings <id> --set k=v`, `show node <id>`.
 > Full index and rules — [`tools/README.md`](tools/README.md); before re-import — `mrjun.py validate`.
 
-> **Exactly 10 field-control plugins live in `form/controls/`** (all with `@PluginConfig(group="Form Controls")`;
-> list + counts below). The same `group="Form Controls"` is carried by two more plugins — `ActionButtonPlugin` and
-> `FilterSubmitButtonPlugin` (grep `group = "Form Controls"` yields 12 files), but those are **buttons**, not fields, and
-> live outside `form/controls/`. There are **no** separate NUMBER / DATE / DATETIME / CHECKBOX plugins — that is an
+> **Exactly 10 field-control plugins exist** (list + counts below). Two more plugins — the action button and the
+> filter-submit button — also sit in the "Form Controls" group, but those are **buttons**, not fields. There are **no** separate NUMBER / DATE / DATETIME / CHECKBOX plugins — that is an
 > obsolete fabrication of older platform documentation (flagged as stale below).
 > A number = **Text field** with a numeric `dataClass`; boolean = **Text field** with `dataClass=java.lang.Boolean`;
 > date/date-time = **Date Picker** with `dataClass` `LocalDate` vs `LocalDateTime`.
@@ -75,8 +73,8 @@ Ask the meaning question FIRST, for every field, and fall through to the type ma
 
 Two traps that make the wrong choice look right offline:
 
-* **`dataClass` is part of the choice, not decoration.** Several controls declare
-  `supportedDataClasses()` and render **blank** for anything else — Comments and Gantt take
+* **`dataClass` is part of the choice, not decoration.** Several controls accept
+  only a fixed set of `dataClass` values (table below) and render **blank** for anything else — Comments and Gantt take
   `com.fasterxml.jackson.databind.node.ObjectNode` ONLY, the Date Picker takes only the three time classes.
   `validate` ERRORs on a mismatch precisely because a blank control reads as missing data.
 * **The column type follows the control, not the other way round.** Deciding "this is a discussion" means the
@@ -84,8 +82,8 @@ Two traps that make the wrong choice look right offline:
   Phase 1/2 ([19](19-build-decision-procedure.md)), not in Phase 7 when the table already exists.
 
 Everything below the List row is a special-purpose control: reach for it when the requirement asks for it, not
-by default. **Gantt is the one control whose settings in this document are documented from the platform
-classes rather than from a working form (⚠️).**
+by default. **Gantt is the one control whose settings in this document are documented from the platform's
+schema rather than from a working form (⚠️).**
 
 ---
 
@@ -123,7 +121,7 @@ Each control is a content node in the `branches.json[0].rootContent` tree (the f
 - **Most important export-only trap:** `contextIdentifier`, `ruleIdentifier`, `componentIdentifier`,
   `predicateIdentifier`, `defaultValueRuleIdentifier` are stored as **UUIDs**, not as friendly aliases.
   Resolve them from `rep-objects.contexts[]`/`rules[]`/neighboring nodes.
-- The FormPlugin (form node) is configured **not** through the `settings` blob, but via direct node properties
+- The form node is configured **not** through the `settings` blob, but via direct node properties
   (`formModeIdentifier`, `reuseItems`, `isParsis`, multi-language toggle) — see
   [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md).
 
@@ -131,26 +129,21 @@ Each control is a content node in the `branches.json[0].rootContent` tree (the f
 
 ## Export shape — base settings schema
 
-The settings inheritance hierarchy (important: **`DropdownFilterControlSettings extends FormControlSettings`**, not
-the other way around):
+Which keys each control adds on top of the common base:
 
 ```
-FilterControlSettings                         (dynaform/filter/config/FilterControlSettings.java)
-  └── FormControlSettings                      (form/controls/config/FormControlSettings.java)   ← base of all form controls
-        ├── DropdownFilterControlSettings      (dynaform/filter/config/… → ruleIdentifier, key, displayName, showNav)
-        │     ├── FormControlRimmDropDownFieldSettings  (+ rowsInPage, searchEnabled, searchField, prevRuleIdentifier, searchRuleIdentifier)
-        │     └── FormControlTreePickerSettings         (+ displayMode, rowsInPage)
-        ├── AutocompleteFilterControlSettings  (dynaform/filter/config/… → ruleIdentifier, key, displayName, showNav)
-        │     └── FormControlRimmAutoCompleteFieldSettings (+ showChoicesOnClick, searchField)
-        ├── DatePickerFilterControlSettings    (dynaform/filter/config/… → dateFormat)
-        │     └── DatePickerFormControlSettings (empty — only inherits)
-        ├── FormControlFileUploadFieldSettings (+ uploadPath, allowedFileTypes, maxFileSize, allowMultiple, showProgress)
-        ├── GanttChartFormControlSettings      (+ allowDragMove … chartHeight)
-        └── ListFormControlSettings            (+ userActions, createNewActions, columnSettings, subforms, …)
+common base (every control)                    name, filterKey, dataClass + the keys of the two base tables below
+  ├── Text field, Text Area, Comments          (nothing added)
+  ├── Drop Down (rimm)                         + ruleIdentifier, key, displayName, showNav, rowsInPage, searchEnabled, searchField, prevRuleIdentifier, searchRuleIdentifier
+  ├── Tree Picker                              + ruleIdentifier, key, displayName, showNav, displayMode, rowsInPage
+  ├── Autocomplete (rimm)                      + ruleIdentifier, key, displayName, showNav, showChoicesOnClick, searchField
+  ├── Date Picker                              + dateFormat
+  ├── File Upload                              + uploadPath, allowedFileTypes, maxFileSize, allowMultiple, showProgress
+  ├── Gantt Chart                              + allowDragMove … chartHeight
+  └── List field                               + userActions, createNewActions, columnSettings, subforms, …
 ```
 
-Serialization — via the Gson library (`getContent().getJsonProperty("settings", …)`,
-`BaseFormControl.java`): **absent fields are skipped**, the Java class defaults are substituted on read.
+Serialization: **absent fields are skipped**, the platform defaults are substituted on read.
 So a minimal node contains only the populated fields (see the autocomplete example below — only 4 keys).
 Sample nodes tagged (`erp`) in this file are decoded from the fictional ERP demo shipped at
 a fictional ERP demo bundle that **no longer ships** ([23](23-distribution-and-known-gaps.md) — it failed
@@ -159,8 +152,8 @@ still correct; you just cannot unpack that bundle to re-check them.
 
 ### Authoritative settings-key union
 
-The union of every field declared by the settings classes above — 63 keys, and the only ones that can appear in
-`settings.stringValue`. Not every key is legal on every control: each key belongs to the class that declares it,
+The union of every key above — 63 keys, and the only ones that can appear in
+`settings.stringValue`. Not every key is legal on every control: each key belongs to one control (see the tree above),
 so `chartHeight` only means something on a Gantt control, `subforms` only on a List, `rowsInPage` only on a
 dropdown/tree-picker (the per-control tables below say which). Anything outside this list is fiction of old docs
 — do not invent `placeholder`/`tooltip`/`width`/`maxLength`/`pattern`/`min`/`max`/`dropDownPopType`/
@@ -204,42 +197,42 @@ counterparty, stored per locale:
 
 ### Field-by-field — base (all controls inherit this)
 
-**From `FilterControlSettings` (top ancestor, package `dynaform/filter/config/`):**
+**Identity and typing keys:**
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `name` | String | The control's label in authoring (human-readable field name). The label is drawn by a separate `nct.label.plugin`, see [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md). | no | null | `FilterControlSettings.java` |
-| `filterKey` | String | Filter key (in a filter form — the name of the page-param). In a normal form the generator duplicates it = `fieldExpression`; runtime ignores it outside a filter form. | no | null | `FilterControlSettings.java` |
-| `dataClass` | String (FQN) | The Java type of the value. Drives the choice of input and coercion. **Free-form string** — in practice `java.lang.String`, `java.math.BigDecimal`, `java.time.LocalDate`, `java.time.LocalDateTime`, `com.fasterxml.jackson.databind.node.ObjectNode`, `java.util.List`, an enum FQN, synthetic `dynamic.<enumName>`. For the whitelist of values see **supportedDataClasses** below. ⛔ **On a `dynaform.form.text.field.plugin` `dataClass` is de-facto MANDATORY — `null` makes the platform treat the value as `ValueType.JSON`, so a plain string renders JSON-QUOTED (`"INV-000418"` instead of `INV-000418`) the moment you edit an existing row.** A working form always carries a concrete class on every text field: `java.lang.String` for text, `java.lang.Integer`/`java.lang.Long`/`java.math.BigDecimal` for numeric, `java.lang.Boolean` for a checkbox. When building a text field by hand/generator, ALWAYS set it (a `dict.get("dataClass", "java.lang.String")` bug where the key already holds `None` is the classic way to ship null — use `x or "java.lang.String"`). `validate` now WARNs on a text field with no dataClass (`_check_form_control_config`). | **yes for text; recommended for all** | null | `FilterControlSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `name` | String | The control's label in authoring (human-readable field name). The label is drawn by a separate `nct.label.plugin`, see [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md). | no | null |
+| `filterKey` | String | Filter key (in a filter form — the name of the page-param). In a normal form the generator duplicates it = `fieldExpression`; runtime ignores it outside a filter form. | no | null |
+| `dataClass` | String (FQN) | The Java type of the value. Drives the choice of input and coercion. **Free-form string** — in practice `java.lang.String`, `java.math.BigDecimal`, `java.time.LocalDate`, `java.time.LocalDateTime`, `com.fasterxml.jackson.databind.node.ObjectNode`, `java.util.List`, an enum FQN, synthetic `dynamic.<enumName>`. For the whitelist of values see the allowed-`dataClass` table below. ⛔ **On a `dynaform.form.text.field.plugin` `dataClass` is de-facto MANDATORY — `null` makes the platform treat the value as JSON, so a plain string renders JSON-QUOTED (`"INV-000418"` instead of `INV-000418`) the moment you edit an existing row.** A working form always carries a concrete class on every text field: `java.lang.String` for text, `java.lang.Integer`/`java.lang.Long`/`java.math.BigDecimal` for numeric, `java.lang.Boolean` for a checkbox. When building a text field by hand/generator, ALWAYS set it (a `dict.get("dataClass", "java.lang.String")` bug where the key already holds `None` is the classic way to ship null — use `x or "java.lang.String"`). `validate` now WARNs on a text field with no dataClass (`_check_form_control_config`). | **yes for text; recommended for all** | null |
 
-**From `FormControlSettings` (base of form controls):**
+**Binding, validation, event and default-value keys (base of form controls):**
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `scope` | enum `"GLOBAL"`\|`"CONTEXT"`\|`"CRUD"` | Where the value is written — **the PERSISTED intent only; on a form opened from a `crud.table`/`crud.tree` action the runtime forces it to `CRUD` over the table's pair (§Where the value LANDS, below)**. **Serialized as the constant name** (`"CRUD"`), NOT as displayName. GLOBAL → `attrs[fieldExpression]`; CONTEXT → `contextDataMap[ctxId].value[fieldExpression]`; CRUD → `…crudDataMap[crudAlias].value[fieldExpression]`. | yes (for form) | null | `FormControlSettings.java`, enum `FormControlScope.java` |
-| `contextIdentifier` | String (UUID) | The context identifier (`rep-objects.contexts[].identifier`). Needed for `CONTEXT` and `CRUD`. | for CONTEXT/CRUD | null | `FormControlSettings.java` |
-| `crudAlias` | String | Alias of the CRUD within the context (`context.crudAliases[]`, `dynamic-cruds.json.cruds[].alias`). Only for `CRUD`. **On save, if `contextIdentifier==null`, it is nulled out** (`BaseFormControl.java`). | for CRUD | null | `FormControlSettings.java` |
-| `fieldExpression` | String | The field name/path within the target object. Dotted notation is allowed (`plant.id`, `category.id`, `product.code`). For `GLOBAL`/`CONTEXT` — a key in `attrs`/context-value; for `CRUD` — a DTO field. | yes | null | `FormControlSettings.java` |
-| `enumValues` | `Map<String,Map<String,String>>` | Snapshot of enum constants for an enum-typed field (const name → {property → value}). Only for a dropdown over an enum. | no | null | `FormControlSettings.java` |
-| `enumFieldNames` | `List<String>` | Names of enum properties (`"name"` + declared fields). | no | null | `FormControlSettings.java` |
-| `enumName` | String | The registry name of the project Enumeration the control is bound to. | no | null | `FormControlSettings.java` |
-| `jsonNodeExpression` | String | JSON path within a field of type `ObjectNode`/`JsonNode` (e.g. `"metadata.category"`). Gate — `isJsonNodeType()` (accepts both `ObjectNode` and `JsonNode`). | no | null | `FormControlSettings.java` |
-| `jsonNodeValueType` | String (FQN) | The value type at the `jsonNodeExpression` path. | only with jsonNodeExpression | null | `FormControlSettings.java` |
-| `between` | Boolean | Range mode: the control renders a PAIR, submits two values (from = primary mapping, to = `betweenMapping`). Offered only for the Date Picker (always) and the numeric Text field. | no | null(false) | `FormControlSettings.java` (comment) |
-| `betweenMapping` | object `BetweenFieldMapping` | Upper-bound mapping. The type is NOT stored (shared with primary). | only with `between` | null | `FormControlSettings.java`, `config/BetweenFieldMapping.java` |
-| `prohibitedPredicateIdentifier` | String (UUID) | Predicate rule (`ruleType=PREDICATE`); `true` → control read-only (label). Executed on every render. | no | null | `FormControlSettings.java` |
-| `alwaysProhibited` | Boolean | Unconditional read-only, WITHOUT calling the executor (faster than predicate=const true). | no | null(false) | `FormControlSettings.java` |
-| `localized` | Boolean | The value is stored per locale (`localize[field][locale]` for CRUD, `attrs.__localize__[field][locale]` for GLOBAL/CONTEXT). **Two hard prerequisites (see "Localized fields" below):** the parent form must be multi-language, and for `CRUD` scope the CRUD must have a `@LocalizationField` ObjectNode column — the settings-panel checkbox rejects the flag otherwise (`FormControlSettingsControlPanel.java`). Hand-authoring bypasses that guard → a control that stores no per-locale values. | no | null(false) | `FormControlSettings.java`, runtime `getLocalizedFieldModel()` |
-| `alwaysMandatory` | Boolean | The field is always mandatory. | no | null(false) | `FormControlSettings.java` |
-| `mandatoryValidationMessages` | `Map<String,String>` | Localized "required field" error texts (`locale → message`). Keys are `Locale.toString()` (`"en_US"`/`"hy_AM"`/…) or a language (`"en"`). | no | `{}` | `FormControlSettings.java` |
-| `mandatoryPredicateIdentifier` | String (UUID) | Predicate: when `true` → the field is mandatory (conditional mandatoriness; when `alwaysMandatory=false`). | no | null | `FormControlSettings.java` |
-| `eventComponentMappings` | array `EventComponentMapping` | On a DOM event — refresh the specified component (optional execution rules beforehand). | no | `[]` | `FormControlSettings.java`, `config/EventComponentMapping.java` |
-| `conditionalValidations` | array `ConditionalValidation` | Validations by predicate, each with severity + localized messages. | no | `[]` | `FormControlSettings.java`, `config/ConditionalValidation.java` |
-| `defaultValueEnabled` | Boolean | Enable substitution of a default when the value is null. | no | null(false) | `FormControlSettings.java` |
-| `defaultValueStatic` | Boolean | `true`/null → static default; `false` → rule-based (`defaultValueRuleIdentifier`). | no | null(=true) | `FormControlSettings.java` |
-| `defaultValue` | String | Static default (coerced to `dataClass`). | with static default | null | `FormControlSettings.java` |
-| `defaultValueLocalized` | `Map<String,String>` | Static default per locale (for `localized` fields). | no | null | `FormControlSettings.java` |
-| `defaultValueRuleIdentifier` | String (UUID) | EXECUTION rule whose return becomes the default (when `defaultValueStatic=false`). | with rule default | null | `FormControlSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `scope` | enum `"GLOBAL"`\|`"CONTEXT"`\|`"CRUD"` | Where the value is written — **the PERSISTED intent only; on a form opened from a `crud.table`/`crud.tree` action the runtime forces it to `CRUD` over the table's pair (§Where the value LANDS, below)**. **Serialized as the constant name** (`"CRUD"`), NOT as displayName. GLOBAL → `attrs[fieldExpression]`; CONTEXT → `contextDataMap[ctxId].value[fieldExpression]`; CRUD → `…crudDataMap[crudAlias].value[fieldExpression]`. | yes (for form) | null |
+| `contextIdentifier` | String (UUID) | The context identifier (`rep-objects.contexts[].identifier`). Needed for `CONTEXT` and `CRUD`. | for CONTEXT/CRUD | null |
+| `crudAlias` | String | Alias of the CRUD within the context (`context.crudAliases[]`, `dynamic-cruds.json.cruds[].alias`). Only for `CRUD`. **On save, if `contextIdentifier==null`, it is nulled out.** | for CRUD | null |
+| `fieldExpression` | String | The field name/path within the target object. Dotted notation is allowed (`plant.id`, `category.id`, `product.code`). For `GLOBAL`/`CONTEXT` — a key in `attrs`/context-value; for `CRUD` — a DTO field. | yes | null |
+| `enumValues` | `Map<String,Map<String,String>>` | Snapshot of enum constants for an enum-typed field (const name → {property → value}). Only for a dropdown over an enum. | no | null |
+| `enumFieldNames` | `List<String>` | Names of enum properties (`"name"` + declared fields). | no | null |
+| `enumName` | String | The registry name of the project Enumeration the control is bound to. | no | null |
+| `jsonNodeExpression` | String | JSON path within a field of type `ObjectNode`/`JsonNode` (e.g. `"metadata.category"`). | no | null |
+| `jsonNodeValueType` | String (FQN) | The value type at the `jsonNodeExpression` path. | only with jsonNodeExpression | null |
+| `between` | Boolean | Range mode: the control renders a PAIR, submits two values (from = primary mapping, to = `betweenMapping`). Offered only for the Date Picker (always) and the numeric Text field. | no | null(false) |
+| `betweenMapping` | object (see `betweenMapping` below) | Upper-bound mapping. The type is NOT stored (shared with primary). | only with `between` | null |
+| `prohibitedPredicateIdentifier` | String (UUID) | Predicate rule (`ruleType=PREDICATE`); `true` → control read-only (label). Executed on every render. | no | null |
+| `alwaysProhibited` | Boolean | Unconditional read-only, WITHOUT calling the executor (faster than predicate=const true). | no | null(false) |
+| `localized` | Boolean | The value is stored per locale (`localize[field][locale]` for CRUD, `attrs.__localize__[field][locale]` for GLOBAL/CONTEXT). **Two hard prerequisites (see "Localized fields" below):** the parent form must be multi-language, and for `CRUD` scope the CRUD must have a localization ObjectNode column (the CRUD's `localizationField`) — the settings-panel checkbox rejects the flag otherwise. Hand-authoring bypasses that guard → a control that stores no per-locale values. | no | null(false) |
+| `alwaysMandatory` | Boolean | The field is always mandatory. | no | null(false) |
+| `mandatoryValidationMessages` | `Map<String,String>` | Localized "required field" error texts (`locale → message`). Keys are locale strings (`"en_US"`/`"hy_AM"`/…) or a language (`"en"`). | no | `{}` |
+| `mandatoryPredicateIdentifier` | String (UUID) | Predicate: when `true` → the field is mandatory (conditional mandatoriness; when `alwaysMandatory=false`). | no | null |
+| `eventComponentMappings` | array of event mappings (see below) | On a DOM event — refresh the specified component (optional execution rules beforehand). | no | `[]` |
+| `conditionalValidations` | array of validations (see below) | Validations by predicate, each with severity + localized messages. | no | `[]` |
+| `defaultValueEnabled` | Boolean | Enable substitution of a default when the value is null. | no | null(false) |
+| `defaultValueStatic` | Boolean | `true`/null → static default; `false` → rule-based (`defaultValueRuleIdentifier`). | no | null(=true) |
+| `defaultValue` | String | Static default (coerced to `dataClass`). | with static default | null |
+| `defaultValueLocalized` | `Map<String,String>` | Static default per locale (for `localized` fields). | no | null |
+| `defaultValueRuleIdentifier` | String (UUID) | EXECUTION rule whose return becomes the default (when `defaultValueStatic=false`). | with rule default | null |
 
 > ⛔ **A `java.lang.Boolean` control with no default posts a literal `false`, and every create is born
 > switched OFF.** The toggle has no third "not set" state: it renders unchecked and submits `false`, which
@@ -261,15 +254,9 @@ counterparty, stored per locale:
 > otherwise".
 
 
-Base helper predicates (`FormControlSettings.java`): `isLocalized`, `isDefaultValueEnabled`,
-`isDefaultValueStatic`, `hasDefaultValue`, `isJsonNodeType`, `hasJsonNodeExpression`,
-`isBetween`, `getOrCreateBetweenMapping`, `isAlwaysMandatory`, `hasMandatoryValidation`,
-`hasConditionalValidations`.
-
 > **`filterKey` vs `fieldExpression`.** In a normal form only `fieldExpression` matters. The generator
 > sets `filterKey == fieldExpression` (see examples), but the form's runtime binding reads scope +
-> `fieldExpression` (`getFieldModel()` `BaseFormControl.java`). `filterKey` is active only inside
-> `FilterFormPlugin` (`initializeFromPageParams()` `BaseFormControl.java`).
+> `fieldExpression`. `filterKey` is active only inside a filter form.
 
 ### Where the value LANDS
 
@@ -292,7 +279,7 @@ Base helper predicates (`FormControlSettings.java`): `isLocalized`, `isDefaultVa
 > A form opened from anything OTHER than a `crud.table`/`crud.tree` action — a workflow user task, a
 > ProcessTable start/global action — is **not** in CRUD mode (the discriminator is the launching action's
 > settings type plus its `crudAlias`, NOT the presence of a row: a CRUD-table CREATE action opens with no
-> `crudId` and still runs in CRUD mode, over an empty seeded record): there the `scope` row of the `FormControlSettings` table above holds literally — `GLOBAL` → `attrs`,
+> `crudId` and still runs in CRUD mode, over an empty seeded record): there the `scope` row of the table above holds literally — `GLOBAL` → `attrs`,
 > `CONTEXT` → `contextDataMap[ctx]` — and both are correct off-row (`CONTEXT` when the value belongs to that
 > context, `GLOBAL` otherwise). Nested (list-item) forms keep their own `__temp_item__` binding; the re-binding
 > never reaches into them.
@@ -302,23 +289,23 @@ Base helper predicates (`FormControlSettings.java`): `isLocalized`, `isDefaultVa
 > the rule reads; on the table path the binding is forced to `CRUD` whatever you wrote. Either way the rule must
 > read BOTH places, attrs first — the helper is in [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md).
 
-### supportedDataClasses (whitelist of `dataClass` per control)
+### Allowed `dataClass` per control (whitelist)
 
 | Control | Allowed `dataClass` (FQN) |
 |---|---|
-| Text | `java.lang.String`, `Integer`, `Long`, `Short`, `Byte`, `Float`, `Double`, `java.math.BigDecimal`, `java.math.BigInteger`, `Boolean`, `com.fasterxml.jackson.databind.node.ObjectNode` (`TextFieldFormControlPlugin.java` `supportedDataClasses()`) |
+| Text | `java.lang.String`, `Integer`, `Long`, `Short`, `Byte`, `Float`, `Double`, `java.math.BigDecimal`, `java.math.BigInteger`, `Boolean`, `com.fasterxml.jackson.databind.node.ObjectNode` |
 | Text Area | `java.lang.String`, `ObjectNode` |
 | Drop Down | `String`, `Integer`, `Long`, `Short`, `Float`, `Double`, `Boolean`, `ObjectNode`, `java.lang.Enum` (enum mode) |
 | Autocomplete | `String`, `Integer`, `Long`, `Short`, `Float`, `Double`, `Boolean`, `ObjectNode` |
 | Date Picker | `java.time.Instant`, `java.time.LocalDate`, `java.time.LocalDateTime`, `ObjectNode` |
 | Tree Picker | `String`, `Integer`, `Long`, `Short`, `Float`, `Double`, `Boolean`, `ObjectNode` |
-| List | `java.util.ArrayList` (`new ArrayList<>().getClass()`), `ObjectNode` — **but real nodes write `java.util.List`** |
-| File Upload | `java.util.ArrayList` (`new ArrayList<String>().getClass()`, `FileUploadFieldFormControlPlugin.java`), `ObjectNode` — **but real nodes write `java.util.List`** (see the attachments example below) |
+| List | `java.util.ArrayList`, `ObjectNode` — **but real nodes write `java.util.List`** |
+| File Upload | `java.util.ArrayList`, `ObjectNode` — **but real nodes write `java.util.List`** (see the attachments example below) |
 | Gantt | `ObjectNode` **only** |
 | Comments | `ObjectNode` **only** |
 
-> **ArrayList vs List trap.** For List and File Upload the whitelist contains `java.util.ArrayList` (the class
-> of the `new ArrayList<>()` object), but real nodes serialize `dataClass:"java.util.List"`.
+> **ArrayList vs List trap.** For List and File Upload the whitelist contains `java.util.ArrayList`,
+> but real nodes serialize `dataClass:"java.util.List"`.
 > Write `"java.util.List"` — that is what the generator does and what the runtime reads.
 
 ---
@@ -329,7 +316,7 @@ Below, for each variant: a worked example → delta fields (beyond the base) →
 
 ### 1. Text field — `dynaform.form.text.field.plugin`
 
-Delta: **none** — uses the base `FormControlSettings` directly. The form of the input is chosen at runtime
+Delta: **none** — uses the base settings directly. The form of the input is chosen at runtime
 by `dataClass`: string/number/checkbox. **Numbers and booleans are a Text field with the corresponding `dataClass`**
 (no separate NUMBER/CHECKBOX plugins exist).
 
@@ -351,7 +338,7 @@ Example with `alwaysMandatory` (a manufacturing bill of materials):
 }
 ```
 
-HTML (`text/TextFieldFormControlPlugin.html`) — ONE of the wicket-ids is drawn by `dataClass`:
+HTML — ONE of the wicket-ids is drawn by `dataClass`:
 
 ```html
 <wicket:panel xmlns="http://www.w3.org/1999/xhtml" xmlns:wicket="http://wicket.apache.org">
@@ -390,7 +377,7 @@ description, `localized: true`):
 }
 ```
 
-HTML (`textarea/TextAreaFieldFormControlPlugin.html`):
+HTML:
 
 ```html
 <wicket:panel …>
@@ -407,7 +394,7 @@ Example of a conditional validation rendered on a textarea:
 
 ### 3. Drop Down (rimm) — `dynaform.form.rimm.drop.down.field.plugin`
 
-Settings: `FormControlRimmDropDownFieldSettings` → `DropdownFilterControlSettings` → base. Two modes of
+Settings: the base keys plus the delta below. Two modes of
 the options source: **rule-based** (`ruleIdentifier`) and **enum-bound** (`enumName`).
 
 Canonical **rule-based** example (a plant reference on a stock document, with an event mapping):
@@ -451,19 +438,19 @@ wrong"; it is "the data changed by itself".
 
 Delta fields:
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `ruleIdentifier` | String (UUID) | EXECUTION rule that **MUST convert rows to option pairs** — its body ends in `service.global.conversion.toSelectOptions(list,"<key>","<display>")` (`toSelectOptionsLocalized` for a localized CRUD); **NEVER a raw `findAll`/`find` entity list** (→ "No results found" + Show Nav hidden). Usually `RIMM_<alias>`; see §4a and [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md). | yes (rule mode) | null | `DropdownFilterControlSettings.java` |
-| `key` | String | The option property whose value is **stored** (usually `id`). For an enum — an enum property. | yes | null | `DropdownFilterControlSettings.java` |
-| `displayName` | String | The option property shown to the user (`name`, `label`). | yes | null | `DropdownFilterControlSettings.java` |
-| `showNav` | boolean | "Open source" icon (the CRUD page/enum-editor). The panel shows the checkbox only if the rule body is recognized as "Choices From CRUD/Enum". | no | false | `DropdownFilterControlSettings.java` |
-| `rowsInPage` | Integer | Page size for fetching options. Clamped ≤99; legacy null → 99. | no | null (→99) | `FormControlRimmDropDownFieldSettings.java` |
-| `searchEnabled` | boolean | Select2 mode with server-side search on each keystroke. | no | false | `FormControlRimmDropDownFieldSettings.java` |
-| `searchField` | String | The CRUD field on which the LIKE filter runs in search mode. | with `searchEnabled` | null | `FormControlRimmDropDownFieldSettings.java` |
-| `prevRuleIdentifier` | String (UUID) | Snapshot of the original `ruleIdentifier` (for rollback when search is removed). | no | null | `FormControlRimmDropDownFieldSettings.java` |
-| `searchRuleIdentifier` | String (UUID) | Identifier of the generated `RIMM_FILT_<alias>_<field>` rule. | no | null | `FormControlRimmDropDownFieldSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `ruleIdentifier` | String (UUID) | EXECUTION rule that **MUST convert rows to option pairs** — its body ends in `service.global.conversion.toSelectOptions(list,"<key>","<display>")` (`toSelectOptionsLocalized` for a localized CRUD); **NEVER a raw `findAll`/`find` entity list** (→ "No results found" + Show Nav hidden). Usually `RIMM_<alias>`; see §4a and [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md). | yes (rule mode) | null |
+| `key` | String | The option property whose value is **stored** (usually `id`). For an enum — an enum property. | yes | null |
+| `displayName` | String | The option property shown to the user (`name`, `label`). | yes | null |
+| `showNav` | boolean | "Open source" icon (the CRUD page/enum-editor). The panel shows the checkbox only if the rule body is recognized as "Choices From CRUD/Enum". | no | false |
+| `rowsInPage` | Integer | Page size for fetching options. Clamped ≤99; legacy null → 99. | no | null (→99) |
+| `searchEnabled` | boolean | Select2 mode with server-side search on each keystroke. | no | false |
+| `searchField` | String | The CRUD field on which the LIKE filter runs in search mode. | with `searchEnabled` | null |
+| `prevRuleIdentifier` | String (UUID) | Snapshot of the original `ruleIdentifier` (for rollback when search is removed). | no | null |
+| `searchRuleIdentifier` | String (UUID) | Identifier of the generated `RIMM_FILT_<alias>_<field>` rule. | no | null |
 
-HTML (`dropdown/RimmDropDownFieldFormControlPlugin.html`):
+HTML:
 
 ```html
 <wicket:panel …>
@@ -480,15 +467,13 @@ HTML (`dropdown/RimmDropDownFieldFormControlPlugin.html`):
 `ruleIdentifier` you populate `enumName` + `enumValues` (a snapshot of `const → {prop → value}`) +
 `enumFieldNames`; `key`/`displayName` point to enum **properties** (usually `name` / `displayName`),
 `ruleIdentifier` is absent. The **`enumValues`+`enumFieldNames` snapshot is what drives rendering** in both
-sub-cases below; the on-wire stored value is the constant's `name()` (String). The **option label** is the
-`displayName` property's value **verbatim** — or the constant's `name()` when `displayName` is blank / missing /
-null / `"name"` — **NOT** a `"<value> (CONSTANT)"` composite (`formatEnumOption`
-`formatEnumOptionFromData` in `dropdown/RimmDropDownFieldFormControlPlugin.java`).
+sub-cases below; the on-wire stored value is the constant's name (String). The **option label** is the
+`displayName` property's value **verbatim** — or the constant's name when `displayName` is blank / missing /
+null / `"name"` — **NOT** a `"<value> (CONSTANT)"` composite (the dropdown formats it so).
 
 > **The enum trio is bound to the CURRENT `fieldExpression`.** The settings panel re-derives it on **every**
-> field-expression re-bind (`FormControlSettingsControlPanel.java`): it resolves the real `dataClass`
-> via `EnumColumnUtils.resolveDataClassName`, and when the new field `isEnumField` it **overwrites**
-> `enumValues`/`enumFieldNames`/`enumName` from the `FieldDto` — otherwise it **nulls all three** (a blank
+> field-expression re-bind: it resolves the real `dataClass`, and when the new field is an enum field it
+> **overwrites** `enumValues`/`enumFieldNames`/`enumName` from the field definition — otherwise it **nulls all three** (a blank
 > `fieldExpression` also nulls them). Relevant to the **MODIFY-FILLED** workflow: when you re-point a
 > control's `fieldExpression` by hand, re-snapshot the enum trio for the new field (or clear all three if the new
 > field is not an enum) — leaving a stale snapshot renders the wrong / an empty option list.
@@ -501,9 +486,8 @@ null / `"name"` — **NOT** a `"<value> (CONSTANT)"` composite (`formatEnumOptio
   below only. The `enumValues` snapshot is present on nested/collection-item enums
   (mandatory there) and may be omitted for top-level static enums (runtime falls back to the project-enum-registry).
 - **Pure-dynamic FREE / DB enum** (no Java class): use synthetic `dynamic.<enumName>`. Legacy —
-  `BaseFormControl.getDataClass()` short-circuits any `dynamic.*` string (it is **not** a loadable class,
-  `BaseFormControl.java`, comment "legacy persisted … before the dynamic-enum refactor") and resolves the enum
-  purely via `enumName` + the enum registry.
+  the platform short-circuits any `dynamic.*` string (it is **not** a loadable class — legacy persisted before
+  the dynamic-enum refactor) and resolves the enum purely via `enumName` + the enum registry.
 
 Enum-dropdown example (dropdown "Bom Type" on `billOfMaterials.bomType`) — note real FQN +
 snapshot:
@@ -538,14 +522,14 @@ Skeleton (pure-dynamic FREE/DB enum — no class → synthetic FQN):
 
 ### 4. Autocomplete (rimm) — `dynaform.form.rimm.autocomplete.field.plugin`
 
-Settings: `FormControlRimmAutoCompleteFieldSettings` → `AutocompleteFilterControlSettings` → base.
+Settings: the base keys plus the delta below.
 Inherits `ruleIdentifier`/`key`/`displayName`/`showNav` (the rule receives a `filterBy` parameter with the user's
 input, `attrs.get('filterBy')`). Delta:
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `showChoicesOnClick` | boolean | Show the list immediately on click (without typing). | no | false | `FormControlRimmAutoCompleteFieldSettings.java` |
-| `searchField` | String | The CRUD field for the server-side LIKE filter (usually = display). | no | null | `FormControlRimmAutoCompleteFieldSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `showChoicesOnClick` | boolean | Show the list immediately on click (without typing). | no | false |
+| `searchField` | String | The CRUD field for the server-side LIKE filter (usually = display). | no | null |
 
 **Example — field "Brand" over CRUD `ticket` (a service desk)** — note
 `key:"name"` (`name` is stored, not `id`) and `showChoicesOnClick:true`:
@@ -583,13 +567,11 @@ Four things must line up; miss any one and the field degrades **silently**:
    [01](01-content-model-and-pages.md)). This is the single most likely reason a hand-authored autocomplete
    renders as a plain input "that maps to nothing".
 3. **The binding quartet in `settings`** — `scope:"CRUD"`, `contextIdentifier`, `crudAlias`,
-   `fieldExpression`. They live on the inherited base class
-   (`FormControlRimmAutoCompleteFieldSettings` → `AutocompleteFilterControlSettings` → `FormControlSettings`),
-   so they are real fields, not extras. Each has an early-return in `BaseFormControl`: missing → the control
-   neither reads nor writes the value.
+   `fieldExpression`. They live on the inherited base settings,
+   so they are real fields, not extras. If any one is missing, the control neither reads nor writes the value.
 4. **`key` and `displayName` — both set to the SAME display field.** `toAutoCompleteOptions(list,"<field>")`
-   emits the pair `[key:<field>, value:v]` **twice** (`globalFunctions.yaml`), so
-   `convertToValueMap(response, key, displayName)` collapses to `v -> v` and the suggestion list is the
+   emits the pair `[key:<field>, value:v]` **twice**, so
+   the runtime's key/display projection collapses to `v -> v` and the suggestion list is the
    display values themselves. What gets stored in the bound field is therefore the **display value**, not a
    separate id — which is exactly right when the field IS the natural key (a document number, a code), and
    wrong if you were hoping to store an id behind a label. A `key`/`displayName` that does not match the
@@ -618,18 +600,17 @@ Narrow the suggestion set in the SQL method, not in the control: the picker has 
 "offer only what may still be chosen" (an open state, an unassigned row, a period that is not closed) is a
 `WHERE` clause on the method the rule calls.
 
-Behaviour worth knowing before you design around it (all read off
-`RimmAutoCompleteFieldFormControlPlugin` + richwicket `AutoCompleteField`):
+Behaviour worth knowing before you design around it:
 
 - **Free text is allowed.** The control is a `TextField` (`<input>`) bound straight to the field model, with
   no validator and no "must match a suggestion" enforcement — the user may type a value the rule never
   offered, and that verbatim string is submitted. That is what makes "pick an existing one **or** type a new
   one" possible in a single field.
-- **The rule runs on every keystroke**, via `workflowExecutionService.execute(..., {filterBy: s})` — the only
+- **The rule runs on every keystroke**, with the typed text passed in as `{filterBy: s}` — the only
   path that propagates the typed text as an attr. Filtering is 100% server-side: the control does not
   re-filter what the rule returns, so the rule MUST honour `filterBy` or the box will look broken.
 - **Which context the rule receives depends on the form**: in CRUD mode (and filter forms) a bare
-  `ContextDataDto` carrying only the locale; on a non-CRUD form (e.g. a **process-start** form) the live form
+  context carrying only the locale; on a non-CRUD form (e.g. a **process-start** form) the live form
   context. Do not write a choices rule that depends on `context.<ctx>.<alias>.data` unless you know it is
   only used on the latter.
 - **Failure is silent by design**: a rule returning a raw row list, a `key`/`displayName` mismatch, or a rule
@@ -638,7 +619,7 @@ Behaviour worth knowing before you design around it (all read off
 - Duplicate display values collapse into one suggestion (the map is keyed by the display value).
 - `searchField` is authoring-time metadata only — nothing reads it at runtime.
 
-HTML (`autocomplete/RimmAutoCompleteFieldFormControlPlugin.html`) — like the dropdown, but `<input>` instead
+HTML — like the dropdown, but `<input>` instead
 of `<select>` and the class `dropdown-nav-btn--autocomplete`:
 
 ```html
@@ -663,17 +644,16 @@ converting the CRUD rows into option pairs — **never return a raw `findAll`/`f
 
 **Symptom when you forget it** (an observed real failure — a choices rule shipped as
 `return service.crud.<alias>.findAll([active:"true"]) ?: []`): the picker shows **"No results found"** — the
-runtime's `convertToValueMap` can only pair rows that came through `toSelectOptions*`; a raw entity list yields
+runtime can only pair rows that came through `toSelectOptions*`; a raw entity list yields
 nothing. **And** the "Show Nav" checkbox disappears from the settings panel, because
-`ChoicesRuleShape.forDropdown(body)` (which matches **only** `toSelectOptions(Localized)?`; the autocomplete control
-instead calls `forAutocomplete`, matching `toAutoCompleteOptions(Localized)?` — `nct-ui/.../utils/ChoicesRuleShape.java`)
-returns `NONE` → the panel hides the affordance. One missing converter, two symptoms.
+the panel recognises a dropdown rule body **only** when it matches `toSelectOptions(Localized)?` (for the autocomplete
+control: `toAutoCompleteOptions(Localized)?`) → otherwise the panel hides the affordance. One missing converter, two symptoms.
 
 **Other valid option sources** (the converters above are the common path, not the only one): a choices rule
 may instead **(a)** run a RIMM query — `return service.rimm.run([name:
 "<query>", itemsPerPage:100, parameters:[<field>: attrs.get('filterBy')]])` (the query returns option rows
 directly), or **(b)** return a **literal** option list `return [[key:'name', value:'LOW'], [key:'value',
-value:'Low'], …]` (static options). Both produce the pair-shape `convertToValueMap` expects, so both render fine
+value:'Low'], …]` (static options). Both produce the pair-shape the runtime expects, so both render fine
 (Show Nav is hidden for them — there's no single CRUD/enum source to open). `mrjun.py validate` treats all three
 (`toSelectOptions*`/`toAutoCompleteOptions*`, `service.rimm.run`, a literal `[[key,value],…]`) as valid; it ERRORs
 only on a **raw** `service.crud.X.findAll/find(...)` returned with none of them.
@@ -681,11 +661,11 @@ only on a **raw** `service.crud.X.findAll/find(...)` returned with none of them.
 **⚠️ The pair-key contract — two ways to ship an EMPTY picker that no log will tell you about.** The converter
 does **not** return one map per row; it flattens each row into **two** entries — `{key:"<key>", value:<row.key>}`
 then `{key:"<display>", value:<row.display>}`. The runtime projector
-(`WorkflowValueMapUtils.convertToValueMap`, `nct-ui/.../utils/`) walks that flat list, matches the entry's `key`
+walks that flat list, matches the entry's `key`
 against the control's `key`/`displayName` **by literal string equality**, and emits an option only once **both**
 sides are non-null. So the rule's converter arguments and the control's settings are **one contract in two files**
-— the platform's own generator keeps them in lockstep (`ChoicesFromCrudDialog.onCreated(ruleId, idField,
-displayField)` writes the *same two strings* into the rule body and into the settings), and hand-authoring is
+— the platform's own generator keeps them in lockstep (it writes the *same two strings* into the rule body and
+into the settings), and hand-authoring is
 where they drift:
 
 | # | Break | What the author writes | Runtime result |
@@ -728,8 +708,7 @@ drift appears the moment a rule is repointed at a real CRUD whose display column
 the settings stay at the scaffold default. `mrjun.py validate` ERRORs on both breaks.
 
 **`searchEnabled` semantics.** ON → a Select2 that re-runs the rule **server-side on every keystroke** passing
-`attrs.get('filterBy')` (+`rowsInPage`) and **trusts the rule's result verbatim** (no client re-filter,
-`RimmDropDownFieldFormControlPlugin.initEditableSearch`). So the rule MUST honor `filterBy` or the search box won't
+`attrs.get('filterBy')` (+`rowsInPage`) and **trusts the rule's result verbatim** (no client re-filter). So the rule MUST honor `filterBy` or the search box won't
 narrow.
 
 **⚠️ Do NOT hand-call the default `findAll` with a *partial* param map.** The generated default `findAll` is a
@@ -742,7 +721,7 @@ all predicates collapse) is fine; a partial map is the trap. The clean answer is
 
 **The canonical searchable pipeline — exactly what "I want to search" + "Search field" generates.** Ticking
 **"I want to search"** and picking **Search field = `<X>`** in the control settings
-(`AutoCompleteRimmRuleHelper.ensureFilteredSelectRule`) auto-creates FOUR named artifacts and rewires the field.
+auto-creates FOUR named artifacts and rewires the field.
 **Reproduce all four in a hand-authored mrjun** (the methods are NOT platform built-ins — they exist only once
 generated):
 
@@ -767,7 +746,7 @@ Field settings become `searchEnabled:true`, `searchField:"<X>"`, `ruleIdentifier
 `acFindBy<X>Like` wrapper **ignores `rowsInPage`/`pageNumber`** — the SQL's hard `LIMIT 100` is the ceiling.
 (`Cap(X)` = first-letter-uppercased search field, e.g. `name`→`acFindByNameLike`, `displayName`→`acFindByDisplayNameLike`.)
 
-**Localized labels — the "Localized" checkbox.** For a CRUD with a `@LocalizationField`/`localize` jsonb, tick
+**Localized labels — the "Localized" checkbox.** For a CRUD with a localization (`localize`) jsonb, tick
 **"Localized"** so the generated rule ends in **`toSelectOptionsLocalized(list,"<key>","<display>")`**. That resolves
 `localize.<display>.<viewerLocale>`, driven by the **session / global locale** (the top language switcher), NOT the
 form's per-field locale. Plain `toSelectOptions` reads the **base column** → options stuck in the base language
@@ -786,8 +765,8 @@ see [20-localization.md](20-localization.md) "the `localized:true` form-field fl
 
 ### 5. Date Picker — `dynaform.form.datepicker.field.plugin`
 
-Settings: `DatePickerFormControlSettings` (empty) → `DatePickerFilterControlSettings` → base. The only
-delta is `dateFormat`. **Date vs date-time is chosen by `dataClass`** (`LocalDate` vs `LocalDateTime`),
+Settings: the base keys plus `dateFormat` — the only
+delta. **Date vs date-time is chosen by `dataClass`** (`LocalDate` vs `LocalDateTime`),
 there are no separate DATE/DATETIME plugins. No `minDate`/`maxDate`/`showTime`/`disabledDates` fields exist
 (see Gotchas).
 
@@ -809,15 +788,14 @@ Example with `prohibitedPredicateIdentifier` (`erp`):
 }
 ```
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `dateFormat` | String | Moment.js pattern. If empty — by `dataClass`: `LocalDate`→`"DD/MM/YYYY"`, `LocalDateTime`/`Instant`→`"DD/MM/YYYY HH:mm:ss"`. **Must pair with `dataClass` (see note).** | no | null | `DatePickerFilterControlSettings.java`; defaults `DatePickerFormControlPlugin.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `dateFormat` | String | Moment.js pattern. If empty — by `dataClass`: `LocalDate`→`"DD/MM/YYYY"`, `LocalDateTime`/`Instant`→`"DD/MM/YYYY HH:mm:ss"`. **Must pair with `dataClass` (see note).** | no | null |
 
 > **`dateFormat` is a dataClass-gated curated picker in the panel** — an autocomplete over a fixed
 > catalog, though a pattern of your own is still accepted (and moment's `[literal]` escaping works).
-> The catalog is 10 date-only + 17 date-time Moment.js patterns and lives in
-> `utils/DateFormatColumnUtils.java`, shared with the CRUD Table / CRUD Tree / Process Table column
-> `dateFormat`; `formatsForDataClass` shows **only date-only for `LocalDate`, only date-time for
+> The catalog is 10 date-only + 17 date-time Moment.js patterns, shared with the
+> CRUD Table / CRUD Tree / Process Table column `dateFormat`; the picker shows **only date-only for `LocalDate`, only date-time for
 > `LocalDateTime`, all for `Instant`**. Canonical values: date-only
 > `"DD/MM/YYYY"`, `"YYYY-MM-DD"`, `"MMMM DD, YYYY"`; date-time `"DD/MM/YYYY HH:mm:ss"`, `"YYYY-MM-DD HH:mm"`,
 > `"DD/MM/YYYY hh:mm A"`. **A date-only pattern on a `LocalDateTime`/`Instant` field silently drops the time
@@ -825,7 +803,7 @@ Example with `prohibitedPredicateIdentifier` (`erp`):
 
 > ### ⛔ A Java pattern in `dateFormat` does not error — it RENDERS
 >
-> `dateFormat` is **moment.js**, always. `DateFormatAutoCompleteField` is "an autocomplete over
+> `dateFormat` is **moment.js**, always. The panel field is "an autocomplete over
 > the platform's curated moment.js pattern catalogue" and "the runtime formatter understands any
 > moment pattern" — so a hand-typed pattern is taken verbatim, *including one that is not moment
 > at all*. Nothing validates it, nothing logs, and the gates stay green.
@@ -855,7 +833,7 @@ Example with `prohibitedPredicateIdentifier` (`erp`):
 > (`_check_date_format_tokens`) and warns on a lowercase `d`, on a pattern outside the catalogue,
 > and on a date-only pattern bound to a time-bearing field.
 
-HTML (`datepicker/DatePickerFormControlPlugin.html`):
+HTML:
 
 ```html
 <wicket:panel …>
@@ -869,16 +847,15 @@ HTML (`datepicker/DatePickerFormControlPlugin.html`):
 </wicket:panel>
 ```
 
-The date picker **always** offers between mode (`FormControlSettings.java` comment). With `between:true`
-it renders a **single range input** (`DatePickerFormControlPlugin.java` binds one `datePicker` TextField
-to a range-string model) whose JS opens a **two-calendar daterangepicker** (`singleDatePicker:!between`); the one
+The date picker **always** offers between mode. With `between:true`
+it renders a **single range input** (one text field bound to a range string) whose JS opens a **two-calendar daterangepicker** (`singleDatePicker:!between`); the one
 field feeds **both** the primary (from) and `betweenMapping` (to) mappings, split server-side on `' - '`. The
 type/pattern are shared from the primary. *(This is unlike the numeric Text field's between mode, which really is
 two `<input type="number">` — `cntrlNumBetween`, §1.)*
 
 ### 6. Tree Picker — `dynaform.form.tree.picker.plugin`
 
-Settings: `FormControlTreePickerSettings` → `DropdownFilterControlSettings` → base. Like the dropdown, but the rule
+Settings: the base keys plus the delta below. Like the dropdown, but the rule
 returns a page of *children* by `attrs.get('parentId')` (lazy-fetch). Example (a product-category tree):
 
 > **⚠️ The choices-rule contract of §4a applies to the tree picker too** (despite that section's
@@ -908,12 +885,12 @@ returns a page of *children* by `attrs.get('parentId')` (lazy-fetch). Example (a
 
 Delta (beyond the inherited `ruleIdentifier`/`key`/`displayName`/`showNav`):
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `displayMode` | enum `"NAME_ONLY"`\|`"PATH"` | Style of the closed picker. `PATH` walks up the parent chain (cap 20). | no | null (→`NAME_ONLY`) | `FormControlTreePickerSettings.java`, enum `TreePickerDisplayMode.java` |
-| `rowsInPage` | Integer | Page size when lazy-fetching children (clamp 1..99). | no | null | `FormControlTreePickerSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `displayMode` | enum `"NAME_ONLY"`\|`"PATH"` | Style of the closed picker. `PATH` walks up the parent chain (cap 20). | no | null (→`NAME_ONLY`) |
+| `rowsInPage` | Integer | Page size when lazy-fetching children (clamp 1..99). | no | null |
 
-HTML (`treepicker/TreePickerFormControlPlugin.html`) — hidden `value` (form-submit) + visible label +
+HTML — hidden `value` (form-submit) + visible label +
 fancytree host; abbreviated:
 
 ```html
@@ -931,17 +908,14 @@ fancytree host; abbreviated:
 ```
 
 > **Runtime — the tree picker calls `service.crud.<alias>.get(id)`.** The closed-picker label, the `PATH`
-> breadcrumb, and ancestor auto-expand all resolve nodes by `reactorCrudService.executeCrudMethod(realm, client,
-> <crudAlias>, "get", [id])` → nct-executor (`CrudClient`, the executor's `/api/crud`) → RSocket → the
-> **dynamic-integration BL pod** (`TreePickerFormControlPlugin` `loadNode`/`resolveDisplayLabel`/`walkPath`; the same
+> breadcrumb, and ancestor auto-expand all resolve nodes by calling the source CRUD's `get` method with the node id (the same
 > dynamic-CRUD execution path as any `service.crud.<alias>.*`, [11](11-business-logic-dynamic-crud.md)). So the source CRUD **must expose a `get(id)` method** (scaffolded by default) — a missing/failing
 > `get` leaves the picker label blank. The children fetch still uses the choices rule (by `attrs.get('parentId')`, §4a).
 
 ### Conditional read-only — `prohibitedPredicateIdentifier` (and what the predicate may look at)
 
 Read-only is **not** an action-level feature: the primitive is a **PREDICATE** on the control
-(`prohibitedPredicateIdentifier`, `FormControlSettings.java`), re-evaluated on EVERY render by
-`BaseFormControl` against the form's own `contextData`; `true` → the control renders as a label.
+(`prohibitedPredicateIdentifier`), re-evaluated on EVERY render against the form's own context data; `true` → the control renders as a label.
 `alwaysProhibited` is the constant-true shortcut that skips the executor round-trip.
 
 The predicate is an ordinary Groovy PREDICATE, so it can inspect **anything the form context carries**:
@@ -953,21 +927,18 @@ The predicate is an ordinary Groovy PREDICATE, so it can inspect **anything the 
 | **which button opened the form** | `service.actionId` / `service.actionName` | an approval step shows the document but does not let the reviewer change it |
 | anything else | `service.crud.*`, `attrs`, … | field depends on a reference row |
 
-`service.actionId` works here because `FormPlugin.tagContextDataWithActionMeta`
-(`FormPlugin.java`) tags `contextData.attrs` with `__actionName`/`__actionId` for every rule the
-open form runs, and `applyActionMeta` is wired in all three executors — including
-**`GroovyPredicate.java`**. Compare on the **id** (stable); `actionName` is the caption.
+`service.actionId` works here because the open form tags its context `attrs` with
+`__actionName`/`__actionId` for every rule it runs — predicates included. Compare on the **id** (stable); `actionName` is the caption.
 
 ⛔ **`context.<ctx>.<crud>.data.get()` — guard every read, and test `?.id`, not `null`.** On a CRUD-mode form
 (one opened from a crud.table/crud.tree action, i.e. with the action's `settingsName`+`actionId` URL params)
-the platform seeds an EMPTY `CrudDataDto` before any control is built — `FormPlugin.initCrudMode` calls
-`ensureCrudModeEntry` after the entity load, and `FormPlugin.getContextData()` (the accessor `BaseFormControl`
-uses to run the prohibited-predicate, the choices rule and the validations) re-applies it on every call, so a
-rule that replaced `contextData` cannot un-seed it. In CREATE mode the read therefore returns an **empty
+the platform seeds an EMPTY CRUD record before any control is built (after the entity load) and re-applies
+it every time the form context is read to run the prohibited-predicate, the choices rule and the validations, so a
+rule that replaced the context data cannot un-seed it. In CREATE mode the read therefore returns an **empty
 record**: `?.id`/`?.status` are **null**, not an exception. Same for hidden-content predicates
-(`buildHiddenContentPredicateContextData` seeds too, see [25](25-form-settings-validation-and-events.md)).
+(they are seeded too, see [25](25-form-settings-validation-and-events.md)).
 The read DOES throw *"Failed to execute rule '…': Failed to execute Groovy script: No CRUD data available for
-CRUD: `<alias>`"* (`DynamicRuleContext.groovy`) wherever no valid crud-mode metadata exists: a process-start or
+CRUD: `<alias>`"* wherever no valid crud-mode metadata exists: a process-start or
 user-task form, a form page opened directly without those URL params, and any rule run outside a form. Write
 the guard anyway — the same predicate has to survive both worlds.
 
@@ -1002,26 +973,10 @@ CRUD (`crudAlias: "orderSizeLine"`, the project context). They then render fine,
 and write nowhere. The row appears in the grid with **empty cells before you even save**, and the
 lines never reach the database.
 
-`ListItemFormPlugin` (nct-ui) keeps the row being edited in a temporary location and says so:
-
-```java
-private static final String TEMP_CONTEXT_IDENTIFIER = "__temp_list_item_context__";
-private static final String TEMP_CRUD_ALIAS         = "__temp_item__";
-
-/** Stores the item in a temporary CRUD location within the contextData.
- *  This is where child form controls will read/write their values. */
-private void storeTempItem(ContextDataDto contextData, ObjectNode item) { … }
-```
-
-and its own "Auto add fields" generator binds every control it creates to exactly that:
-
-```java
-new GenerateFieldsFromCrudDialog(…,
-        buildNestedCrudAlias(),    // field LIST source  = "customerOrder.lines"
-        TEMP_CONTEXT_IDENTIFIER,   // binding target context
-        TEMP_CRUD_ALIAS,           // binding target crud
-        parentListScope)           // scope = the parent list's scope
-```
+The List-item form keeps the row being edited in a temporary location — context
+`__temp_list_item_context__`, CRUD alias `__temp_item__` — and that is where its child form controls read and
+write their values. Its own "Auto add fields" generator binds every control it creates to exactly that pair
+(the field LIST source is the nested alias, e.g. `customerOrder.lines`; the scope is the parent list's scope).
 
 So an item control must read:
 
@@ -1044,7 +999,7 @@ work.
 **And the parent CRUD must expose the collection.** The List binds to
 `crudAlias: <parent>` + `fieldExpression: <lines>`; if the parent's `dtoFields` has no such field,
 there is nothing to bind to and the rows die with the page. Declare it as **`ArrayNode`** — the
-supported Jackson tree type for a top-level JSON array (`FieldEditorDialog.ALL_FIELD_TYPES`).
+supported Jackson tree type for a top-level JSON array.
 A scaffolded `create`/`update` already iterates `param['lines']` and calls `insertLine` per row, so
 the DTO field is usually the only thing missing.
 
@@ -1059,21 +1014,10 @@ added: the picker writes back only what it knows, `{"id": "..."}`. The label liv
 table and nothing has fetched it. Saving the order and reopening it fills the column — which is
 exactly the demo-killing symptom "the line is empty until I reload".
 
-The platform has a designed hook for this, and only this. `ListItemFormPlugin.handleSubmit()`
-runs a rule at **Step 1.5** — after the item is collected, *before* it joins the parent list:
-
-```java
-// Step 1.5: let a rule enrich the item while it is still editable — e.g. look a
-// reference up by its id and fill the line's display fields, so the grid shows
-// them straight away.
-if (!executeBeforeCompleteRule(action)) { return; }
-```
-
-and `executeBeforeCompleteRule` writes the rule's mutated context back:
-
-```java
-contextData.setContextDataMap(result.getContextDataMap());
-```
+The platform has a designed hook for this, and only this. On item submit it runs a rule at **Step 1.5** —
+after the item is collected, *before* it joins the parent list — so the rule can enrich the item while it is
+still editable (e.g. look a reference up by its id and fill the line's display fields, so the grid shows them
+straight away), and the rule's mutated context is written back into the item.
 
 So: **take the id in the sub-form's rule, fetch the name, write it into the context.** Wire it per
 action in the List's `settings` (create and edit each need their own entry — they are separate
@@ -1123,7 +1067,7 @@ return true
 
 Three things that are easy to get wrong:
 
-- **Mutate the node in place.** The hook applies `getContextDataMap()` back wholesale; replacing
+- **Mutate the node in place.** The hook applies the rule's context back wholesale; replacing
   the item with a fresh map instead of editing the `ObjectNode` loses the other fields.
 - **The column must read the enriched path** — `fieldExpression: "size.label"`, matching the key
   the rule writes. A column on `"size"` renders the object.
@@ -1224,7 +1168,7 @@ labels belong in ONE place the tests read from, generated, never re-typed in a t
 
 ### 7. List field — `dynaform.form.list.field.plugin`
 
-Settings: `ListFormControlSettings` → base. `dataClass` = `java.util.List`. Stores a nested table with
+Settings: the base keys plus the delta below. `dataClass` = `java.util.List`. Stores a nested table with
 actions (create/row), columns, and **subforms** (reusable nested forms). Full example
 (the lines of an inventory-count document, `inventoryCount.lines`) — abbreviated:
 
@@ -1258,42 +1202,41 @@ actions (create/row), columns, and **subforms** (reusable nested forms). Full ex
 
 Delta:
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `userActions` | object `UserTaskActionsDto` `{actions:[…],errors:[]}` | Row actions (edit/delete). | no | `{}` | `ListFormControlSettings.java` |
-| `createNewActions` | object `UserTaskActionsDto` | "Create new item" buttons above the table. | no | `{}` | `ListFormControlSettings.java` |
-| `columnSettings` | array `ProcessTableFormControlSettings` | Table columns (see fields below). | no | `[]` | `ListFormControlSettings.java` |
-| `localizedHeaderLabel` | `Map<String,String>` | Heading above the list, per locale. | no | null | `ListFormControlSettings.java` |
-| `headerIcon` | String | Pe-7s heading icon (e.g. `"pe-7s-list"`). | no | null | `ListFormControlSettings.java` |
-| `refreshOnCompleteByActionId` | `Map<String,String>` | actionId → CSV of IRefreshable-component identifiers to refresh on action completion. | no | null | `ListFormControlSettings.java` |
-| `subforms` | array `SubformSettings` `{id, localizedNames}` | Reusable nested forms. `id` — the child-content identifier on which the fields live. | no | null | `ListFormControlSettings.java`, `SubformSettings.java` |
-| `formIdByActionId` | `Map<String,String>` | actionId → subform-id (which form the action renders). No entry → fallback to the actionId itself. | no | null | `ListFormControlSettings.java`, `getRenderFormId` — |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `userActions` | object `{actions:[…],errors:[]}` | Row actions (edit/delete). | no | `{}` |
+| `createNewActions` | object `{actions:[…],errors:[]}` | "Create new item" buttons above the table. | no | `{}` |
+| `columnSettings` | array of column objects | Table columns (see fields below). | no | `[]` |
+| `localizedHeaderLabel` | `Map<String,String>` | Heading above the list, per locale. | no | null |
+| `headerIcon` | String | Pe-7s heading icon (e.g. `"pe-7s-list"`). | no | null |
+| `refreshOnCompleteByActionId` | `Map<String,String>` | actionId → CSV of refreshable-component identifiers to refresh on action completion. | no | null |
+| `subforms` | array `{id, localizedNames}` | Reusable nested forms. `id` — the child-content identifier on which the fields live. | no | null |
+| `formIdByActionId` | `Map<String,String>` | actionId → subform-id (which form the action renders). No entry → fallback to the actionId itself. | no | null |
 
-**`UserTaskActionsDto`** (`nct-workflow-common/.../dto/UserTaskActionsDto.java`): `actions:List<ActionDto>`
-`errors:List<ActionError>` (`ActionError{predicateIdentifier, error}`).
+**Action list** `{actions:[…], errors:[…]}`: `actions` is an array of action objects, `errors` an array of
+`{predicateIdentifier, error}`.
 
-**`ActionDto`** — the nested class `UserTaskActionsDto.ActionDto`. Full list of fields (the same as
+**Action object** — full list of fields (the same as
 for CRUD-table/user-task actions; only a few are used in List):
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `id` | String (UUID) | Action identifier. | |
-| `localizedNames` | `Map<locale,String>` | Action name per locale. | |
-| `localizedButtonNames` | `Map<locale,String>` | The button caption inside the form (non-direct); default = `localizedNames`. | |
-| `predicateIdentifier` | String (UUID) | Action visibility predicate (`"null"`→null). | |
-| `onBeforeUserTaskStartRuleIdentifier` | String (UUID) | EXECUTION rule before start. | |
-| `onBeforeUserTaskCompleteRuleIdentifier` | String (UUID) | EXECUTION rule before completion. | |
-| `validationRuleIdentifiers` | String (CSV UUID) | The action's VALIDATION rules. | |
-| `direct` | String `"on"`\|`"off"` | `"on"` = direct action without a form; `isDirect()`=`equals("on")`. | |
-| `formGroupIdentifier` | String (UUID) | Non-direct → opens this form-group. | |
-| `taskId` | String | Workflow task id (for user-task actions). | |
-| `completeUserTask` | String | Task completion flag. | |
-| `icon` | String | Pe-7s icon class (`pe-7s-pen`/`pe-7s-trash`/`pe-7s-plus`). | |
-| `submitForm` | Boolean | For non-direct: `true`/absent = normal submit; `false` = the button only closes the item form (no validation, no rules, nothing written back) — a "Back" with the action's branding. | |
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | String (UUID) | Action identifier. |
+| `localizedNames` | `Map<locale,String>` | Action name per locale. |
+| `localizedButtonNames` | `Map<locale,String>` | The button caption inside the form (non-direct); default = `localizedNames`. |
+| `predicateIdentifier` | String (UUID) | Action visibility predicate (`"null"`→null). |
+| `onBeforeUserTaskStartRuleIdentifier` | String (UUID) | EXECUTION rule before start. |
+| `onBeforeUserTaskCompleteRuleIdentifier` | String (UUID) | EXECUTION rule before completion. |
+| `validationRuleIdentifiers` | String (CSV UUID) | The action's VALIDATION rules. |
+| `direct` | String `"on"`\|`"off"` | `"on"` = direct action without a form. |
+| `formGroupIdentifier` | String (UUID) | Non-direct → opens this form-group. |
+| `taskId` | String | Workflow task id (for user-task actions). |
+| `completeUserTask` | String | Task completion flag. |
+| `icon` | String | Pe-7s icon class (`pe-7s-pen`/`pe-7s-trash`/`pe-7s-plus`). |
+| `submitForm` | Boolean | For non-direct: `true`/absent = normal submit; `false` = the button only closes the item form (no validation, no rules, nothing written back) — a "Back" with the action's branding. |
 
 > ⚠️ **Runtime floor.** The List runtime learned to execute the action rules, `submitForm` and
-> `localizedButtonNames`, and to render enum/boolean columns, on **2026-08-07** (`ListItemFormPlugin` +
-> `ListFormControlPlugin`). On an nct-ui built before that, those settings are stored and shown in the panel
+> `localizedButtonNames`, and to render enum/boolean columns, on **2026-08-07**. On a platform build older than that, those settings are stored and shown in the panel
 > but do nothing. So set them for behaviour you want on the current platform — but do not make a generated
 > project's **correctness** depend on them if it may be imported into an older deployment: keep the
 > load-bearing checks in the document-level validation/CRUD rules, which run everywhere.
@@ -1316,7 +1259,7 @@ error; in a process-mode form they run through the workflow service, otherwise t
 | Slot | When | Item location for the rule | Effect of the result |
 |---|---|---|---|
 | `onBeforeUserTaskStartRuleIdentifier` | on the action click, **before the item form is drawn** | row actions: `context.<ctx>.__listItem__.data` + `attrs.__currentItem__`; create: no item yet | the rule's **return value**, when it is a map, is laid over the item the form opens with (create → the whole prefill; edit → only the returned fields override the stored row). Errors → the form does not open. |
-| `onBeforeUserTaskCompleteRuleIdentifier` | on item submit, after validation, **before the line is merged into the parent list** | `context.currentData` — the platform's existing handle on `__temp_list_item_context__.__temp_item__` (`ExecutionRuleTemplate.groovy`) | mutations to that item are what gets stored in the list. Errors → the submit is aborted and the messages are shown. |
+| `onBeforeUserTaskCompleteRuleIdentifier` | on item submit, after validation, **before the line is merged into the parent list** | `context.currentData` — the platform's existing handle on `__temp_list_item_context__.__temp_item__` | mutations to that item are what gets stored in the list. Errors → the submit is aborted and the messages are shown. |
 
 For a direct action (`direct:"on"`, e.g. Delete) there is no form: the start rule runs first, then the
 complete rule — either can veto the removal — and the row is only then dropped from the list.
@@ -1343,8 +1286,8 @@ complete rule — either can veto the removal — and the row is only then dropp
 > `setField` writes into the existing `<ref>` object (it does not replace it), so the submitted `id` survives
 > next to the display fields.
 
-**`ProcessTableFormControlSettings`** (`nct-ui/.../plugin/process/ProcessTableFormControlSettings.java`) —
-an element of `columnSettings[]`: `id`, `name` **`@Deprecated` — use `localizedNames` instead**,
+**Column object** —
+an element of `columnSettings[]`: `id`, `name` **deprecated — use `localizedNames` instead**,
 `localizedNames`, `dataClass`, `scope`,
 `contextIdentifier`, `crudAlias`, `fieldExpression`, `enumDisplayField`,
 `enumValues`, `enumName`, `trueIcon`, `falseIcon`. A List column renders exactly like a
@@ -1353,17 +1296,16 @@ CRUD/Process-table column (LIVE 2026-08-07): an enum column (`enumValues` presen
 `trueIcon`/`falseIcon` shows the icon instead of `true`/`false`; boolean and numeric columns are
 right-aligned.
 
-HTML: see `list/ListFormControlPlugin.html` (a card with header-actions, a `<table>` with dropdown row-actions,
+HTML: a card with header-actions, a `<table>` with dropdown row-actions,
 pagination). Structure: `.list-control-container` → header (`createNewActions` as `actionLink`) → `<table>`
 (`tableHeaders`/`tableRows`/`rowActions`) → `paging`.
 
-**Reusable-forms model:** several actions may reference a single `SubformSettings` via
-`formIdByActionId`; `getRenderFormId(actionId)` (`ListFormControlSettings.java`) when there is no entry
-returns the `actionId` itself (legacy compatibility). The List-item child fields live in the sub-nodes
+**Reusable-forms model:** several actions may reference a single entry of `subforms` via
+`formIdByActionId`; when there is no entry the form id is the `actionId` itself (legacy compatibility). The List-item child fields live in the sub-nodes
 `dynaform.list.item.plugin`.
 
 > 🛑 **Load-bearing invariant — a List's Create/Edit buttons open a form ONLY if the right list-item child node
-> exists.** When an action fires, `ListFormControlPlugin` resolves `formIdentifier = getRenderFormId(actionId)`
+> exists.** When an action fires, the platform resolves `formIdentifier = formIdByActionId[actionId] ?? actionId`
 > (create, edit) and renders the `dynaform.list.item.plugin` **child of the List node whose
 > `identifier` equals that `formIdentifier`**. So for every create/edit action the List MUST have
 > a child list-item node with `identifier == formIdByActionId[actionId] ?? actionId`, and that node must contain
@@ -1374,15 +1316,15 @@ returns the `actionId` itself (legacy compatibility). The List-item child fields
 > 🛑 **The two shapes that ship a sub-grid with NO ACTION BUTTONS AT ALL** (LIVE-FOUND 2026-08-07 — the grid and
 > its columns render, there is simply no Add / Edit / Delete, so document lines can never be entered; every
 > offline gate stays green):
-> 1. **`"subforms": {}`** — it is a **`List<SubformSettings>`**, i.e. a JSON **ARRAY** of `{id, localizedNames}`,
+> 1. **`"subforms": {}`** — it is a JSON **ARRAY** of `{id, localizedNames}`,
 >    one entry per non-direct action. A JSON *object* fails to deserialize, the whole settings blob falls back to
 >    a default instance, and the columns and the actions vanish with it. An **absent/null** `subforms` is a
 >    different, *working* shape — the legacy one of §8: nothing in the render path reads `subforms`, so
->    `getRenderFormId` falls back to the action id and the form still opens (the key is only read by the author
+>    the form id falls back to the action id and the form still opens (the key is only read by the author
 >    panels and by orphan cleanup). Emit the array anyway in a hand-authored export — one entry per non-direct
 >    action, plus the matching `formIdByActionId`.
 > 2. **`formIdByActionId` pointing at anything that is not a child node identifier** — e.g. the literal
->    `"create"`. `getRenderFormId` returns it verbatim (no validation), the lookup for a
+>    `"create"`. it is used verbatim (no validation), the lookup for a
 >    `dynaform.list.item.plugin` child with that identifier misses, and the action is dead.
 >
 > The working shape: both actions map to the **CREATE**
@@ -1394,9 +1336,9 @@ returns the `actionId` itself (legacy compatibility). The List-item child fields
 > `subforms: []`.
 >
 > ℹ️ **Author-panel completeness of `columnSettings`.** The cell value comes from
-> `extractCellValue(rowData, fieldExpression)`, so `fieldExpression` is what must resolve **inside the line**;
+> the column's `fieldExpression`, which is what must resolve **inside the line**;
 > `dataClass` + `enumValues`/`enumDisplayField` + `trueIcon`/`falseIcon` then decide how that value is
-> rendered. The settings panel reads the FULL `ProcessTableFormControlSettings`: with `name`,
+> rendered. The settings panel reads the FULL column object: with `name`,
 > `dataClass` and the `scope`/`contextIdentifier`/`crudAlias` mapping omitted (a common shortcut),
 > the author sees an **empty Name and an empty mapping** for every column. Author-generated columns should fill
 > them (`scope: "CRUD"`, the parent form's `contextIdentifier`/`crudAlias`, `name` = the default-locale label);
@@ -1404,9 +1346,8 @@ returns the `actionId` itself (legacy compatibility). The List-item child fields
 
 ### 8. List item (subform) — `dynaform.list.item.plugin`
 
-This is **not** a control with settings, but a nested form container (`ListItemFormPlugin`, `group="Forms"`,
-`hideInKicker=true`) — one per editable Create/Edit sub-form of a List. HTML — just a `<form>` with a
-languageSelector + content (`list/ListItemFormPlugin.html`).
+This is **not** a control with settings, but a nested form container — one per editable Create/Edit sub-form of a List. HTML — just a `<form>` with a
+languageSelector + content.
 
 **Node shape:** the list-item node has **no `settings` slot at all** — its
 `properties` keys are exactly `["className","isParsis","styleName","tagProperties"]` (the same generic set as a
@@ -1415,18 +1356,14 @@ do not forget `isParsis`. Its single child is a `nct.parsis.plugin` with `identi
 canonical parsis that holds the generated grid (`gen_row_*` → cols → slots → `fld_gen_slot_*`, see
 [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md)).
 
-**id-linkage invariant (H1):** the list-item node's `identifier` **must equal `getRenderFormId(actionId)`**
-(= `formIdByActionId[actionId] ?? actionId`, `ListFormControlSettings.java`) — this is what
-`ListFormControlPlugin` resolves and renders when the action fires. When the action
-is mapped through a `SubformSettings`, that id == `SubformSettings.id` (`SubformSettings.java`); an unmapped
+**id-linkage invariant (H1):** the list-item node's `identifier` **must equal the action's form id**
+(= `formIdByActionId[actionId] ?? actionId`) — this is what
+the platform resolves and renders when the action fires. When the action
+is mapped through `subforms`, that id == `subforms[].id`; an unmapped
 (legacy) action falls back to its **own** id.
 
 The child fields are ordinary form controls, bound to the item's fields via a **temp context**:
-`contextIdentifier:"__temp_list_item_context__"`, `crudAlias:"__temp_item__"`, `scope` = the parent list's scope
-(`ListItemFormPlugin.java` `TEMP_CONTEXT_IDENTIFIER`/`TEMP_CRUD_ALIAS`; runtime metadata
-`NestedFormMetadata`: `targetContextIdentifier=__temp_list_item_context__`, `targetCrudAlias=__temp_item__`,
-`sourceCrudAlias` of the form e.g. `"ticket.spareParts"`, `lockTargetLocation`, `parentListScope`;
-`config/NestedFormMetadata.java`).
+`contextIdentifier:"__temp_list_item_context__"`, `crudAlias:"__temp_item__"`, `scope` = the parent list's scope.
 
 **Two shapes you will meet in the wild:**
 
@@ -1475,30 +1412,28 @@ The full form-group framing of these sub-forms (they are forms too) —
 
 ### 9. File Upload — `dynaform.form.file.upload.field.plugin`
 
-Settings: `FormControlFileUploadFieldSettings` → base. `dataClass` — whitelist `String` / `ArrayNode` /
+Settings: the base keys plus the delta below. `dataClass` — whitelist `String` / `ArrayNode` /
 `ArrayList`; **older nodes in the wild write `java.util.List`**, which the control still reads (the same
 ArrayList-vs-List trap as in List). Which of them you pick changes the stored shape — see the table below.
-Delta (all with `@Builder.Default` defaults):
+Delta (all with defaults):
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `uploadPath` | String | Base upload path. | no | `"uploads/"` | `FormControlFileUploadFieldSettings.java` |
-| `allowedFileTypes` | String | CSV of extensions. | no | `"pdf,doc,docx,xls,xlsx,jpg,jpeg,png,gif"` | `FormControlFileUploadFieldSettings.java` |
-| `maxFileSize` | long | Max size (bytes). | no | `10485760` (10MB) | `FormControlFileUploadFieldSettings.java` |
-| `allowMultiple` | boolean | Multiple upload (**named `allowMultiple`, NOT `multiple`**). | no | `true` | `FormControlFileUploadFieldSettings.java` |
-| `showProgress` | boolean | Show progress. | no | `true` | `FormControlFileUploadFieldSettings.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `uploadPath` | String | Base upload path. | no | `"uploads/"` |
+| `allowedFileTypes` | String | CSV of extensions. | no | `"pdf,doc,docx,xls,xlsx,jpg,jpeg,png,gif"` |
+| `maxFileSize` | long | Max size (bytes). | no | `10485760` (10MB) |
+| `allowMultiple` | boolean | Multiple upload (**named `allowMultiple`, NOT `multiple`**). | no | `true` |
+| `showProgress` | boolean | Show progress. | no | `true` |
 
 The fields `maxFiles`/`showPreview`/`acceptedFileTypes` do **not** exist (fiction of old docs).
 
-> **Runtime — files live in nct-file-storage, the field stores PATHS not bytes.** On upload the control
-> persists the bytes to the file-storage microservice and keeps the **returned storage path** in the field
-> value: `fileStorageService.upload(bytes, uploadPath + fileName)` (`FileUploadFieldFormControlPlugin.java`),
-> read via `fileStorageService.getFile`, remove via `fileStorageService.delete` —
-> `FileStorageServiceImpl` → `FileStorageClient` (Feign → the file-storage service). A ported project needs
+> **Runtime — files live in the file-storage service, the field stores PATHS not bytes.** On upload the control
+> persists the bytes to the file-storage microservice (under `uploadPath + fileName`) and keeps the **returned
+> storage path** in the field value; reading and removing go through the same service. A ported project needs
 > those files present in the TARGET file-storage; the paths travel in the export, the bytes do not.
 
 **The stored shape is not one shape.** It follows `dataClass` first and `allowMultiple` second
-(`fileupload/FileRefCodec.java` is the single encoder — do not reimplement it):
+(the platform encodes it in one place — do not reimplement it):
 
 | `dataClass` | `allowMultiple` | Value written |
 |---|---|---|
@@ -1511,51 +1446,40 @@ The fields `maxFiles`/`showPreview`/`acceptedFileTypes` do **not** exist (fictio
 Decoding is unambiguous only because a storage path never starts with `[`. Read tolerantly (any of the
 five shapes), write per the table.
 
-> ⛔ **`supportedDataClasses()` must return only `Serializable` classes — and the compiler will not tell
-> you.** The list is shipped to executor-service over RSocket. Slip a `JsonNode.class` into it (it is not
-> `Serializable`) and the failure surfaces nowhere near the cause: the **Field Expression dropdown in Form
-> Settings comes back EMPTY**, with no browser error and no UI log. The only trace is in the
-> executor-service log: `ApplicationErrorException: Class com.fasterxml.jackson.databind.JsonNode does not
-> implement Serializable`. Keep the declared return type bounded
-> (`List<Class<? extends Serializable>>`) and never cast into it.
+> ⛔ **Never hand-build a browser URL for a stored file.** The platform has ONE converter from a
+> storage path to a URL — it is what makes the URL follow `storage.url`
+> (`${IMAGE_STORAGE_URL:http://localhost:4126/stores}`, routed by the gateway) in every environment, and the image
+> plugin, background images and the profile panels all go through the same door. Serving a stored file
+> through another route is the wrong layer — the file service already exists and already has the bytes.
 
-> ⛔ **Never hand-build a browser URL for a stored file.** The one converter is
-> `RichCoreUtils.getSettingsInstance().getFileStorageProvider().getFileUrl(path)` — it is what makes the
-> URL follow `storage.url` (`${IMAGE_STORAGE_URL:http://localhost:4126/stores}`, routed by nct-gateway) in
-> every environment. `UploadedFileUrls` wraps it; ImagePlugin, `BackgroundImageBehavior` and the profile
-> panels all go through the same door. Writing a Wicket resource mount instead is the wrong layer — the
-> file service already exists and already has the bytes.
-
-> **Serving route.** `GET /**` on `FileController` declares `produces = image/jpeg|gif|png`, so everything
-> it returns is **mislabelled as an image**, and `/pdf-file/**` always forces `attachment`. Neither can
+> **Serving route.** The file service's catch-all `GET /**` declares its content type as image (jpeg/gif/png), so
+> everything it returns is **mislabelled as an image**, and `/pdf-file/**` always forces `attachment`. Neither can
 > preview a PDF. Use **`/raw-file/**`**: real content type from the file name, `inline` only for images
 > and PDFs (never SVG — scriptable markup), `attachment` for everything else, `X-Content-Type-Options:
-> nosniff`, and `?download=true` to force the save dialog. `RawFileRoutingTest` guards that `/raw-file/**`
-> stays more specific than the catch-all — if it ever lost, every file would silently become `image/jpeg`
-> again.
+> nosniff`, and `?download=true` to force the save dialog.
 
-> ⛔ **An `<iframe>` pointing at a storage URL shows "refused to connect".** nct-file-storage answers with
-> Spring Security's default `X-Frame-Options: DENY`, so no page may embed it — same origin or not. Do
+> ⛔ **An `<iframe>` pointing at a storage URL shows "refused to connect".** the file-storage service answers with
+> `X-Frame-Options: DENY`, so no page may embed it — same origin or not. Do
 > **not** relax the header for the sake of a preview. `fetch` the bytes and frame a `blob:` URL instead:
 > it is owned by the embedding document, carries no such header, and drops the cross-origin coupling.
 > Revoke it (`URL.revokeObjectURL`) on close and on switching file, or the decoded document stays in
 > memory for the life of the page.
 
-> ⛔ **`AjaxRequestTarget.add(component)` REPLACES markup — and silently unbinds every jQuery handler on
+> ⛔ **Repainting a component through Ajax REPLACES its markup — and silently unbinds every jQuery handler on
 > it.** The classic symptom here: delete a file, then upload does nothing — *not even an AJAX request*,
 > because the repaint swapped out the `<input type="file">` the handler was bound to. Two halves to the
-> fix, and you need both: repaint the **smallest** thing (a hint `Label`, never the drop area that
+> fix, and you need both: repaint the **smallest** thing (a hint label, never the drop area that
 > contains the input), and **delegate** from the component root
 > (`$root.on('change', '.selector', …)`) so a replaced child is still covered.
 
-HTML (`fileupload/FileUploadFieldFormControlPlugin.html`): `dropArea` (`uploadHint` + `uploadFormats` +
+HTML: `dropArea` (`uploadHint` + `uploadFormats` +
 the `<input type="file">`), `progressContainer`, `fileListContainer` → `fileList` — one card per file
 (`fileOpen` → `thumb` / `fileIcon`, `fileNameText`, `fileKindText`, `removeFile`). The list is suppressed
 entirely when `allowMultiple` is false and one file is held: a single-file field shows the file, not a
-list of one. `FileKinds.java` maps extension → IMAGE / PDF / OTHER — a **presentation** decision (which
+list of one. The viewer maps extension → IMAGE / PDF / OTHER — a **presentation** decision (which
 viewer opens), deliberately separate from the MIME table, which belongs to file-storage.
 
-JS (`FileUploadFieldFormControlPlugin.js`): `window.NctFileViewer` is a **singleton** framework-free
+JS: `window.NctFileViewer` is a **singleton** framework-free
 overlay shared by every upload field on the page — images get a gallery that arrows between the other
 images in the same list, PDFs get the framed blob plus a download button, everything else downloads.
 
@@ -1573,36 +1497,36 @@ Two rules make the gallery transition work, and both are easy to get wrong:
 
 ### 10. Gantt Chart — `dynaform.form.gantt.chart.plugin`
 
-Settings: `GanttChartFormControlSettings` → base. `dataClass` = `ObjectNode` **only**. The field value is
-JSON of the form `GanttDataDto {items:[GanttItemDto], viewStart, viewEnd, lastModified}`, where `GanttItemDto` =
-`{id, name:{locale→str}, description:{locale→str}, start, end, progress, color, dependencies:[], attachments:[], milestone}`
-(`gantt/dto/GanttItemDto.java`). Each item's `attachments[]` are `GanttAttachmentDto {fileId, fileName, size,
-contentType}` where **`fileId` is an nct-file-storage path** — per-task uploads go to `gantt/<itemId>/<uuid>-<name>`
-via `fileStorageService.upload` (`GanttItemEditPanel.java`, only when `attachmentsEnabled`). Delta settings
-(all `@Builder.Default`):
+Settings: the base keys plus the delta below. `dataClass` = `ObjectNode` **only**. The field value is
+JSON of the form `{items:[…], viewStart, viewEnd, lastModified}`, where each item =
+`{id, name:{locale→str}, description:{locale→str}, start, end, progress, color, dependencies:[], attachments:[], milestone}`.
+Each item's `attachments[]` are `{fileId, fileName, size,
+contentType}` where **`fileId` is a file-storage path** — per-task uploads go to `gantt/<itemId>/<uuid>-<name>`
+(only when `attachmentsEnabled`). Delta settings
+(all with defaults):
 
-| Field | Type | Default | Backing |
-|---|---|---|---|
-| `allowDragMove` | Boolean | `true` | `GanttChartFormControlSettings.java` |
-| `allowDragResize` | Boolean | `true` | — |
-| `allowAddDelete` | Boolean | `true` | — |
-| `showDependencies` | Boolean | `true` | — |
-| `showProgress` | Boolean | `true` | — |
-| `showTodayLine` | Boolean | `true` | — |
-| `attachmentsEnabled` | Boolean | `true` | — |
-| `stackItems` | Boolean | `true` | — |
-| `maxItems` | Integer | `500` | — |
-| `defaultColor` | String | `"#3498db"` | — |
-| `palette` | `List<String>` | 8 colors (`#3498db`…`#e67e22`) | — |
-| `chartHeight` | String | `"480px"` | — |
+| Field | Type | Default |
+|---|---|---|
+| `allowDragMove` | Boolean | `true` |
+| `allowDragResize` | Boolean | `true` |
+| `allowAddDelete` | Boolean | `true` |
+| `showDependencies` | Boolean | `true` |
+| `showProgress` | Boolean | `true` |
+| `showTodayLine` | Boolean | `true` |
+| `attachmentsEnabled` | Boolean | `true` |
+| `stackItems` | Boolean | `true` |
+| `maxItems` | Integer | `500` |
+| `defaultColor` | String | `"#3498db"` |
+| `palette` | `List<String>` | 8 colors (`#3498db`…`#e67e22`) |
+| `chartHeight` | String | `"480px"` |
 
-HTML (`gantt/GanttChartFormControlPlugin.html`): `.nct-gantt-root` → `ganttToolbar` / `ganttContainer` /
+HTML: `.nct-gantt-root` → `ganttToolbar` / `ganttContainer` /
 `ganttLabel` (readonly). **⚠️ Gantt is rare in the wild** — this is the only control whose settings in this
-document come from the platform classes rather than from a working form; schema/HTML — verbatim from code.
+document come from the platform's schema rather than from a working form; schema/HTML — verbatim from code.
 
 ### 11. Comments — `dynaform.form.comments.field.plugin`
 
-Settings: base `FormControlSettings` (no delta). `dataClass` = `ObjectNode` **only**. The field value
+Settings: the base keys (no delta). `dataClass` = `ObjectNode` **only**. The field value
 — JSON:
 
 ```json
@@ -1611,7 +1535,6 @@ Settings: base `FormControlSettings` (no delta). `dataClass` = `ObjectNode` **on
     "answers": [ { "id": "…", "text": "answer text", "author": "user2@email.com", "timestamp": 123456790 } ] }
 ] }
 ```
-(structure from `comments/CommentsFieldFormControlPlugin.java`).
 
 **Example — this is the only `CONTEXT`-scope example in the whole
 document** (the control binds to a context attribute, not a CRUD field; `crudAlias` is absent). ⛔ It is correct
@@ -1637,13 +1560,13 @@ Off a CRUD-action form (a user task, a `process.table` start/global action — �
 `crudAlias`; see the scope model in the header and [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)).
 
 HTML — an "Add a Comment" card (textarea + button) + a list of comments with a reply section and nested
-answers (`comments/CommentsFieldFormControlPlugin.html`).
+answers.
 
 ---
 
 ## Nested objects (verbatim schemas)
 
-### `eventComponentMappings[]` — `EventComponentMapping`
+### `eventComponentMappings[]`
 
 This is the **real** cascade/dependency mechanism (NOT the invented `dependsOnField`): on a DOM event on
 this control the target component is refreshed (+ optional execution rules beforehand). Authoring flow (add
@@ -1656,17 +1579,16 @@ mappings) + the dependent-dropdown recipe → [25 §3](25-form-settings-validati
   "executionRuleIdentifiers": ["<uuid>", "<uuid>"] }
 ```
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `eventName` | String | DOM event passed verbatim to `AjaxFormComponentUpdatingBehavior` — a **free-text** field in the UI (no fixed change/blur/click/keyup dropdown); use `"change"` (the practical default). `"blur"`/`"click"`/`"keyup"`/`"input"` also work. | `EventComponentMapping.java` |
-| `componentIdentifier` | String (UUID) | Identifier of the IRefreshable component (child of FormPlugin) to refresh. | — |
-| `executionRuleIdentifiers` | `List<String>` (UUID) | Optional EXECUTION rules, executed in order on the **live** form context BEFORE the refresh (may mutate the context). May be null on legacy. | — |
+| Field | Type | Meaning |
+|---|---|---|
+| `eventName` | String | DOM event passed verbatim to `AjaxFormComponentUpdatingBehavior` — a **free-text** field in the UI (no fixed change/blur/click/keyup dropdown); use `"change"` (the practical default). `"blur"`/`"click"`/`"keyup"`/`"input"` also work. |
+| `componentIdentifier` | String (UUID) | Identifier of the refreshable component (descendant of the same form) to refresh. |
+| `executionRuleIdentifiers` | `List<String>` (UUID) | Optional EXECUTION rules, executed in order on the **live** form context BEFORE the refresh (may mutate the context). May be null on legacy. |
 
-Runtime: `BaseFormControl.setupEventComponentMappings()`, called from `onInitialize()` only
-when `formType()==FORM`.
+Runtime: the event behaviour is attached only to controls of a regular form.
 
 > 🛑🛑 **Therefore: events do NOT work on a control inside a List's line form.** That sub-form is a
-> `ListItemFormPlugin`, not a `FormPlugin`, so its controls never get the behaviour attached — the
+> list-item form, not a regular form, so its controls never get the behaviour attached — the
 > mapping sits in the export, `validate` is happy, the settings panel shows it, and **nothing
 > happens on change**. Measured on a live project (2026-09-29): picking the material in a transfer
 > LINE produced no ajax request at all, and the dependent roll list stayed empty for all 18
@@ -1676,7 +1598,7 @@ when `formType()==FORM`.
 > * make the parent list's picker independent — its choices rule returns the full set and puts the
 >   distinguishing value (material code, warehouse) into the option LABEL, so the user searches the
 >   list instead of narrowing it; or
-> * move the narrowing field to the DOCUMENT header, where `formType()==FORM` and events do fire,
+> * move the narrowing field to the DOCUMENT header, where events do fire,
 >   and have the line's rule read it from `context.<ctx>.<alias>.data`.
 >
 > A rule written to read the line's own selection is the trap underneath this: `context.currentData`
@@ -1688,13 +1610,11 @@ when `formType()==FORM`.
 > way forward at all; a long one merely costs a search.**
 
 > **Invariant — resolve `componentIdentifier`.** It is matched at runtime against
-> `plugin.getContent().getUniqueIdentifier()` while visiting the descendants of the **same FormPlugin**
-> (`findComponentByContentIdentifier`, `BaseFormControl.java`); the target must implement
-> `IRefreshable`. So `componentIdentifier` == the **`uniqueIdentifier`** (NOT `identifier`) of an
-> `IRefreshable` node under the same form — in practice a generated **slot** (`nct.html.plugin`,
-> `NctHtmlPlugin`), a **column** (`nct.parsis.plugin`, `NctParsisPlugin`), a **label** (`NctLabelPlugin`) or a
-> **List** control — not necessarily the sibling field control itself. All four html/parsis/label/list plugins
-> implement `IRefreshable`; refreshing a slot/column re-renders every field inside it (a cheap way to cascade a
+> the `uniqueIdentifier` of the nodes visited among the descendants of the **same form**; the target must be
+> refreshable. So `componentIdentifier` == the **`uniqueIdentifier`** (NOT `identifier`) of a
+> refreshable node under the same form — in practice a generated **slot** (`nct.html.plugin`), a **column**
+> (`nct.parsis.plugin`), a **label** (`nct.label.plugin`) or a **List** control — not necessarily the sibling
+> field control itself. All four html/parsis/label/list plugins are refreshable; refreshing a slot/column re-renders every field inside it (a cheap way to cascade a
 > dependent dropdown).
 >
 > **⚠️ Most controls ship `eventComponentMappings:[]`** — a populated mapping is the exception, and where it
@@ -1714,16 +1634,15 @@ loads an entire existing entity into the form — needs no extra machinery, only
 
 | what | value |
 |---|---|
-| host control | the autocomplete/dropdown the user picks in — it **does** support events: `RimmAutoCompleteFieldFormControlPlugin.getFormComponent()` returns the `dropDown` input, and picking a suggestion fires a DOM `change` (`wicket-autocomplete.js` sets `triggerChangeOnHide = true`) |
+| host control | the autocomplete/dropdown the user picks in — it **does** support events: picking a suggestion fires a DOM `change` on its input |
 | `eventName` | `change` |
-| `componentIdentifier` | the **`uniqueIdentifier` of the form's `form.parsis` node** (`nct.parsis.plugin`) — `NctParsisPlugin.refresh()` does `initPlugin(); reRender();`, i.e. repaints **every row of the form**, header fields and the List control alike, in ONE ajax request |
+| `componentIdentifier` | the **`uniqueIdentifier` of the form's `form.parsis` node** (`nct.parsis.plugin`) — refreshing it repaints **every row of the form**, header fields and the List control alike, in ONE ajax request |
 | `executionRuleIdentifiers` | one EXECUTION rule that puts the whole row into `context.<ctx>.<alias>.data` |
 
-Why one rule + one target is enough: `FormPlugin.executeEventRules` folds the user's current edits into the
-live context first (`collectContextDataFromForm`), runs the rules through `RuleExecutionService`, then applies
-each rule's result **in place** — it deliberately does NOT reassign `this.contextData`, so *every* field model
-(refreshed or not) observes the new values because they all hold the same `ContextDataDto` instance
-(`FormPlugin.java`, `executeEventRules`). The refresh is then only about repainting the DOM.
+Why one rule + one target is enough: the event handler folds the user's current edits into the
+live context first, runs the rules, then applies each rule's result **in place** — it deliberately does NOT
+reassign the context, so *every* field model (refreshed or not) observes the new values because they all hold
+the same context instance. The refresh is then only about repainting the DOM.
 
 ```groovy
 // EXECUTION rule wired as executionRuleIdentifiers[0]
@@ -1752,11 +1671,11 @@ Three things that bite:
   matches nothing, nothing would reload and the submit would silently act on the previously picked entity.
   Clear it as above — but only when the form is still bound to a record whose key no longer matches, never
   when the user is filling a brand-new record by hand (that would wipe their input).
-- **Refreshing writes.** `BaseFormControl.refresh()` calls `saveSettings(model)` and re-renders the enclosing
+- **Refreshing writes.** Refreshing a control saves its settings and re-renders the enclosing
   form; targeting `form.parsis` avoids the per-control settings save on every event and still
   repaints the whole body.
 
-### `conditionalValidations[]` — `ConditionalValidation`
+### `conditionalValidations[]`
 
 ```json
 { "predicateIdentifier": "ba9adec3-fb47-4ad2-9076-77a20a022d64",
@@ -1764,13 +1683,13 @@ Three things that bite:
   "validationMessages": { "en_US": "Value does not match the required pattern", "hy_AM": "…" } }
 ```
 
-| Field | Type | Meaning | Default | Backing |
-|---|---|---|---|---|
-| `predicateIdentifier` | String (UUID) | Predicate; when it returns **true → the value is INVALID** (predicate-true = invalid throughout, `BuiltinTemplates.java`). The field value in the predicate is `v`. | — | `ConditionalValidation.java` |
-| `severity` | enum `"ERROR"`\|`"WARNING"` (`ValidationMessageType`, `executorcommon.dto.validation`) | `ERROR` hard-blocks submit; `WARNING` — a yellow panel, can be acknowledged and continued (written to the audit). Absent → `ERROR`. | `ERROR` | getter `getSeverityOrDefault()` |
-| `validationMessages` | `Map<String,String>` | Localized messages (`locale → text`). | `{}` | — |
+| Field | Type | Meaning | Default |
+|---|---|---|---|
+| `predicateIdentifier` | String (UUID) | Predicate; when it returns **true → the value is INVALID** (predicate-true = invalid throughout). The field value in the predicate is `v`. | — |
+| `severity` | enum `"ERROR"`\|`"WARNING"` | `ERROR` hard-blocks submit; `WARNING` — a yellow panel, can be acknowledged and continued (written to the audit). Absent → `ERROR`. | `ERROR` |
+| `validationMessages` | `Map<String,String>` | Localized messages (`locale → text`). | `{}` |
 
-**Full catalog of built-in predicate templates** (`config/validationtemplates/BuiltinTemplates.java`) —
+**Full catalog of built-in predicate templates** —
 each *"Create Validation from Template"* generates a **PREDICATE** rule (`ruleType=PREDICATE`,
 `executor=GroovyPredicate` — **NOT** `GroovyValidationRule`) in `rep-objects.rules[]`, then references it from a
 `conditionalValidations[].predicateIdentifier`. The **generated Groovy body of every template + its params + the
@@ -1793,27 +1712,20 @@ regex presets + severity + the dialog flow** are in
 A single field-format check is done as a `conditionalValidations` list of a **single** entry (there is no
 separate top-level `validationPredicate`/`validationMessage` field).
 
-### `betweenMapping` — `BetweenFieldMapping`
+### `betweenMapping`
 
 ```json
 { "scope": "CRUD", "contextIdentifier": "…", "crudAlias": "…", "fieldExpression": "priceTo",
   "jsonNodeExpression": null, "jsonNodeValueType": null, "filterKey": "priceTo" }
 ```
 
-Upper-bound mapping for `between:true`. The type is NOT stored (shared from primary). In FormPlugin the
+Upper-bound mapping for `between:true`. The type is NOT stored (shared from primary). In a regular form the
 scope part is used — **except on a form opened from a `crud.table`/`crud.tree` action**, where
-`BaseFormControl#bindToCrudMode` overwrites this mapping's `scope`/`contextIdentifier`/`crudAlias` with the
+the platform overwrites this mapping's `scope`/`contextIdentifier`/`crudAlias` with the
 table's CRUD triple so both ends of the range bind in the same place (an EXISTING mapping only — a null one is
-left alone); there only `fieldExpression`/`jsonNodeExpression` are yours. In FilterFormPlugin — only
-`filterKey` (`BetweenFieldMapping.java`). ⚠️ Range mode is
-rare in practice — the example above is assembled from the class, not quoted from a working form.
-
-### `MandatoryFieldMetadataDto` (wire DTO for submit-time validation)
-
-A `nct-workflow-common` DTO assembled on submit (not stored in settings): `fieldName`, `alwaysMandatory`,
-`mandatoryPredicateIdentifier`, `validationMessages` (Map), `scope`, `contextIdentifier`, `crudAlias`,
-`fieldExpression`; helpers `isAlwaysMandatory`, `hasConditionalMandatory`. `FormSubmissionRequest` carries a
-list of `mandatoryFields` + `localeKey`.
+left alone); there only `fieldExpression`/`jsonNodeExpression` are yours. In a filter form — only
+`filterKey`. ⚠️ Range mode is
+rare in practice — the example above is assembled from the schema, not quoted from a working form.
 
 ### Global-validation `validation` API (VALIDATION_RULE)
 
@@ -1827,10 +1739,8 @@ msg)`. `context.currentData.get()` = the current nested-list item (null in the p
 
 ## Mandatory validation — how it is assembled
 
-Mandatoriness is sent on submit from `FormPlugin.collectMandatoryFieldMetadata()`
-(`FormPlugin.java`): for each control whose `settings.hasMandatoryValidation()` **or**
-`hasConditionalValidations()` (`FormPlugin.java`), a `MandatoryFieldMetadataDto` is built
-(`FormPlugin.java`). Mandatory validation runs **frontend for CRUD mode, backend for
+On submit the form collects the mandatory-field metadata of every control that has a mandatory
+validation **or** conditional validations. Mandatory validation runs **frontend for CRUD mode, backend for
 workflow mode**. Three ways to make a
 field mandatory:
 
@@ -1839,8 +1749,7 @@ field mandatory:
 3. `conditionalValidations[]` with the `required` template (predicate-true = invalid).
 
 **Message fallback chain:** full locale (`en_US`) → language-only (`en`) → the first available message →
-default `"{fieldName} is required"`. Empty non-default locales are auto-translated on save via
-`LocalizationClient.translatePure`.
+default `"{fieldName} is required"`. Empty non-default locales are auto-translated on save.
 
 Example of `mandatoryValidationMessages` (a text field, two locales):
 
@@ -1853,18 +1762,15 @@ Example of `mandatoryValidationMessages` (a text field, two locales):
 ## Default value when null
 
 The runtime substitutes a default when the stored field value == null
-(`BaseFormControl.withDefaultWhenNull()`, a wrapper over both models, calls;
-guard `settings.hasDefaultValue()` in `FormControlSettings.java`, checked in `BaseFormControl.java`
-and). Two modes:
+(applied to both the read and the write side of the control). Two modes:
 
 - **Static** (`defaultValueStatic: true`/absent): `defaultValue` (or `defaultValueLocalized` for
-  localized) is coerced to `dataClass` (`coerceDefault`: `"true"`→Boolean, `"5"`→Integer, ISO dates).
+  localized) is coerced to `dataClass` (coercion: `"true"`→Boolean, `"5"`→Integer, ISO dates).
 - **Rule** (`defaultValueStatic: false`): `defaultValueRuleIdentifier` — an EXECUTION rule whose return
-  becomes the default (`computeDefaultValue`, cached for 1 request). Boolean is extracted strictly — void/
-  null does NOT yield `true` (`extractRuleDefault`).
+  becomes the default (cached for 1 request). Boolean is extracted strictly — void/
+  null does NOT yield `true`.
 
-Enabled only when `defaultValueEnabled: true` AND the value is populated (`hasDefaultValue()` in
-`FormControlSettings.java`).
+Enabled only when `defaultValueEnabled: true` AND the value is populated.
 
 ---
 
@@ -1875,18 +1781,15 @@ With `localized: true` the value is stored per locale:
 - **GLOBAL/CONTEXT scope:** `attrs.__localize__.<field>.<locale>`.
 
 Locale resolution: session → tenant default → the first tenant locale. `context.data.localeKey` returns it in
-rules. The `jsonNodeExpression` path is also supported inside localize. Runtime — `getLocalizedFieldModel()`
-(`BaseFormControl.java`). Empty non-default locales are auto-translated on save. See
+rules. The `jsonNodeExpression` path is also supported inside localize. Empty non-default locales are auto-translated on save. See
 [01-content-model-and-pages.md](01-content-model-and-pages.md) about form multi-language (the toggle is on
-the FormPlugin, not on the control), and [20-localization.md](20-localization.md) for the full localization model.
+the form node, not on the control), and [20-localization.md](20-localization.md) for the full localization model.
 
-> ⚠️ **`localized:true` has TWO hard prerequisites — the settings-panel rejects the flag without them**
-> (`FormControlSettingsControlPanel.java`): **(a)** the parent `FormPlugin` must be multi-language
-> (`isMultiLanguageForm()`, — the "Multi Language" form toggle, doc 01), and **(b)** for `CRUD` scope the
-> CRUD's DTO must have an ObjectNode column annotated `@LocalizationField`
-> (`crudService.hasLocalizationField(...)`). Enabling it in the UI without either pops an alert and
+> ⚠️ **`localized:true` has TWO hard prerequisites — the settings-panel rejects the flag without them**:
+> **(a)** the parent form must be multi-language (the "Multi Language" form toggle, doc 01), and **(b)** for
+> `CRUD` scope the CRUD must have a localization ObjectNode column (its `localizationField`). Enabling it in the UI without either pops an alert and
 > silently un-ticks the box. **Hand-authoring the export bypasses that guard:** setting `localized:true` on a
-> control whose form is not multi-language, or whose CRUD has no `@LocalizationField` ObjectNode column, yields a
+> control whose form is not multi-language, or whose CRUD has no localization ObjectNode column, yields a
 > control that stores no per-locale values. Concrete example — the `localized:true` text/textarea controls
 > quoted above bind to CRUDs that carry exactly such a `localized` ObjectNode column
 > (`dynamic-cruds.json`, `dtoFields[].fieldName="localized"`, `fieldType="ObjectNode"`; see
@@ -1927,8 +1830,8 @@ Task: add a mandatory text field `code` over CRUD `counterparty` into an existin
    see the Node-shape example above). Place the node inside the form's `form.parsis` child — a DIRECT
    `nct.parsis.plugin` child of the form node (`dynaform.form.plugin`) whose `identifier` is EXACTLY
    `"form.parsis"` (create it if absent). Put the layout wrapper (`gen_row_*` `nct.html.plugin` → col → slot →
-   the control) **under `form.parsis`**, NOT directly under the form node. `FormPlugin` renders ONLY its
-   `form.parsis` child (`FormPlugin.java`; `FormFieldsGenerator.java ensureFormParsis`), so a wrapper
+   the control) **under `form.parsis`**, NOT directly under the form node. A form renders ONLY its
+   `form.parsis` child, so a wrapper
    placed anywhere else under the form node renders nothing — **the form imports clean but shows NO fields.**
    The wrapper HTML (`<div class="mb-3">…<plugin>…<label>`) is generated by *Generate fields*; exact structure +
    the HARD RULE / Gotcha 2 → [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md).
@@ -1954,30 +1857,27 @@ pure-dynamic FREE/DB enum with no Java class (see Enum mode above).
 ## Gotchas
 
 - **`scope` is serialized as the constant name** (`"CRUD"`/`"CONTEXT"`/`"GLOBAL"`), NOT as the displayName
-  (`"CRUD"`/`"Context"`/`"Global"`). Enum `toString()` returns the displayName (`FormControlScope.java`),
-  but Gson writes `name()`. Do not confuse `"Context"` (display) with `"CONTEXT"` (in JSON).
-- **`crudAlias` is nulled out on save if `contextIdentifier==null`** (`BaseFormControl.java`). Always
+  (`"CRUD"`/`"Context"`/`"Global"`). The UI shows the display name,
+  but the JSON carries the constant name. Do not confuse `"Context"` (display) with `"CONTEXT"` (in JSON).
+- **`crudAlias` is nulled out on save if `contextIdentifier==null`.** Always
   set `contextIdentifier` together with `crudAlias`.
-- **`DropdownFilterControlSettings extends FormControlSettings`, not the other way around.** The "Filter" class names
-  are misleading: dropdown/autocomplete/datepicker settings are full form settings with the entire
-  base (scope, validation, events). And they live in the package `dynaform/filter/config/`, not `form/controls/`.
+- **Dropdown, autocomplete and date-picker settings are full form settings** — they carry the entire
+  base (scope, validation, events), not just filter keys.
 - **`filterKey` in a normal form is cosmetic.** The form's runtime reads `scope`+`fieldExpression`; the generator
-  simply copies `filterKey = fieldExpression`. It matters only inside `FilterFormPlugin`.
-- **absent ≠ false for Boolean fields.** Gson omits absent fields; on read the class default is substituted.
-  `isBetween()`/`isAlwaysMandatory()`/… are null-safe (`FormControlSettings.java` etc.). But a
-  hand-written `"between": false` and the absence of the key are equivalent.
-- **Predicate-true = INVALID** for `conditionalValidations` (`BuiltinTemplates.java`), but
+  simply copies `filterKey = fieldExpression`. It matters only inside a filter form.
+- **absent ≠ false for Boolean fields.** Gson omits absent fields; on read the default is substituted (null-safe).
+  A hand-written `"between": false` and the absence of the key are equivalent.
+- **Predicate-true = INVALID** for `conditionalValidations`, but
   **predicate-true = PROHIBITED/MANDATORY** for `prohibitedPredicateIdentifier`/`mandatoryPredicateIdentifier`.
   The logic is inverted relative to intuition for validations — the predicate returns true when the field is INVALID.
 - **`alwaysProhibited` is cheaper than `prohibitedPredicateIdentifier` with const-true.** The predicate is executed
-  through the executor on EVERY render (`BaseFormControl.java`); `alwaysProhibited` — locally, without the network.
+  through the executor on EVERY render; `alwaysProhibited` — locally, without the network.
 - **There is NO `readonlyPredicateIdentifier`/`readonlyPredicateInverse`/`hiddenPredicate`/
-  `hiddenPredicateInverse`** — grep over nct-ui = 0, and no working form carries them. The only conditional mechanisms on
+  `hiddenPredicateInverse`** — no working form carries them. The only conditional mechanisms on
   the control are: prohibit (`prohibitedPredicateIdentifier`/`alwaysProhibited`) and validation
   (`conditionalValidations[]`). The form-field.md section "Conditional Visibility and Readonly" is a fabrication.
 - **There is NO `dropDownPopType`/`queryPopulation`/`servicePopulation`/`customPopulation`/`dependsOnField`.**
-  The enum `DropDownPopType{QUERY,SERVICE,CUSTOM}` lives in `component/common/control/fields/model/` and is **not**
-  a field of a form-control dropdown. A form-control dropdown is ALWAYS rule-based (`ruleIdentifier`) or
+  A form-control dropdown is ALWAYS rule-based (`ruleIdentifier`) or
   enum-bound (`enumName`). Cascades — only via `eventComponentMappings`.
 - **There is NO** `placeholder`/`tooltip`/`width`/`mobileWidth`/`sections`/`icon`/`iconPosition`/
   `maxLength`/`minLength`/`pattern`/`inputMask`/`min`/`max`/`step`/`decimalPlaces`/`prefix`/`suffix`/
@@ -1987,23 +1887,23 @@ pure-dynamic FREE/DB enum with no Java class (see Enum mode above).
   `className`/`styleName`/`tagProperties`.
 - **Gantt/Comments — `ObjectNode` only**; File Upload/List — `ArrayList`/`ObjectNode` (in JSON
   `java.util.List` is written). Text/Dropdown accept scalars. Setting a `dataClass` that is not in the
-  control's `supportedDataClasses` will break rendering (the control won't find a suitable input).
-- **`dataClass: null`** is treated as `ValueType.JSON` in form mode (`BaseFormControl.java`), NOT as
+  control's allowed list (table above) will break rendering (the control won't find a suitable input).
+- **`dataClass: null`** is treated as JSON in form mode, NOT as
   String. In filter mode null → String.
 - **Enum fields**: `dataClass` = the **real enum FQN** when the class is on the classpath (a converted project
   writes e.g. `com.devsegment.erp.dto.enums.BomType`), OR the synthetic
-  `dynamic.<enumName>` for a pure-dynamic FREE/DB enum whose class the nct-ui classpath does NOT contain. The
-  `dynamic.*` form is NOT a loadable class — `BaseFormControl.java` short-circuits it (legacy path) and
-  resolves the enum via `enumName` + ProjectEnumRegistry; on-wire the stored value is `name()` (String). In BOTH
+  `dynamic.<enumName>` for a pure-dynamic FREE/DB enum whose class the platform does NOT contain. The
+  `dynamic.*` form is NOT a loadable class — the platform short-circuits it (legacy path) and
+  resolves the enum via `enumName` + the project enum registry; on-wire the stored value is the constant's name (String). In BOTH
   cases the `enumValues`+`enumFieldNames` snapshot is what actually renders the options (mandatory for
   nested/dynamic — see [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md) Gotcha 6).
 - **List item (`dynaform.list.item.plugin`) has no `settings` slot** — the slot is **absent** (not present
   as `null`); its `properties` keys are `className`/`isParsis`/`styleName`/`tagProperties`. Its `identifier`
-  must equal `getRenderFormId(actionId)`; the item's fields live under a child `nct.parsis.plugin id="form.parsis"`,
-  bound via the temp context `__temp_list_item_context__`/`__temp_item__` (`SubformSettings.id` links the action
+  must equal the action's form id (`formIdByActionId[actionId] ?? actionId`); the item's fields live under a child `nct.parsis.plugin id="form.parsis"`,
+  bound via the temp context `__temp_list_item_context__`/`__temp_item__` (`subforms[].id` links the action
   to the subform). Full tree + invariant — §8.
-- **CrudModeMetadata / NestedFormMetadata — runtime-only**, they are NOT serialized into `properties.settings`; they
-  come from the parent CrudTable/List plugin. They are not in the export.
+- **The CRUD-mode and nested-form metadata are runtime-only** — they are NOT serialized into `properties.settings`; they
+  come from the parent CRUD table / List. They are not in the export.
 - **Reality of example provenance:** every settings block quoted above is taken from a form that renders. The
-  **only** two artifacts in this document assembled from the classes instead are: **Gantt** and the populated
+  **only** two artifacts in this document assembled from the schema instead are: **Gantt** and the populated
   **`between:true`** betweenMapping — treat those two as schema, not as proven shapes.

@@ -16,7 +16,7 @@
 
 - Every chart's `js` opens with a **theme prelude** that reads live colours off the mounted element —
   185/185 contain `getComputedStyle`.
-- The config lives in `properties.Javascript` as a JSON-encoded `ChartJsModel`; 185/185 decode cleanly.
+- The config lives in `properties.Javascript` as a JSON-encoded chart config; 185/185 decode cleanly.
 - The embedded `replacements[].query` is the **field trim** — **409 of 429 carry the same 12 keys**, the
   other 20 (all in one delivery) carry 11 because they omit the null `id`. **Not one of the 429 carries a
   rep-object field**, which is the point: the trim, not the exact arity.

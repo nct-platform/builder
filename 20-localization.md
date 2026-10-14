@@ -10,9 +10,7 @@ JSON), and the one rule that is missing everywhere else — **hand-authoring the
 auto-translation, so you must fill every `tenant.json.locales` key yourself.**
 
 Every claim below is stated as **behaviour you can observe in a running project or in the export JSON**.
-Component names (`SiteStringResourceLoader`, `DynamicMethodExecutor`, …) are given so you can ask the platform
-team a precise question — they are not paths you need to open, and no source line numbers are cited because
-they go stale on every rebuild. Claims about the export shape were checked against real, working project
+Claims about the export shape were checked against real, working project
 exports — you can re-check any of them with `jq` against your own bundle.
 
 ---
@@ -25,7 +23,7 @@ are runtime/platform behaviour you author *toward* but cannot fully set from the
 | Layer | Concern | Where it lives | Author from the export? |
 |---|---|---|---|
 | **L0** | The **locale set** (which languages exist) | `tenant.json.locales` | **Yes** — the `locales` array (only) |
-| **L1** | **Key-based UI strings** (buttons, menu chrome, framework messages) | `nct-localization` microservice DB (`translation` table) | **No** — not in the export at all |
+| **L1** | **Key-based UI strings** (buttons, menu chrome, framework messages) | the platform's localization-service DB (`translation` table) | **No** — not in the export at all |
 | **L2** | **Content maps** — per-locale *authored* text (names, captions, labels) | `branches.json` / `rep-objects.json` (`localizedNames`, `localizedStringValue`, …) | **Yes** — you write every map |
 | **L3** | **Entity data** — per-locale *row values* | `localize[field][locale]` inside a jsonb column, in `project-db.dump` | **Yes** (+ runtime bulk auto-fill) |
 | **L4** | **Runtime resolution & rendering** — session locale → tables/forms/Groovy | runtime (session / cookie / `?lng`) | **Partially** — the `multiLanguage`/`localized` flags author the behaviour |
@@ -49,26 +47,21 @@ offers, in your chosen order:
 ["en_US","ru_RU","hy_AM"]      three; the first is the fallback when defaultLocale is unset
 ```
 
-- Stored per project on the tenant: `TenantDomain` — `g_locales` (`ArrayList<Locale> locales`,
-  `TenantDomain.java`)
-  and `g_default_locale` (`Locale defaultLocale`). `getLocales()` falls back to
-  `[SecurityLocaleUtils.defaultLocale()]` when empty.
+- Stored per project on the tenant: the locale list and the default locale. An empty list falls back to the
+  platform's single built-in default locale.
 - **DEFAULT language — `tenant.json.defaultLocale` (round-trips; SET IT).** The project has a DEFAULT/authoritative
-  locale, chosen in the settings plugin ("Default language" dropdown, `LocalizationSection.java` → `TenantDomain.
-  setDefaultLocale`, DB col `g_default_locale`; it auto-resets to `locales[0]` if the chosen default leaves the
-  selected set). It is what base-column values, the form default-locale write (`BaseFormControl`), choices-label
+  locale, chosen in the settings plugin ("Default language" dropdown; it auto-resets to `locales[0]` if the chosen
+  default leaves the selected set). It is what base-column values, the form default-locale write, choices-label
   fallback, and `locale fill`'s source all key off. **It round-trips in the `.mrjun` as `tenant.json.defaultLocale`**
-  (a `Locale.toString()` string, e.g. `"hy_AM"`; gson serializes/parses it): export copies it
-  (`TenantServiceImpl.copyTenantForExport`), and import applies it on both paths — the content-import path
-  (`ProjectServiceImpl` `else` branch) now `setDefaultLocale`s it too, guarded to `defaultLocale ∈ locales`.
+  (a `Locale.toString()` string, e.g. `"hy_AM"`): export copies it, and import applies it on both paths —
+  the content-import path sets it too, guarded to `defaultLocale ∈ locales`.
   ⚠️ *Older exports omit it* (it was null when they were made, and gson skips nulls — do not conclude it "can't be
   set"). **Author it:** `mrjun.py locale set-default --locale <loc>` (must be one of `locales`). The toolkit's
   `default_locale()` = `tenant.json.defaultLocale` when set-and-valid, else `locales[0]`
   (`tools/mrjunkit/core.py`). If you don't set it, consumers fall back to `locales[0]` — so **put your authoritative
   language FIRST in `locales` AND set `defaultLocale` to it** (belt and braces).
-- Global supported-locale seed for the RichWicket framework: `ReportWicketApplication` registers
-  `en_US, ru_RU, hy_AM` with default `hy_AM` via `RichCoreSettings.addLocale(...).setDefaultLocale(amLocale)`
-  (`ReportWicketApplication.java`). This is the
+- Global supported-locale seed for the UI framework: the platform registers
+  `en_US, ru_RU, hy_AM` with default `hy_AM`. This is the
   framework default, distinct from the per-project `tenant.json.locales`.
 
 **Builder rule:** decide `locales` in **Phase 0** ([19](19-build-decision-procedure.md)); it is a
@@ -87,85 +80,70 @@ default is trivially that one language.
 ## (iii) L1 — key-based UI strings (understand, do NOT author)
 
 Static UI text (button captions, menu chrome, framework messages — the strings a `<wicket:message>` or
-`getString(key)` resolves) is **not** stored in `_xx.properties` files (there are **zero** locale-suffixed
-`.properties` in nct-ui) and **is not in the export**. Wicket string resolution is bridged to a **localization
+`getString(key)` resolves) is **not** stored in locale-suffixed `.properties` files (there are **none**)
+and **is not in the export**. UI string resolution is bridged to a **localization
 microservice**:
 
 ```
-Wicket getString(key) / <wicket:message>
-   └─ SiteStringResourceLoader (IStringResourceLoader)      SiteStringResourceLoader.java
-        └─ LocalizeService.getMessage(key, locale)
-             └─ Feign LocalizationClient  ── HTTP ──▶  nct-localization microservice
-                  (base `/api/localization`)
-                     └─ translation table (unique on kkey,target_lang)  TranslationEntity.java
-                          └─ external MT service (en → target)         LocalizationServiceImpl.java
+UI string lookup by key / <wicket:message>
+   └─ platform string loader
+        └─ localization microservice (base `/api/localization`)
+             └─ translation table (unique on key, target language)
+                  └─ external MT service (en → target)
 ```
 
-- Loader + registration: `SiteStringResourceLoader implements IStringResourceLoader`
-  (`nct-ui/.../config/wicket/localize/SiteStringResourceLoader.java`) →
-  `LocalizeService.getMessage(key, locale)`. Registered in the Wicket app:
-  `ReportWicketApplication.java` (and) `getStringResourceLoaders().add(new SiteStringResourceLoader())`
-  custom `Localizer` (`ReportLocalizer`), custom message resolver (`ReportMessageResolver`).
-- Feign client `LocalizationClient` (`nct-ui/.../feign/LocalizationClient.java`) endpoints:
-  `GET /internal/message`, `GET /internal/keys`, `POST /internal/setmessage`
-  `POST /internal/translatePure`.
-- The microservice module = **`nct-localization`**. Controller
-  `nct-localization/.../controller/LocalizationController.java` — base `@RequestMapping("/api/localization")`,
-  every endpoint `@Secured("ROLE_INTERNAL_SERVICE")`. `GET /internal/message` returns the supplied default
+- The platform talks to the localization microservice through internal, service-role-only endpoints (base
+  `/api/localization`): `GET /internal/message`, `GET /internal/keys`, `POST /internal/setmessage`,
+  `POST /internal/translatePure`. `GET /internal/message` returns the supplied default
   **verbatim for `en_US`**; for any other locale it translates from `en` into that locale's language part
   (the segment before the `_`).
-- Storage = table **`translation`**, unique on `(kkey, target_lang)`
-  (`nct-localization/.../entity/TranslationEntity.java`). Engine = an **external machine-translation service** configured per deployment
-  (`LocalizationServiceImpl.java`; DB-cached lookups, uncached `translatePure`). No
+- Storage = table **`translation`**, unique on `(kkey, target_lang)`. Engine = an **external machine-translation service** configured per deployment
+  (DB-cached lookups, uncached `translatePure`). No
   LLM in the path.
-- The admin UI to edit these key translations = plugin **`admin.localization.plugin`**
-  (`nct-ui/.../plugin/admin/localization/LocalizationPlugin.java`), catalogued in
-  [14-plugin-catalog-all.md](14-plugin-catalog-all.md).
+- The admin UI to edit these key translations = plugin **`admin.localization.plugin`**,
+  catalogued in [14-plugin-catalog-all.md](14-plugin-catalog-all.md).
 
 > **Builder relevance.** These strings live in the localization-service DB, **not** in `branches.json`. A builder
 > editing `.mrjun` **cannot** set them and should not hunt for them in the export. The line to keep straight:
 > **UI-chrome text = L1, out of reach; content/data text = L2/L3, editable.**
 >
-> The real controller base is `/api/localization` with every method under `/internal/…`
-> (`@Secured("ROLE_INTERNAL_SERVICE")`, `LocalizationController.java`).
+> The real base path is `/api/localization` with every method under `/internal/…` (service-role only).
 
 ---
 
 ## (iv) L2 — content / authoring per-locale maps (editable in the export)
 
 Everything with per-locale *authored* text that you write into `branches.json` / `rep-objects.json`. The shared
-editor is `LocalizedTextFieldsPanel` (`nct-ui/.../component/localized/LocalizedTextFieldsPanel.java`) — one
-text field per `tenant().getLocales()`, backed by `IModel<Map<String,String>>`.
+editor shows one text field per project locale.
 
 ### The export-key inventory
 
 Each row links (file-level) to the doc that owns the exact JSON shape — do not duplicate it here.
 
-| Export key | On what | DTO / storage | Documented in |
-|---|---|---|---|
-| `localizedStringValue` (slot `propertyType:LOCALIZED_STRING`) | content-property text: page `pageTitle`/`pageDescription`, label `text`, link `name`/`link`/`params`, localized HTML | `ContentProperty`; `LocalizedHeaderPlugin` (mrjun) `text`; `LocalizedLinkLabelPlugin`; `html.localized.plugin` | [01](01-content-model-and-pages.md), [03](03-generate-fields-from-crud.md), [14](14-plugin-catalog-all.md) |
-| `localizedNames` | CRUD table/tree **column** captions & **action** names; process-table columns; List columns; **subform** names; **tab** names; user-task actions | `CrudTableColumnSettings.java`; `CrudTableActionsDto$ActionDto.java`; `ProcessTableFormControlSettings.java`; `SubformSettings.java`; `TabModel$TabItem.java`; `UserTaskActionsDto.java` | [04](04-crud-table-plugin.md), [05](05-crud-tree-and-process-table.md), [06](06-form-groups-and-mapping.md), [07](07-workflows-and-tasks.md), [01](01-content-model-and-pages.md) |
-| `localizedButtonNames` | in-form SUBMIT-button label for a **non-direct** action; CRUD import button | `CrudTableActionsDto$ActionDto.java` (falls back → `localizedNames`) | [04](04-crud-table-plugin.md), [06](06-form-groups-and-mapping.md), [07](07-workflows-and-tasks.md) |
-| `localizedLabels` | Dynaform **action button** plugin label | `ActionButtonSettings.java` (editor `ActionButtonSettingsPanel.java`) | [02](02-form-controls-reference.md), [14](14-plugin-catalog-all.md) |
-| `defaultValueLocalized` | form-control static default value, per locale (for `localized:true` fields) | `FormControlSettings.java` | [02](02-form-controls-reference.md), [03](03-generate-fields-from-crud.md) |
-| `localizedHeaderLabel` | List form-control heading | `ListFormControlSettings.java` | [02](02-form-controls-reference.md) |
-| `infoText` | generated-field help/tooltip text (map) | `GenerateFieldsFromCrudDialog.java` (editor), `RowField.infoText` | [03](03-generate-fields-from-crud.md) |
-| `mandatoryValidationMessages` / `validationMessages` | localized "required" / validation error texts | `FormControlSettings.java`; `ConditionalValidation` | [02](02-form-controls-reference.md), [08](08-groovy-rules-and-context.md) |
-| `helpSettings.localizedMap.message` | `nct.help.plugin` message per locale | help plugin settings | [03](03-generate-fields-from-crud.md), [14](14-plugin-catalog-all.md) |
-| `localizedMap` (nested `field → locale → value`) | left-nav quick links (`linkModel.localizedMap`); tab legacy `localizedMap.name`; any `LocalizedBean` | `richwicket .../model/locale/form/LocalizedBean.java`; `TabItem extends MicroserviceTranslatedLocalizedBean` (`TabModel.java`) | [01](01-content-model-and-pages.md), [14](14-plugin-catalog-all.md), [17](17-left-nav-quick-links.md) |
-| ⛔ **none — no per-locale key exists** | **chart text**: everything typed into a `chart.js.plugin`'s JS / HTML / Css tabs (title, axis titles, legend, dataset labels, tooltip strings, the HTML heading) | `ChartJsModel` in `properties.Javascript.stringValue` — `js`, `html`, `css` and each `cssByTheme` block are **plain `String`s**, no map, no `LOCALIZED_STRING` slot | ⛔ see "Chart text has NO per-locale slot" below + [22](22-charts-params-and-filters.md) |
+| Export key | On what | Documented in |
+|---|---|---|
+| `localizedStringValue` (slot `propertyType:LOCALIZED_STRING`) | content-property text: page `pageTitle`/`pageDescription`, label `text`, link `name`/`link`/`params`, localized HTML (`html.localized.plugin`) | [01](01-content-model-and-pages.md), [03](03-generate-fields-from-crud.md), [14](14-plugin-catalog-all.md) |
+| `localizedNames` | CRUD table/tree **column** captions & **action** names; process-table columns; List columns; **subform** names; **tab** names; user-task actions | [04](04-crud-table-plugin.md), [05](05-crud-tree-and-process-table.md), [06](06-form-groups-and-mapping.md), [07](07-workflows-and-tasks.md), [01](01-content-model-and-pages.md) |
+| `localizedButtonNames` | in-form SUBMIT-button label for a **non-direct** action; CRUD import button | [04](04-crud-table-plugin.md), [06](06-form-groups-and-mapping.md), [07](07-workflows-and-tasks.md) |
+| `localizedLabels` | Dynaform **action button** plugin label | [02](02-form-controls-reference.md), [14](14-plugin-catalog-all.md) |
+| `defaultValueLocalized` | form-control static default value, per locale (for `localized:true` fields) | [02](02-form-controls-reference.md), [03](03-generate-fields-from-crud.md) |
+| `localizedHeaderLabel` | List form-control heading | [02](02-form-controls-reference.md) |
+| `infoText` | generated-field help/tooltip text (map) | [03](03-generate-fields-from-crud.md) |
+| `mandatoryValidationMessages` / `validationMessages` | localized "required" / validation error texts | [02](02-form-controls-reference.md), [08](08-groovy-rules-and-context.md) |
+| `helpSettings.localizedMap.message` | `nct.help.plugin` message per locale | [03](03-generate-fields-from-crud.md), [14](14-plugin-catalog-all.md) |
+| `localizedMap` (nested `field → locale → value`) | left-nav quick links (`linkModel.localizedMap`); tab legacy `localizedMap.name`; any localized-map bean | [01](01-content-model-and-pages.md), [14](14-plugin-catalog-all.md), [17](17-left-nav-quick-links.md) |
+| ⛔ **none — no per-locale key exists** | **chart text**: everything typed into a `chart.js.plugin`'s JS / HTML / Css tabs (title, axis titles, legend, dataset labels, tooltip strings, the HTML heading) | ⛔ see "Chart text has NO per-locale slot" below + [22](22-charts-params-and-filters.md) |
 
 Two per-**form**/per-**control** flags gate L3 (not maps themselves), covered under L4 below:
-`multiLanguage` (`FormDto.java`, `isMultiLanguage`) and `localized` (`FormControlSettings.java`).
+`multiLanguage` (on the form) and `localized` (on the control).
 
-### ⚠️ Load-bearing rule — no legacy `name` on a CRUD `ActionDto` → the action renders **blank**
+### ⚠️ Load-bearing rule — no legacy `name` on a CRUD action → the action renders **blank**
 
-`CrudTableActionsDto$ActionDto` has **no** `name` field — its declared fields are exactly `id`, `localizedNames`,
+A CRUD table action has **no** `name` field — its declared fields are exactly `id`, `localizedNames`,
 `localizedButtonNames`, `icon`, `formGroupIdentifier`, `direct`, `predicateIdentifier`,
-`onBeforeStartRuleIdentifier`, `onBeforeCompleteRuleIdentifier`, `submitForm`
-(`nct-ui/.../plugin/crud/CrudTableActionsDto.java`), and `getLocalizedName(locale)` reads `localizedNames`
-only. So an action authored with only a top-level `name` **renders with an empty label**. Columns and tabs
-*do* keep a deprecated `name` fallback (`CrudTableColumnSettings.java`, `TabModel.java`) — actions do
+`onBeforeStartRuleIdentifier`, `onBeforeCompleteRuleIdentifier`, `submitForm`, and the label is read from
+`localizedNames` only. So an action authored with only a top-level `name` **renders with an empty label**. Columns and tabs
+*do* keep a deprecated `name` fallback — actions do
 not. **Author `localizedNames` (and `localizedButtonNames` for non-direct actions), covering every locale.**
 
 ### The coverage rule
@@ -342,20 +320,14 @@ starts rewriting *data* is a maintenance trap.
 The value inside a data row, per locale. Structure: `localize[fieldName][localeKey] = value` (nested variant
 `localize[field][jsonPath][locale]` for ObjectNode fields).
 
-- **Canonical wire key = `localize`** — `DynamicMethodExecutor.LOCALIZATION_CANONICAL_KEY = "localize"`
-  (`dynamic-integration-core/.../DynamicMethodExecutor.java`). Every UI consumer sends/reads this key.
-- **Static CRUD** satisfies it by convention: a DTO field annotated `@LocalizationField`
-  (`exec-reactor-core/.../crud/LocalizationField.java`) is literally named `localize`, type `ObjectNode`. Real
-  annotated field: a DTO declares it directly, or inherits it from an abstract localized base DTO — either way
-  the field is named `localize` and typed `ObjectNode`. `CrudReactor` enforces **exactly one**
-  such `ObjectNode` field per class (`exec-reactor-core/.../crud/CrudReactor.java`; it errors both on
-  multiple such fields and on a non-`ObjectNode` type).
-- **Dynamic CRUD** has no Java DTO, so the author picks the underlying **jsonb column** name, stored in
-  `DynamicCrudEntity.localizationField` (`dynamic-integration-core/.../entity/DynamicCrudEntity.java`). The
-  executor **aliases that column to the canonical `localize`** on read (`mapRow`,
-  `DynamicMethodExecutor.java`) and accepts it back under `localize` on write (the param unpacker;
-  helpers `localizationFieldCamelCase`, `isLocalizationParam`). So a dynamic
-  CRUD behaves identically to a static `@LocalizationField` DTO to every UI consumer.
+- **Canonical wire key = `localize`.** Every UI consumer sends/reads this key.
+- **Built-in (static) CRUD** satisfies it by convention: its localization field is literally named `localize`
+  and holds a JSON object. The platform enforces **exactly one** such JSON-object field per CRUD.
+- **Dynamic CRUD** has no fixed data class, so the author picks the underlying **jsonb column** name, stored in
+  the CRUD's `localizationField`. The
+  platform **aliases that column to the canonical `localize`** on read and accepts it back under `localize` on
+  write. So a dynamic
+  CRUD behaves identically to a built-in CRUD to every UI consumer.
 - **Column spelling differs by project style** — projects in the wild spell the jsonb column either **`localized`**
   or **`localize`**, consistently across their CRUDs (check yours with
   `jq '.cruds[].localizationField' dynamic-cruds.json`; a CRUD with no localized data at all carries `null`).
@@ -398,9 +370,8 @@ the TOP level and reports 0 % on fully-translated data. Test `localize->'<field>
 [11](11-business-logic-dynamic-crud.md) for why that `?` cannot go in a CRUD method.
 
 - **Per-field bulk Localize** (populate every row's `localize[field][locale]` across all locales by
-  auto-translation, as a background task) = `CrudDataLocalizeService`
-  (`nct-ui/.../service/CrudDataLocalizeService.java`): it pages the rows, translates via
-  `localizeService.translatePure`, writes `entity["localize"][fieldExpression][localeKey]`, and persists via the
+  auto-translation, as a background task): it pages the rows, translates via
+  the MT service, writes `entity["localize"][fieldExpression][localeKey]`, and persists via the
   CRUD's `update`. Driven from the DynamicCruds "Business Logic" plugin and the CRUD-table column
   "Localize" button. This is the main way real data gets translated at scale — see
   [11](11-business-logic-dynamic-crud.md).
@@ -413,19 +384,18 @@ There is no toolkit command for it.
 
 L3 above is the *data*; this is the *form control* that writes it. A text/textarea/dropdown/… control reads &
 writes per-locale values into `localize[fieldExpression][locale]` **only** when its settings carry
-`"localized": true` (`FormControlSettings.localized`, `nct-ui/.../controls/config/FormControlSettings.java`
-UI label "Localized" / "Store localized values for this field"). Three prerequisites, **all required**, or the
+`"localized": true` (UI label "Localized" / "Store localized values for this field"). Three prerequisites, **all required**, or the
 control silently reads/writes the base column → one language shows on every locale tab:
 
 1. **The field:** add `"localized": true` to `properties.settings.stringValue`. (Nothing else changes: a
    localized "Name" field is ordinary text-field settings **plus** that one flag.)
-2. **The form:** `multiLanguage: true` on the `FormDto` (`rep-objects.json → forms[]`) — renders the flag-tab
-   locale switcher (`FormLanguageSelectorPanel`, `FormPlugin.java`); the single input rebinds to the
+2. **The form:** `multiLanguage: true` on the form (`rep-objects.json → forms[]`) — renders the flag-tab
+   locale switcher; the single input rebinds to the
    selected locale.
-3. **The CRUD + tenant:** the CRUD has a `@LocalizationField`/`localizationField` jsonb (L3 above) and the tenant
+3. **The CRUD + tenant:** the CRUD has a `localizationField` jsonb (L3 above) and the tenant
    has >1 locale.
 
-**Write behaviour** (`BaseFormControl` read / write): editing in the **default** locale
+**Write behaviour:** editing in the **default** locale
 writes both `localize[field][defaultLocale]` **and** the base column; a non-default locale writes only that
 locale's slot; on read: current-locale value → (if missing & not default) auto-translate-from-default *and
 persist* → base-column fallback.
@@ -439,33 +409,25 @@ persist* → base-column fallback.
 
 ## (vi) L4 — runtime locale resolution & rendering
 
-**The session locale is the render locale.** Everything below reads `getSession().getLocale()`.
+**The session locale is the render locale.** Everything below reads the session locale.
 
-- **Session locale resolution** — `PluginBasePage.defineLocale()` / `defaultLocale()`
-  (`nct-ui/.../page/PluginBasePage.java`): order `?lng=` param → `?lang=` param → `lang` cookie →
-  Wicket super default. **Language selector** = `HeaderLangSelectorPanel` (list = `tenant().getLocales()`
-  on click `getSession().setLocale(...)` + save `lang` cookie).
-- **Render consumers** call `LocalizedValueUtil.getLocalizedValue(row, field, locale)` (reads
-  `row["localize"][field][locale]`, nested fallback, then the raw field —
-  `nct-ui/.../utils/LocalizedValueUtil.java`): `CrudTablePlugin.java`
-  `crud/tree/CrudTreePlugin.java`, `process/ProcessTablePlugin.java`
-  `dynaform/form/controls/list/ListFormControlPlugin.java`. (Enum projection takes priority over value
+- **Session locale resolution** — order `?lng=` param → `?lang=` param → `lang` cookie →
+  the framework default. **Language selector** in the header (list = the project locales;
+  on click it sets the session locale and saves the `lang` cookie).
+- **Render consumers** (CRUD table, CRUD tree, process table, List form control) read
+  `row["localize"][field][locale]`, nested fallback, then the raw field. (Enum projection takes priority over value
   localization in table columns — [04](04-crud-table-plugin.md).)
 - **Forms** read/write per the current form locale. A control stores localized values only when the **form** is
-  `multiLanguage` (`FormDto.java`) **and** the **control** is `localized` (`FormControlSettings.java`).
-  Current form locale = `getSession().getLocale()` → `tenant().getDefaultLocale()` → `locales.get(0)`
-  (`FormPlugin.java`). Write-back `setLocalizedValueInCrud(...)` sets `localize[field][locale]`
-  (`BaseFormControl.java`); GLOBAL/CONTEXT-scope fields use `attrs.__localize__[field][locale]` instead;
-  missing locales are auto-translated on change (`translatePure`).
-- **Groovy rules** get the locale from a ThreadLocal set before each rule runs: `LocaleContext.getLocaleKey()`
-  (`nct-executor/.../globalfunctions/LocaleContext.java`, a `ThreadLocal<String>` set from
-  `contextData.getLocaleKey()` at `rule/groovy/AbstractGroovyExecutor.java`, restored/cleared).
+  `multiLanguage` **and** the **control** is `localized`.
+  Current form locale = session locale → project default locale → first project locale.
+  Write-back sets `localize[field][locale]`; GLOBAL/CONTEXT-scope fields use `attrs.__localize__[field][locale]` instead;
+  missing locales are auto-translated on change.
+- **Groovy rules** get the locale of the calling session, set before each rule runs.
   Exposed to scripts as **`service.global.locale.getKey()`** (→ `en_US`/`ru_RU`; [16](16-groovy-service-api.md)).
 
-  > ⛔ **`context.data.localeKey` is ALWAYS `null` — do not use it.** `context.data.<name>` is sugar for
-  > `getAttr("<name>")` (`DynamicRuleContext.groovy` `propertyMissing` → `contextData?.getAttr(name)`),
-  > and `getAttr` reads **only** the `attrs` map (`ContextDataDto.java`). `localeKey` is a *field* on
-  > `ContextDataDto`, never mirrored into `attrs`, so the lookup misses every time.
+  > ⛔ **`context.data.localeKey` is ALWAYS `null` — do not use it.** `context.data.<name>` reads **only** the
+  > context's attribute map. The locale key is a separate property of the context, never mirrored into that
+  > map, so the lookup misses every time.
   > **Symptom:** a rule returns `locale: null`, the UI silently keeps whatever default it already had, and the
   > project looks "mostly translated". It is copy-paste-prone: one author writes it, every later rule is pasted
   > from that one, and the project papers over the result by sniffing the browser language in JS.
@@ -475,34 +437,29 @@ persist* → base-column fallback.
   options: `service.global.conversion.toSelectOptionsLocalized(list, key, display[, localeKey,
   localizationFieldName='localize'])` (reads `item[localize][display][localeKey]` with fallback —
   [16](16-groovy-service-api.md)).
-- **PDF** — the `nct-pdf` engine does **no** value localization/translation (it uses `Locale.ROOT` only for
-  string-lowercasing). Any localized text in a PDF comes from the Wicket page/model that produced it. **Do not
+- **PDF** — the PDF engine does **no** value localization/translation. Any localized text in a PDF comes from the page/model that produced it. **Do not
   expect a PDF template to localize data values** — resolve the localized value in the Groovy that fills the
   template's `params`. (⚠️ UNVERIFIED that any specific PDF-producing page passes already-localized model text.)
 - **Mail** — localized by **separate template per locale** (its own `alias`), **not** a per-locale field:
-  `MailTemplateDto` (`nct-transfer/.../dto/MailTemplateDto.java`) has no `multiLanguage`/localized field —
-  [15](15-pdf-and-mail.md) §3.3. Mail page locale is set from params → tenant default
-  (`ReportMailBasePage.java`, note the deliberate typo `defalutLocale`); CMS `LocalizedBean` mail text is
-  routed to the microservice by `@Primary ReportTranslationCacheServiceImpl` (cache-first, else
-  `localizationClient.translatePure` — `nct-ui/.../service/ReportTranslationCacheServiceImpl.java`).
+  a mail template has no `multiLanguage`/localized field —
+  [15](15-pdf-and-mail.md) §3.3. The mail's locale is set from params → project default locale; CMS
+  localized-map mail text is routed to the localization microservice (cache-first, else translated on demand).
 
 ---
 
 ## (vii) L5 — the auto-translate mechanism (one engine, five entry points)
 
-All auto-translation goes through the **external MT service**, reached the same way: `LocalizeService.translatePure` →
-Feign `LocalizationClient` → `nct-localization` (`LocalizeService.java`; the engine is L1's
-`LocalizationServiceImpl.java`). The five places it fires:
+All auto-translation goes through the **external MT service**, reached the same way: through the localization
+microservice (the L1 engine). The five places it fires:
 
-1. **`LocalizedTextFieldsPanel`** — on **blur of the default-locale row**, fills every still-empty target-locale
+1. **The per-locale text editor** — on **blur of the default-locale row**, fills every still-empty target-locale
    slot. This is the L2-map editor (no button).
-2. **`LocalizeService.seedLocalizedNames`** (`LocalizeService.java`) — builds a full name map, default slot
+2. **Name-map seeding** — builds a full name map, default slot
    verbatim + the rest machine-translated. Used seeding CRUD/tree **Create Default Actions**
-   (`CrudTableSettingsControlPanel.java`, `CrudTreeSettingsControlPanel.java`) and generated field labels
-   (`GenerateFieldsFromCrudDialog.java`, `ListFormControlSettingsPanel.java`).
-3. **`BaseFormControl`** — fills the other locales when a form field value changes (L3).
-4. **`CrudDataLocalizeService`** — bulk-localizes a whole column's data across all rows (L3).
-5. **`ReportTranslationCacheServiceImpl`** + the key-based `generateDefaultMessage` path — mail + UI chrome
+   and generated field labels.
+3. **Form controls** — fill the other locales when a form field value changes (L3).
+4. **Bulk column Localize** — localizes a whole column's data across all rows (L3).
+5. **The translation cache** + the key-based default-message path — mail + UI chrome
    (L1/L4).
 
 > **Critical builder consequence (the reason for the coverage rule).** Auto-translate runs **only inside the live

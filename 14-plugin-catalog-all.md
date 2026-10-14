@@ -5,7 +5,7 @@
 > 📕 **Field-level config reference:** [14a-plugin-config-reference.md](14a-plugin-config-reference.md) documents
 > **Every plugin name except `calendar.plugin` and `nct.mailbox.plugin`** at chart-doc depth (those two are covered in THIS doc and in [31](31-email-integration-and-mailbox.md)) — each one's
 > **settings panel + editor + JSON config slot + field-by-field
-> table**, source-grounded from the plugin class + editor + config DTO. Use THIS doc (14) as the catalog/overview;
+> table**. Use THIS doc (14) as the catalog/overview;
 > use **14a** when you need the exact JSON and what every field does to hand-author a node.
 
 ## What this is / When to use
@@ -14,7 +14,7 @@ This is the **index of every platform plugin**. Each content-tree node
 (`branches.json[].rootContent … .children[]`) selects a plugin via the `pluginName` field
 (see [01-content-model-and-pages.md](01-content-model-and-pages.md) — the node model). The plugin defines:
 
-1. **how the node renders** (which Java class, from which module: `nct-ui` / `mrjun` / `richwicket`),
+1. **how the node renders**,
 2. **where its config lives** — a slot in `properties`. The slot is **plugin-dependent**, not universal:
    - form controls → `properties.settings.stringValue` (JSON string),
    - table/chart/tree/process/dynamic-cruds/db/rule-script → `properties.model.stringValue` **or** a named property (`Javascript`, `html`, `tabModel`, `helpSettings`, …),
@@ -33,14 +33,13 @@ For plugins documented in detail in other docs, this file gives one line + a lin
 > match's `identifier=` (this doc never prints them), then `mrjun.py show node <identifier> --project /tmp/erp`
 > dumps the node. They are examples of a *shape*, never a statement about how your project must be organised.
 
-> **Convention for the source of `pluginName`.** Each plugin class declares the string once, in its
-> `@PluginConfig(pluginName = "…")` annotation. Two classes — `SiteMapPage` and `SiteMapPageRaven` — share the one
-> name `siteMapPage`, so the distinct plugin names you author come from slightly fewer annotated classes than there are annotations. *(This paragraph used to give exact totals; a census of plugin names drifts between platform builds, and a stale number reads as a promise. Count them in your own build if you need one:
-> every one is a `@PluginConfig(pluginName = "…")` in nct-ui, and the CMS and admin layers under it declare
-> more — catalogued here only so you recognise them. Two base plugins also appear in tenant exports:
+> **Convention for the source of `pluginName`.** Each plugin declares its name once. Two page implementations
+> share the one name `siteMapPage`. *(This paragraph used to give exact totals; a census of plugin names drifts between platform builds, and a stale number reads as a promise. Count them in your own build if you need one:
+> the platform also declares more plugins than are authored into projects —
+> catalogued here only so you recognise them. Two base plugins also appear in tenant exports:
 > `html.plugin` and `parsis.plugin`.)*
 > The generic content plugins (`nct.html/label/image/…`, `parsis.plugin`, `html.plugin`, `grid.plugin`,
-> `tabs.plugin`, …) come from the CMS layer; the business plugins come from the application layer. You never write
+> `tabs.plugin`, …) are the general-purpose ones; the business plugins are application-specific. You never write
 > these names by hand except in `properties.pluginName` — copy them from the catalog below.
 
 ---
@@ -73,7 +72,7 @@ platform/admin-level and never written into a project export.
 | `calendar.plugin` | 1 per scheduling/booking page (0 in the baseline) | `properties.model` | see the note below — not yet covered in depth |
 | `nct.mailbox.plugin` | 1 per mail page (0 in the baseline) | `properties.model` | [31](31-email-integration-and-mailbox.md) |
 | `process.table.pluin` *(yes, with the typo)* | 1–2 (console + your process lists) | `properties.model` | [05](05-crud-tree-and-process-table.md) |
-| `dynaform.form.plugin` | 1 per form | `properties.formModeIdentifier` (STRING → FormDto rep-object; no settings/model blob) | [02](02-form-controls-reference.md),[06](06-form-groups-and-mapping.md) |
+| `dynaform.form.plugin` | 1 per form | `properties.formModeIdentifier` (STRING → the form rep-object; no settings/model blob) | [02](02-form-controls-reference.md),[06](06-form-groups-and-mapping.md) |
 | `dynaform.form.text.field.plugin` | 1 per text field — the most numerous control | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.textarea.field.plugin` | 1 per multi-line field | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.rimm.drop.down.field.plugin` | 1 per dropdown | `properties.settings` | [02](02-form-controls-reference.md) |
@@ -85,17 +84,17 @@ platform/admin-level and never written into a project export.
 | `dynaform.form.file.upload.field.plugin` | 1 per upload field | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.comments.field.plugin` | 1 per comments field | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.gantt.chart.plugin` | 0 unless you author one | `properties.settings` | [02](02-form-controls-reference.md) |
-| `dynaform.filter.form.plugin` | 1 per standalone filter panel | `properties.filterFormModel` (`FilterFormDto`) | [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table) |
+| `dynaform.filter.form.plugin` | 1 per standalone filter panel | `properties.filterFormModel` | [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table) |
 | `dynaform.filter.submit.button.plugin` | 1 per filter panel | `properties.settings` (`{"buttonName":…}`) | [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table) |
-| `dynaform.form.groups.landingplugin` | 1 per form-group landing page | — (no settings blob; FormGroupDto via the `?group=<identifier>` URL parameter) | [06](06-form-groups-and-mapping.md) |
+| `dynaform.form.groups.landingplugin` | 1 per form-group landing page | — (no settings blob; the form group comes via the `?group=<identifier>` URL parameter) | [06](06-form-groups-and-mapping.md) |
 | `dynaform.form.groups.plugin` | 1 (console skeleton) | admin scaffold | [06](06-form-groups-and-mapping.md) |
 | `dynaform.context.list.plugin` | 1 (console skeleton) | admin scaffold | [08](08-groovy-rules-and-context.md) |
 | `bpmn2modeler.plugin` | 1 (console skeleton) | admin scaffold | [07](07-workflows-and-tasks.md) |
 | `workflows.plugin` | 1 (console skeleton) | admin scaffold | [07](07-workflows-and-tasks.md) |
-| `processes.plugin` ⚠️ *(dead — no class)* | 1 (console skeleton) | ⚠️ none → `mrjun.plugin.not.found` | [07](07-workflows-and-tasks.md) |
+| `processes.plugin` ⚠️ *(dead)* | 1 (console skeleton) | ⚠️ none → `mrjun.plugin.not.found` | [07](07-workflows-and-tasks.md) |
 | `processes.selectedplugin` | 1 (console skeleton) | admin scaffold | [07](07-workflows-and-tasks.md) |
-| `executor.rule.list.plugin` | 1 (console skeleton) | `ContentChooserPanelModel` `{editorPageContentIdentifier}` (landing = the `executor.rule.script.plugin` editor page) | [08](08-groovy-rules-and-context.md) |
-| `executor.rule.script.plugin` | 1 (console skeleton) | — (no model/settings blob; RuleDto is a rep-object, `?rule=<identifier>`) | [08](08-groovy-rules-and-context.md) |
+| `executor.rule.list.plugin` | 1 (console skeleton) | model `{editorPageContentIdentifier}` (landing = the `executor.rule.script.plugin` editor page) | [08](08-groovy-rules-and-context.md) |
+| `executor.rule.script.plugin` | 1 (console skeleton) | — (no model/settings blob; the rule is a rep-object, `?rule=<identifier>`) | [08](08-groovy-rules-and-context.md) |
 | `database.management.plugin` | 1 (console skeleton) | `properties.model` | [10](10-database-management.md) |
 | `dynamic.cruds.plugin` | 1 (console skeleton; absent in a truncated one) | `properties.model` | [11](11-business-logic-dynamic-crud.md) |
 | `admin.queries.plugin` | 1 (console skeleton) | admin scaffold | [12](12-queries-sources-schedulers-and-rest.md) |
@@ -111,8 +110,8 @@ platform/admin-level and never written into a project export.
 | `project.settings.plugin` | 1 (console skeleton) | admin scaffold | below + [12](12-queries-sources-schedulers-and-rest.md) |
 | `messaging.mail.templates.plugin` | 1 (console skeleton) | admin scaffold | [12](12-queries-sources-schedulers-and-rest.md),[15](15-pdf-and-mail.md) |
 | `report.pdf.templates.plugin` | 1 (console skeleton; absent in a truncated one) | admin scaffold | [15](15-pdf-and-mail.md) |
-| `pdf.report.plugin` ⚠️ *(dead — no class)* | **0 in the current baseline** (the `reports` demo page is gone) | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
-| `pdf.report.page.plugin` ⚠️ *(dead — no class)* | **0 in the current baseline** | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| `pdf.report.plugin` ⚠️ *(dead)* | **0 in the current baseline** (the `reports` demo page is gone) | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| `pdf.report.page.plugin` ⚠️ *(dead)* | **0 in the current baseline** | ⚠️ none → `mrjun.plugin.not.found` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
 | `site.header.plugin` | 1 per page (site chrome) | — (site chrome) | below |
 | `site.footer.plugin` | 1 per page (site chrome) | — (site chrome) | below |
 | `site.kicker.plugin` | 1 per page (site chrome) | `properties.modelGroups` when `id=left-nav` (quick-links tree); else — (site chrome) | [17](17-left-nav-quick-links.md), below |
@@ -120,11 +119,11 @@ platform/admin-level and never written into a project export.
 | `site.breadcrumb.plugin` | 1 per page (site chrome) | — (site chrome) | below |
 
 > **`calendar.plugin` — the one authorable plugin these docs do not yet cover field-by-field.** Config slot
-> `properties.model` (`CalendarPluginModel`). It binds to ONE CRUD (`contextIdentifier` + `crudAlias`) and
+> `properties.model`. It binds to ONE CRUD (`contextIdentifier` + `crudAlias`) and
 > fetches through an EXECUTION find rule (`findRuleIdentifier`, or `findMethodName` on the CRUD); the visible
 > date window arrives in the rule's `attrs` as `rangeStart`/`rangeEnd`. Rows become events through a field
 > mapping (`titleField`, `startField`, `endField`, `allDayField`, `colorField`, `locationField`,
-> `descriptionField`), and `createActions`/`editActions` are the same `CrudTableActionsDto` shape as on the
+> `descriptionField`), and `createActions`/`editActions` are the same action-set shape as on the
 > table ([04](04-crud-table-plugin.md)). Presentation: `initialView`, `firstDay`, `slotMinTime`/`slotMaxTime`,
 > `showWeekends`. If a PRD asks for appointments/bookings/shifts, evaluate this before hand-building a table or
 > an HTML component; check the field names against your platform build before you rely on them.
@@ -137,12 +136,12 @@ platform/admin-level and never written into a project export.
 > configured live after import, which also means `accountIds` can only be narrowed once ids exist. One per
 > page: it is a workplace, not a widget.
 
-**Plugins that exist in the `nct-ui`/`mrjun` code but do NOT appear in any project export**
+**Plugins that exist in the platform but do NOT appear in any project export**
 (these are platform/admin-application nodes; you do **not** author them by hand):
 `admin.organizations.plugin`, `admin.projects.plugin`, `admin.integrations.list.plugin`,
 `discovery.plugin`, `project.template.management.plugin`, `grid.plugin`, `html.localized.plugin`,
-`nct.link.plugin`, `admin.dashboard.*` (mrjun-admin),
-`admin.createsite.*` (mrjun-admin), `mrjun.plugin.not.found`, `mrjun.empty.plugin`. Check any of them the same
+`nct.link.plugin`, `admin.dashboard.*`,
+`admin.createsite.*`, `mrjun.plugin.not.found`, `mrjun.empty.plugin`. Check any of them the same
 way: `jq '[.. | objects | select(.pluginName=="admin.projects.plugin")] | length'` → `0`.
 
 Also **`dynaform.form.gantt.chart.plugin`** is easy to mistake for one of the above, because most projects contain
@@ -162,10 +161,8 @@ a container slot into which authors "drop" business plugins (crud tables, forms,
 
 | | |
 |---|---|
-| Class | `NctHtmlPlugin extends HtmlPlugin` (mrjun) |
-| Where | `NctHtmlPlugin` (its `@PluginConfig` annotation carries the pluginName); base classes `HtmlPlugin` → `AbstractHtmlPlugin` in the CMS library |
 | Config slot | `properties.html.stringValue` (type `STRING`) |
-| Extra props | `editorWidth` (default `"100%"`), `editorHeight` (default `"700px"`), `reuseItems` (bool, default `false`) — from `HtmlPropertiesBuilder`; plus `className`, `styleName`, `tagProperties` from the base builder. **Not `isParsis`** — that is a marker set on `nct.parsis.plugin` nodes (§1.2), not an html-plugin prop. |
+| Extra props | `editorWidth` (default `"100%"`), `editorHeight` (default `"700px"`), `reuseItems` (bool, default `false`); plus `className`, `styleName`, `tagProperties`. **Not `isParsis`** — that is a marker set on `nct.parsis.plugin` nodes (§1.2), not an html-plugin prop. |
 | UI group | `Common` |
 
 > **Component Studio (2026-07-28):** the SAME plugin can additionally carry a **JS-library + isolated-script + per-theme-CSS** project — including **calling the project's rules and business logic from JS** (`ctx.callRule` / `ctx.callBl`) — via a `properties.studioModel` JSON property (+ vendored files under `tenant-files/studio/…`). It is purely additive (no `studioModel` ⇒ classic raw HTML, exactly as below). Full schema, runtime API, and `.mrjun` recipe → **[24-html-component-studio.md](24-html-component-studio.md)** (`mrjun.py node set-studio` / `asset add`).
@@ -186,15 +183,15 @@ a container slot into which authors "drop" business plugins (crud tables, forms,
 
 **This is the answer to "how html is created".** `nct.html.plugin` is an editable block of raw HTML.
 Inside the HTML you can insert **`<plugin>` tags**, and each such tag is parsed (Jsoup) into a **real
-child content node**. The parsing mechanism is `AbstractHtmlPlugin`:
+child content node**. The parsing works like this:
 
-- the body is parsed as `Jsoup.parse("<div>" + htmlString + "</div>")`;
-- `allElements.select("plugin")` — all `<plugin>` tags;
+- the body is parsed as HTML wrapped in a `<div>`;
+- all `<plugin>` tags are collected;
 - only the **top-level** `<plugin>` tags are taken (not those nested inside another `<plugin>`);
 - the attributes `id`, `name` (= the child's `pluginName`), `vp` (virtual-plugin id) are read;
-- `plugin.select(":root > property,:root > prop")` — child `<property>` / `<prop>` → the child's properties;
-- `plugin.select(":root > behavior")` — child `<behavior>` → behaviour nodes;
-- each property tag contributes `name` + `type` (`PropertyType.of(...)`, default `STRING`) + `value`;
+- direct child `<property>` / `<prop>` tags → the child's properties;
+- direct child `<behavior>` tags → behaviour nodes;
+- each property tag contributes `name` + `type` (default `STRING`) + `value`;
 - by `(id, name)` a **child content node** is created or found under this html plugin; if `vp` is set,
   the virtualPlugin is used instead.
 
@@ -250,9 +247,8 @@ The property syntax inside `<plugin>` (real example from the site-layout, see `h
    `children[]` whose **`identifier` == `x` (the tag `id`)** and `pluginName` == the tag `name`, and put that
    child's config (settings/model/Javascript/text) on it.
    > ⛔ **This child is the ONE you do NOT give a fresh `identifier`** (contrast step 1). The html plugin links
-   > tag→child by `child.identifier == <plugin id>` (`AbstractHtmlPlugin.java` reads the id → passes it
-   > to `getOrCreateChildContent`, which matches `Objects.equals(child.getIdentifier(), id)` at `PluginUtils`
-   >). If the child identifier does not equal the tag id, the platform auto-creates a **blank** child with
+   > tag→child by `child.identifier == <plugin id>` (an exact match on the identifier).
+   > If the child identifier does not equal the tag id, the platform auto-creates a **blank** child with
    > `identifier`=id at render and your authored plugin is orphaned → **the slot renders EMPTY while import stays
    > clean**. Set `name`=id too (the platform does `setName(identifier)`). For a parsis-slot (`<plugin id="x"
    > name="nct.parsis.plugin"/>`): the child `nct.parsis.plugin` must have `identifier`==x, and the business
@@ -265,15 +261,14 @@ The property syntax inside `<plugin>` (real example from the site-layout, see `h
 
 | | |
 |---|---|
-| Classes | `ParsisPlugin` (CMS library, name = `Constants.Plugins.PARSIS_PLUGIN = "parsis.plugin"`); `NctParsisPlugin extends ParsisPlugin` (platform UI, name `nct.parsis.plugin`) |
 | Config slot | — (no JSON config; the config = **children**) |
-| Props | **Shared by BOTH `parsis.plugin` and `nct.parsis.plugin`** (from `ParsisPluginDefPropBuilder`): `minHeight`, `style`, `emptyPlaceholder`, `reuseItems`; plus `isParsis:true`, `className`, `styleName`, `tagProperties`. `NctParsisPlugin` adds only **behavior** (role-aware `canEditParsis`, drag sources, move-confirm) + `hideInKicker=true` — **no** new config props (`emptyPlaceholder`/`minHeight`/`style` are NOT nct.parsis-only). |
+| Props | **Shared by BOTH `parsis.plugin` and `nct.parsis.plugin`**: `minHeight`, `style`, `emptyPlaceholder`, `reuseItems`; plus `isParsis:true`, `className`, `styleName`, `tagProperties`. `nct.parsis.plugin` adds only **behavior** (role-aware editing, drag sources, move-confirm) + `hideInKicker=true` — **no** new config props (`emptyPlaceholder`/`minHeight`/`style` are NOT nct.parsis-only). |
 
 Parsis is a **container slot**: it shows nothing itself, but renders its `children[]` (each one a plugin).
-In authoring, plugins are "dropped" into it via drag-and-drop. `nct.parsis.plugin` is the nct-ui subclass of
-`parsis.plugin`; it declares the **same** `defaultPropertiesBuilder`, so the config surface is **identical** — it adds
-only authoring behaviour (`canEditParsis` takes the `ADMIN`/`NCT_AUTHOR` role into account, drag sources,
-move-confirm, `NctParsisPlugin.java`) and `hideInKicker=true`. **`properties.isParsis` = `true`** distinguishes a
+In authoring, plugins are "dropped" into it via drag-and-drop. `nct.parsis.plugin` is the platform-UI variant of
+`parsis.plugin`; it has the **same** property set, so the config surface is **identical** — it adds
+only authoring behaviour (editing takes the `ADMIN`/`NCT_AUTHOR` role into account, drag sources,
+move-confirm) and `hideInKicker=true`. **`properties.isParsis` = `true`** distinguishes a
 parsis from a plain html.
 
 Real node (`erp`, `nct.parsis.plugin`, one child):
@@ -302,11 +297,10 @@ existing `nct.parsis.plugin` on the page and add the plugin to its `children[]` 
 
 | | |
 |---|---|
-| Class | `HtmlPlugin` (CMS library, name `Constants.Plugins.HTML_PLUGIN = "html.plugin"`) |
 | Config slot | `properties.html.stringValue` |
 | Role | **the top-level layout of every page**: header/sidebar/footer/parsis slot |
 
-The same mechanism as `nct.html.plugin` (the shared `AbstractHtmlPlugin`), but this is the **base mrjun class**.
+The same mechanism as `nct.html.plugin`, but this is the **base plugin**.
 In practice `html.plugin` is precisely the **page's layout skeleton** (one per `siteMapPage`), inside
 which `site.header.plugin`, `site.kicker.plugin`, `site.breadcrumb.plugin`,
 `site.footer.plugin`, `site.right.kicker.plugin` and `nct.parsis.plugin` (the content slot) are embedded.
@@ -356,12 +350,11 @@ container"). You only change the `nct.parsis.plugin` slot inside (into which you
 
 | | |
 |---|---|
-| Class | `NctLabelPlugin` (`nct-ui/.../plugin/common/NctLabelPlugin.java`, name) |
 | Slot | named props: `text` (LOCALIZED), `tagName`, `className`, `styleName`, `tagProperties` |
 
 `text` is a localized string (`localizedStringValue`) **emitted as raw HTML** (unescaped — you may embed inline
 markup). `tagName` is the wrapper HTML tag, from a fixed dropdown set
-**`[h1,h2,h3,h4,h5,h6,p,span,i,label,small]`** (`LocalizedHeaderPropertiesBuilder.java`) — **`div` is NOT an
+**`[h1,h2,h3,h4,h5,h6,p,span,i,label,small]`** — **`div` is NOT an
 allowed value** (only if hand-injected). **The default `tagName` is `p`**, so a label with no `tagName` renders
 `<p>`, not `<label>` — set `tagName:"label"` for a form caption. It is often generated as a form-field caption
 ("Generate fields", see [03](03-generate-fields-from-crud.md)) — there `className:"form-label"`, `tagName:"label"`.
@@ -389,16 +382,15 @@ optionally `className`.
 
 | | |
 |---|---|
-| Class | `NctImagePlugin extends ImagePlugin` (`nct-ui/.../plugin/common/NctImagePlugin.java`, name); base mrjun `ImagePlugin` (`Constants.Plugins.IMAGE_PLUGIN = "image.plugin"`) |
 | Slot | named props: `url`, `description`, `tooltip`, `width` (INTEGER, **default 400**), `height` (INTEGER, **default 250**) — ⚠️ **neither reaches the rendered `<img>`**, see below — `className`, `styleName`, `tagProperties` |
 
 `url` supports the `abs(...)` macro (absolute path to a template resource). **In an export the `url` is stored
-TENANT-STRIPPED** (`TenantDomain.stripTenantPrefix`, called from `ImagePlugin` on save, re-prefixed with the
-importing tenant via `tenant().resolveImagePath` on render) — which is why an export's image `url` carries no realm/tenant prefix and
-ports cleanly; the actual image file lives in **nct-file-storage** (`tenant-files/`), so a ported project needs the
-file present. `width`/`height` (INTEGER, defaults 400 / 250) are **NOT applied to the rendered `<img>`** — those lines
-are commented out in `ImagePlugin.initPluginContent`. They are read only to size the `getImageFakeFile_{w}_{h}`
-placeholder shown when `url` is unset, and to seed the gallery editor's dimension config. **To size an image use
+TENANT-STRIPPED** (stripped on save, re-prefixed with the
+importing tenant on render) — which is why an export's image `url` carries no realm/tenant prefix and
+ports cleanly; the actual image file lives in the project's file storage (`tenant-files/`), so a ported project needs the
+file present. `width`/`height` (INTEGER, defaults 400 / 250) are **NOT applied to the rendered `<img>`** — the platform
+ignores them there. They are read only to size the
+placeholder image shown when `url` is unset, and to seed the gallery editor's dimension config. **To size an image use
 `className`/`styleName` + CSS**, not these props — which is why the `width=90` on the logo in the §1.1 / §1.3 layout
 examples (verbatim from the sample export) has no rendering effect.
 Real node (`erp`, logo):
@@ -420,7 +412,6 @@ Real node (`erp`, logo):
 
 | | |
 |---|---|
-| Classes | `NctLinkPlugin` (`nct-ui/.../plugin/common/NctLinkPlugin.java`, name `nct.link.plugin`); `NctLabeledLinkPlugin` (`nct-ui/.../plugin/common/NctLabeledLinkPlugin.java`, name `nct.label.link.plugin`) |
 | Slot | named props |
 
 `nct.link.plugin` **does not appear in project exports** — in practice its labeled variant is used, and even that
@@ -443,17 +434,15 @@ one is rare. A node looks like this:
 Fields: `label` (LOCALIZED caption), `link` (LOCALIZED_STRING — URL/path per locale, not a plain STRING),
 `params` (query parameters), `internal` (bool —
 an internal link), `identifier` (the **destination** content node's `identifier` — the node this link navigates to,
-resolved via `contentService.findOneByIdentifier`, `LinkPlugin.java`; **NOT** the link node's own uuid, and
+resolved by identifier; **NOT** the link node's own uuid, and
 honoured **only** when `internal:true`. For an external link set `internal:false` and put the URL in the `link`
-LOCALIZED_STRING; `identifier` is then ignored). The mrjun base is `LinkPlugin`
-(`Constants.Plugins.LINK_PLUGIN = "link.plugin"`) and `LocalizedLinkLabelPlugin`
-(`localized.link.label.plugin`).
+LOCALIZED_STRING; `identifier` is then ignored). The base plugins are `link.plugin` and
+`localized.link.label.plugin`.
 
 ## 1.7 · `nct.help.plugin` — help icon with a message
 
 | | |
 |---|---|
-| Class | `HelpPlugin` (`nct-ui/.../plugin/common/help/HelpPlugin.java`, name) |
 | Slot | `properties.helpSettings.stringValue` (JSON) |
 
 Real node (`erp`):
@@ -468,16 +457,15 @@ Real node (`erp`):
 `helpSettings` (decoded): `alwaysVisible` (bool), `showMessageOn` (`CLICK`/`HOVER`),
 `localizedMap.message.<locale>` (localized text). Programmatic creation is already described in
 [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md) (the Info column): the help plugin is placed
-to the right of the field caption — `HelpPluginSettings.setLocalizedProperty("message", map)` + `setJsonProperty("helpSettings")`.
+to the right of the field caption.
 
 ## 1.8 · `nct.tab.plugin` / `tabs.plugin` — tabs
 
 | | |
 |---|---|
-| Classes | `TabPlugin` (platform UI, name `nct.tab.plugin`); `TabsPlugin` (CMS library, name `tabs.plugin`) |
 | Slot | `properties.tabModel.stringValue` (JSON) |
 
-`nct.tab.plugin` is the nct-ui tab set; `tabs.plugin` is the base mrjun one (in real projects only
+`nct.tab.plugin` is the platform tab set; `tabs.plugin` is the base one (in real projects only
 `nct.tab.plugin` appears). **Each tab = a named child slot**: the tab's content is a child parsis.
 Real `tabModel` (`erp`):
 
@@ -494,9 +482,9 @@ Item fields: `id` (the tab's uuid), `name`, `order`, `iconClass`, `localizedMap.
 
 > ### ⛔ ALWAYS AUTHOR `"size": "SMALL"` — BIG is what you get by accident, never by choice
 >
-> `size` is `BIG`/`SMALL` (`TabSize.java`). **Every path that is not an explicit `"SMALL"` lands on
-> `BIG`:** the field initialiser is `private TabSize size = TabSize.BIG` (`TabModel.java`) *and*
-> `getSize()` coerces null→`BIG` (`TabModel.java`). So a hand-authored `tabModel` that simply omits
+> `size` is `BIG`/`SMALL`. **Every path that is not an explicit `"SMALL"` lands on
+> `BIG`:** the default is `BIG` *and*
+> a null `size` is read as `BIG`. So a hand-authored `tabModel` that simply omits
 > `size` — the normal way a build writes tabs — renders the heavy tab bar. That is a default, not a
 > decision, and it is wrong for a business screen: BIG is a chunky full-height bar that eats vertical
 > space above every grid and reads like a wizard step-header rather than a section switcher.
@@ -508,7 +496,7 @@ Item fields: `id` (the tab's uuid), `name`, `order`, `iconClass`, `localizedMap.
 > Only `node add --plugin nct.tab.plugin --model '{"items":[…]}'` injects `"size":"SMALL"` for you.
 > Hand-written JSON gets nothing — this is the single most common reason a whole project ships with
 > BIG tabs. In the UI the same switch is the **Size** dropdown in the tab editor ("Edit Tabs" toolbar
-> button → `TabPluginEditor`), so an author can see and change it after the fact; the point of the
+> button), so an author can see and change it after the fact; the point of the
 > rule is not to make them.
 > **Which tab opens.** `?tab=<tab id | name>` in the URL (or `?tab.<tab-set identifier>=…` for one set), else the
 > session's last tab on this node, else the first by `order`. The session remembers the tab per tab-set node, not per
@@ -518,9 +506,8 @@ Item fields: `id` (the tab's uuid), `name`, `order`, `iconClass`, `localizedMap.
 Extra node props: `showCard` (bool), `isParsis`, `className`, `styleName`. **Two same-type tables (e.g. two
 `crud.table.plugin`) SHOULD be split across tabs — one per tab pane** — never stacked in one parsis (§2.3).
 Each tab's content lives in a child `nct.parsis.plugin` node whose **`identifier` AND `name` MUST equal that
-tab's `tabModel.items[].id`**. The tab body is resolved by `PluginWrapperOfContentPanel(…,"nct.parsis.plugin",
-item.id)` → `getOrCreateChildContentComponent(…, item.id)`, matched on `child.identifier == item.id`
-(`TabPlugin.java`, `PluginUtils.getOrCreateChildContent`). **Order is irrelevant — the identifier match
+tab's `tabModel.items[].id`**. The tab body is resolved as the child `nct.parsis.plugin` node matched on
+`child.identifier == item.id`. **Order is irrelevant — the identifier match
 is load-bearing, NOT the count/order**: in the shipped `erp` sample the child parsis are often in a different order than
 the items (Stock/Stock-Movement/Lot node: items `5b7fd1bc,7af19caa,22ae6ae8` but children `7af19caa,5b7fd1bc,
 22ae6ae8`) yet each identifier still matches. So: create N child parsis, one per item, each `identifier` == `name`
@@ -528,7 +515,7 @@ the items (Stock/Stock-Movement/Lot node: items `5b7fd1bc,7af19caa,22ae6ae8` but
 
 > ⛔ **This is the ONE place the general "mint a fresh `identifier`/`uniqueIdentifier`" rule (§1.1) does NOT
 > apply to a tab child.** Mint a fresh `uniqueIdentifier` only — the `identifier` MUST reuse the tab item id
-> verbatim. If identifiers do not match, at first render `getOrCreateChildContent` auto-creates a blank parsis
+> verbatim. If identifiers do not match, at first render the platform auto-creates a blank parsis
 > per tab and orphans your content, so **every tab renders EMPTY** (same mechanism as §2.4's grid cells).
 > `mrjun.py validate` only WARNs on a mismatch — it does NOT error — so this passes a 0-error validate;
 > **live-render and confirm each tab pane is populated.**
@@ -539,11 +526,10 @@ Other props: see `erp` (`children`=3 with 3 items, each child `identifier` == it
 
 | | |
 |---|---|
-| Class | `GridPlugin extends PluginPanel` (CMS library) |
-| Slot | `properties.model.stringValue` (`GridPluginModel`, `GridPlugin.java`) |
+| Slot | `properties.model.stringValue` |
 
-The model is a grid of rows/columns (`GridPropertyBuilder`/`GridPluginModel`), each cell rendering
-`Constants.Plugins.PARSIS_PLUGIN` as a nested slot (`GridPlugin.java`, `"el" + index`).
+The model is a grid of rows/columns, each cell rendering
+a `parsis.plugin` as a nested slot (id `"el" + index`).
 **Does not appear in project exports** — in practice the layout is done via `nct.html.plugin`
 (flex/grid CSS) + parsis slots (see 1.1). If needed — the config is in `properties.model.stringValue`.
 
@@ -551,20 +537,18 @@ The model is a grid of rows/columns (`GridPropertyBuilder`/`GridPluginModel`), e
 
 | | |
 |---|---|
-| Class | `LocalizedHtmlPlugin extends AbstractHtmlPlugin` (CMS library) |
 | Slot | `properties.html` (LOCALIZED — html per locale) |
 
 The same as `html.plugin`, but `html` is a localized string (different HTML per locale). **Does not appear
-in practice** — instead nct-ui localizes individual `text`/`label` properties. Related mrjun plugins:
-`localized.rich.text.plugin` (`LocalizedRichTextPlugin`), `header.plugin`/
-`localized.header.plugin` (`HeaderPlugin`/`LocalizedHeaderPlugin`) — also platform-level, absent from project
+in practice** — instead individual `text`/`label` properties are localized. Related mrjun plugins:
+`localized.rich.text.plugin`, `header.plugin`/
+`localized.header.plugin` — also platform-level, absent from project
 exports.
 
 ## 1.11 · `global.replacement.plugin` — global $$-replacements
 
 | | |
 |---|---|
-| Class | `GlobalReplacementPlugin extends NctBasePlugin<ChartJsModel>` (`nct-ui/.../plugin/chart/GlobalReplacementPlugin.java`, name) |
 | Slot | — (no content blob; the editor edits query parameters) |
 
 > **Catalog stub.** The page **filter bar** — full params + filtering-through-params + click-to-cross-filter
@@ -573,10 +557,9 @@ exports.
 The page-wide **filter bar**: it stores no configuration of its own and builds one control per distinct SQL
 parameter declared by the QUERY replacements of the charts on the same page ([22 §4](22-charts-params-and-filters.md)).
 This is **not** a plugin with a config blob: in an export its `properties` are only `className/styleName/tagProperties`
-(there is no `Javascript`/`model`/`settings` key on it). The class does not do
-`getJsonProperty`/`saveContent` into any content slot — instead the form (`ParamsPanel`,
-`GlobalReplacementPlugin.java`) edits query parameters and on submit triggers the event
-`parametersOfQueryHasBeenChanged` over the affected `QueryDto`. So this is a
+(there is no `Javascript`/`model`/`settings` key on it). The plugin does not write
+into any content slot — instead its form edits query parameters and on submit notifies the
+charts whose queries are affected. So this is a
 behaviour/admin editor of query parameters, not a persist into content-Javascript. One per dashboard page that
 has a filter bar.
 
@@ -588,9 +571,7 @@ has a filter bar.
 
 | | |
 |---|---|
-| Class | `ActionButtonPlugin extends NctBaseModelObjectObjectSyncedPlugin<ActionButtonSettings>` (`nct-ui/.../plugin/dynaform/action/ActionButtonPlugin.java`, the annotation) |
-| Settings class | `ActionButtonSettings` (`nct-ui/.../plugin/dynaform/action/ActionButtonSettings.java`; `localizedLabels` = `Map<String,String>`) |
-| Settings editor | `ActionButtonSettingsPanel.java` — the per-locale button label is edited via `LocalizedTextFieldsPanel("localizedLabels", …)`; the key persisted in `settings` is **`localizedLabels`** (`{locale → label}`) |
+| Settings key | the per-locale button label is persisted in `settings` as **`localizedLabels`** (`{locale → label}`) |
 | Config slot | `properties.settings.stringValue` (JSON) |
 | Group | `Form Controls` (it is a form control, but a standalone one — not bound to a CRUD field) |
 
@@ -599,9 +580,9 @@ listed components (`refreshTargets`). Unlike crud-table actions (which open a fo
 [04](04-crud-table-plugin.md)), this is a standalone button on a page/in a form.
 
 > ⚠️ **The rule sees CRUD/context data only INSIDE a form.** The button resolves its rule context from the nearest
-> `IFormContextProvider` ancestor: inside a `dynaform.form.plugin` the rule runs against the **form's full
+> form ancestor: inside a `dynaform.form.plugin` the rule runs against the **form's full
 > `contextData`** (CRUD row + context attrs, folding in live edits); a **standalone** action button (no form
-> ancestor) runs with an **empty `ContextDataDto`** — `context.<ctx>.<crud>.data.get()` is empty, only globals /
+> ancestor) runs with an **empty context data** — `context.<ctx>.<crud>.data.get()` is empty, only globals /
 > `service.*` calls work. Put the button inside the form when its rule needs the row.
 
 Real node (`erp`, the only instance — "Pull from PO"):
@@ -613,25 +594,25 @@ Real node (`erp`, the only instance — "Pull from PO"):
   } } }
 ```
 
-The `settings` fields (class `ActionButtonSettings`):
+The `settings` fields:
 
 | Field · type | Value · default | Meaning |
 |---|---|---|
 | `localizedLabels` · Map<locale,String> | — | the button caption per locale (`en_US`/`ru_RU`/…) |
 | `iconClass` · String | null | Pe-7s icon CSS class (e.g. `pe-7s-rocket`); empty → no icon |
 | `ruleIdentifier` · String | — | **the identifier of the EXECUTION rule**, run on click ([08](08-groovy-rules-and-context.md)) |
-| `variant` · enum `ButtonStyleVariant` | `PRIMARY` | `PRIMARY,SECONDARY,SUCCESS,INFO,WARNING,DANGER,LIGHT,DARK,LINK,ALTERNATE,FOCUS` (`ButtonStyleVariant.java`) |
+| `variant` · enum | `PRIMARY` | `PRIMARY,SECONDARY,SUCCESS,INFO,WARNING,DANGER,LIGHT,DARK,LINK,ALTERNATE,FOCUS` |
 | `outline` · bool | `false` | outline button |
 | `gradient` · bool | `false` | gradient |
 | `shadow` · bool | `false` | shadow |
-| `size` · enum `ButtonSize` | `DEFAULT` | `DEFAULT("")`, `SM("btn-sm")`, `LG("btn-lg")` (`ButtonSize.java`) |
-| `shape` · enum `ButtonShape` | `DEFAULT` | `DEFAULT("")`, `PILL("btn-pill")`, `SQUARE("btn-square")` (`ButtonShape.java`) |
+| `size` · enum | `DEFAULT` | `DEFAULT("")`, `SM("btn-sm")`, `LG("btn-lg")` |
+| `shape` · enum | `DEFAULT` | `DEFAULT("")`, `PILL("btn-pill")`, `SQUARE("btn-square")` |
 | `wide` · bool | `false` | `btn-wide` |
 | `iconOnly` · bool | `false` | icon only |
 | `submitForm` · bool | `false` | if inside a form — submits the form before the rule |
 | `showWaitIcon` · bool | `false` | a spinner on the button during the click (attribute `icon-wait="true"`) |
 | `blockSelector` · String | null | CSS selector whose elements are blocked by an overlay for the duration of the action |
-| `refreshTargets` · String | null | CSV of `uniqueIdentifier`s of `IRefreshable` components, re-rendered after the rule |
+| `refreshTargets` · String | null | CSV of `uniqueIdentifier`s of refreshable components, re-rendered after the rule |
 
 ### How to create from scratch
 1. Create an EXECUTION rule (`ruleType:"EXECUTION_RULE"`, `executor:"GroovyExecutionRule"`,
@@ -650,22 +631,20 @@ The `settings` fields (class `ActionButtonSettings`):
 
 | | |
 |---|---|
-| Class | `ChartJsPlugin extends NctBasePlugin<ChartJsModel>` (`nct-ui/.../plugin/chart/ChartJsPlugin.java`) |
-| Model class | `ChartJsModel` (`ChartJsModel.java`) |
-| Config slot | `properties.Javascript.stringValue` (JSON `ChartJsModel`) — **not `model`, not `settings`**, but the named property `Javascript` (`ChartJsPlugin.java`, `ReportServiceUtils.JS_MODEL_NAME`) |
+| Config slot | `properties.Javascript.stringValue` (JSON) — **not `model`, not `settings`**, but the named property `Javascript` |
 | Group | `Reporting` |
 
-> **Catalog stub.** Full recipe — the `ChartJsModel`/`ChartJsReplacement` schema, `$$('name', default, 'Type')`
+> **Catalog stub.** Full recipe — the chart-model / replacement schema, `$$('name', default, 'Type')`
 > data binding, `QUERY`/`LABEL` strategy, query params, the `global.replacement` filter bar, click-to-cross-filter,
 > and theme-safe rendering — is in **[22-charts-params-and-filters.md](22-charts-params-and-filters.md)**.
 
 A universal "block with HTML + JS + data". Despite the name, this is **not only charts** — it is any
 custom widget: an HTML template + JS logic + `replacements` (data from SQL queries). It is the most frequent
-business plugin in a real project. `ChartJsModel`: `id`, `js`, `html`, `css`, `schedule` (`ScheduleDto`),
-`replacements` (`List<ChartJsReplacement>`).
+business plugin in a real project. The model: `id`, `js`, `html`, `css`, `schedule`,
+`replacements` (a list).
 
 **Data binding** goes through `replacements`: the JS accesses the data via `$$('name', default, 'Type')`, and
-each `replacement` is bound to a saved `query` (`queryIdentifier` + an embedded **MINIMAL 12-field `QueryDto`**
+each `replacement` is bound to a saved `query` (`queryIdentifier` + an embedded **MINIMAL 12-field**
 copy of `query` — NOT the 21-field rep-object; see the ⛔ below and doc 22) with a
 `replaceStrategy` (`LABEL`/…), `columnName`, `defaultValue`, `maxItemsCount`. Real node (`erp`,
 "Strategic Planning Health" — collapsible with 1 replacement from the query `Recommendation`), `Javascript`
@@ -693,16 +672,16 @@ decoded (abridged):
 ```
 
 > ⛔ The embedded `replacements[].query` above is **abridged**. A real embedded copy carries **exactly the 12
-> `QueryDto` fields** — `{id, identifier, realmName, clientName, name, query, sourceIdentifier, offset,
+> fields** — `{id, identifier, realmName, clientName, name, query, sourceIdentifier, offset,
 > itemsPerPage, parameters, attributes:{}, aggregations:{aggregations:[],groupByList:[],orderByList:[]}}`
 > (`aggregations`=`[]` not null, `attributes`=`{}`). **Do NOT paste the 21-field saved-query rep-object from
 > `rep-objects.queries[]`** — its rep-metadata (`creationTime`/`modificationTime`/`errors`/`message`/`hidden`/
-> `schedule`/`lastScheduledTime`/`statementTimeoutSeconds`/`wrapInPaging`) fails `ChartJsModel` deserialization,
-> which `ChartJsPlugin` silently swallows into an empty model → **the chart renders EMPTY as a "Modify
+> `schedule`/`lastScheduledTime`/`statementTimeoutSeconds`/`wrapInPaging`) fails parsing of the chart model,
+> which the platform silently swallows into an empty model → **the chart renders EMPTY as a "Modify
 > html" cell** while import stays clean. See [22-charts-params-and-filters.md](22-charts-params-and-filters.md)
 > §embedded-query.
 
-Key `ChartJsModel` fields:
+Key chart-model fields:
 
 | Field · type | Meaning |
 |---|---|
@@ -710,27 +689,27 @@ Key `ChartJsModel` fields:
 | `html` · String | the widget's HTML template (with `<style>`, the `.collapsible`, `.content` classes, …) |
 | `js` · String | JS: `this.$find('.sel')`, `this.$component()`, data access via `$$('name', default, 'Type')` |
 | `css` · String | LEGACY single CSS block; still honoured (read as `cssByTheme["*"]`) |
-| `cssByTheme` · Map | **per-theme CSS**, key `"*"` or an exact `Skin.getName()`. Editor: the **Css** tab. Only `"*"` + the active skin are emitted, each **scoped** to the chart instance -- so unlike a `<style>` inside `html` (which is GLOBAL) it cannot leak onto other charts. See [24a](24a-theming-and-dark-mode.md) |
-| `schedule` · `ScheduleDto` | the recompute schedule (usually empty) |
-| `replacements[]` · `ChartJsReplacement` | data bindings (see below) |
+| `cssByTheme` · Map | **per-theme CSS**, key `"*"` or an exact skin name. Editor: the **Css** tab. Only `"*"` + the active skin are emitted, each **scoped** to the chart instance -- so unlike a `<style>` inside `html` (which is GLOBAL) it cannot leak onto other charts. See [24a](24a-theming-and-dark-mode.md) |
+| `schedule` · object | the recompute schedule (usually empty) |
+| `replacements[]` · list | data bindings (see below) |
 
-`ChartJsReplacement` fields: `name`, `group` (the `$$(...)` call itself), `type` (`Integer[]`/`String[]`/…),
-`replaceStrategy` (`LABEL`/…), `queryIdentifier` (**+ a MINIMAL 12-field `QueryDto` copy in `query`** — ONLY
+Replacement fields: `name`, `group` (the `$$(...)` call itself), `type` (`Integer[]`/`String[]`/…),
+`replaceStrategy` (`LABEL`/…), `queryIdentifier` (**+ a MINIMAL 12-field copy of the query in `query`** — ONLY
 `{id, identifier, realmName, clientName, name, query, sourceIdentifier, offset, itemsPerPage, parameters,
 attributes:{}, aggregations:{aggregations:[],groupByList:[],orderByList:[]}}`; **do NOT paste the 21-field saved-query
 rep-object from `rep-objects.queries[]`** — its rep-metadata `creationTime/modificationTime/errors/message/hidden/
-schedule/lastScheduledTime/statementTimeoutSeconds/wrapInPaging` fails `ChartJsModel` deserialization, which
-`ChartJsPlugin` silently swallows → the chart renders EMPTY as a "Modify html" cell; see doc 22
+schedule/lastScheduledTime/statementTimeoutSeconds/wrapInPaging` fails parsing of the chart model, which
+the platform silently swallows → the chart renders EMPTY as a "Modify html" cell; see doc 22
 §embedded-query), `defaultValue`, `columnName`, `order`, `maxItemsCount`, `futureReplacements[]`.
 
 **"Chart types"**: the chart type is not a model field — it is a consequence of which JS library the
-`js` calls (Chart.js/Plotly/**ECharts**/arbitrary DOM — those, plus `chartjs-adapter-date-fns` and mermaid, are the libs `renderHead` injects, `ChartJsPlugin.java`; ApexCharts is **not** loaded here). The model stores only html+js+data; the chart type
+`js` calls (Chart.js/Plotly/**ECharts**/arbitrary DOM — those, plus `chartjs-adapter-date-fns` and mermaid, are the libs the plugin injects; ApexCharts is **not** loaded here). The model stores only html+js+data; the chart type
 is determined by the code in `js`.
 
 ### How to create from scratch
 1. Save an SQL query → `rep-objects.queries[]` (see [12](12-queries-sources-schedulers-and-rest.md)),
    and remember its `identifier`.
-2. Node `pluginName:"chart.js.plugin"`; into `properties.Javascript.stringValue` put the JSON `ChartJsModel`:
+2. Node `pluginName:"chart.js.plugin"`; into `properties.Javascript.stringValue` put the JSON chart model:
    a fresh `id`, your `html`, `js` (data access via `$$('<name>', <default>, '<Type>')`), and one
    `replacement` per data source (`name` = the key in `$$(...)`, `queryIdentifier` = your query,
    `columnName` = the result column, `type`, `defaultValue`, `maxItemsCount`).
@@ -801,13 +780,12 @@ they are still forbidden on one page — see THE RULE below, which `validate` en
 **Why (root cause) — and why tabs are enough.** Each of these plugins keys its *authoring / live-settings
 machinery* by plugin **type**, not by instance, and broadcasts **page-wide**:
 
-- Its **Settings panel** is registered under a constant nav name — `"CRUD Table Settings"`
-  (`CrudTablePlugin.showSettings()` → `EventUtils.trigger(..., "openGloseRightGroup", "CRUD Table Settings")`).
-  The right-nav registry **dedupes by (name, tabName)** (`NctRightKickerPanel`), so a second instance's
+- Its **Settings panel** is registered under a constant nav name — `"CRUD Table Settings"`.
+  The right-nav registry **dedupes by (name, tabName)**, so a second instance's
   registration **evicts the first** — only ONE settings panel survives (last-rendered wins).
-- Its **live-sync channel** is a constant `getKey()` — `"CrudTableSynced"` (`CrudTablePlugin.getKey()`). Every
-  instance subscribes; `EventUtils` broadcasts page-wide and the listener does `setModelObject(...)`
-  **unconditionally on every instance** (`NctBaseModelObjectObjectSyncedPlugin`).
+- Its **live-sync channel** is a constant key — `"CrudTableSynced"`. Every
+  instance subscribes; updates are broadcast page-wide and the listener applies the new model
+  **unconditionally on every instance**.
 - (Conditional) a `dynaform.filter.form` submit `onFilterSubmit` refreshes **both** tables with the **same**
   filter map.
 
@@ -849,7 +827,7 @@ A dashboard page (KPIs + charts) must **not** also host a `crud.table`/`crud.tre
 drill-down tables on their **own** pages and link to them (keeps 2.3 satisfied and the page fast). And a
 `dynaform.filter.form` is **inert on a chart dashboard**: its `onFilterSubmit` drives **tables**, not charts —
 `chart.js.plugin` only re-queries on the `parametersOfQueryHasBeenChanged` event (the report query-parameter /
-`global.replacement.plugin` mechanism, `ChartJsPlugin.java`), never on `onFilterSubmit`. So a filter bar on a
+`global.replacement.plugin` mechanism), never on `onFilterSubmit`. So a filter bar on a
 table-less dashboard filters nothing — drop it. To make dashboard **charts** filterable, parameterize the SQL of
 the chart's QUERY replacement with an inline placeholder — e.g.
 `WHERE branch = {name:'Branch', type:'dropdown-string', dropDownPopulation:{query:'Branches', value:'code', name:'name'}}` —
@@ -870,24 +848,23 @@ name="nct.parsis.plugin"></plugin></div>…</div>`, and its children are `nct.pa
 
 # Group 3 · Site chrome (header/sidebar/footer/breadcrumbs)
 
-These are parts of the site layout, embedded into `html.plugin` via `<plugin>` (see 1.3). All are `NctBasePlugin`
-without a user JSON config; the only setup is `className`/`styleName` (passed in from
+These are parts of the site layout, embedded into `html.plugin` via `<plugin>` (see 1.3). None has a user JSON config; the only setup is `className`/`styleName` (passed in from
 the `<property>` in the layout HTML). **All are scaffold, not created by hand** (cloned by the page template).
 
-| `pluginName` | Class · where | Purpose |
-|---|---|---|
-| `site.header.plugin` | `NctHeaderPlugin` · `nct-ui/.../plugin/admin/header/NctHeaderPlugin.java` | the page's top header |
-| `site.footer.plugin` | `NctFooterPlugin` · `nct-ui/.../plugin/admin/NctFooterPlugin.java` | footer (`editBorderSelector=".app-footer__inner"`) |
-| `site.kicker.plugin` | `NctKickerPlugin` · `nct-ui/.../plugin/admin/kicker/NctKickerPlugin.java` | the left navigation sidebar (site menu); quick-links tree in `properties.modelGroups` — see [17-left-nav-quick-links.md](17-left-nav-quick-links.md) |
-| `site.right.kicker.plugin` | `NctRightKickerPlugin` · `nct-ui/.../plugin/admin/kicker/right/NctRightKickerPlugin.java` | the right slide-out panel (drawer) |
-| `site.breadcrumb.plugin` | `BreadCrumbPlugin` · `nct-ui/.../plugin/report/BreadCrumbPlugin.java` | breadcrumbs |
+| `pluginName` | Purpose |
+|---|---|
+| `site.header.plugin` | the page's top header |
+| `site.footer.plugin` | footer (`editBorderSelector=".app-footer__inner"`) |
+| `site.kicker.plugin` | the left navigation sidebar (site menu); quick-links tree in `properties.modelGroups` — see [17-left-nav-quick-links.md](17-left-nav-quick-links.md) |
+| `site.right.kicker.plugin` | the right slide-out panel (drawer) |
+| `site.breadcrumb.plugin` | breadcrumbs |
 
 `footer`/`kicker`/`right-kicker` have `hideInKicker=true`; `header` — `hideInKicker=false`;
 `breadcrumb` does not set the attribute (default `false`). They are configured via `<property name="className" value="…">`
 in the layout HTML — for example `site.header.plugin` gets `className="app-header__content"`, and
 `site.right.kicker.plugin` — `className="app-drawer-wrapper"` (see the example in 1.3).
 
-`siteMapPage` (the page class) — see it separately below (it is not chrome, but the page container itself).
+`siteMapPage` (the page node) — see it separately below (it is not chrome, but the page container itself).
 
 ---
 
@@ -895,7 +872,7 @@ in the layout HTML — for example `site.header.plugin` gets `className="app-hea
 
 | | |
 |---|---|
-| Classes | `SiteMapPage` (`SiteMapPage.java`, template `ARCHITECTUI_HTML_PRO`) and `SiteMapPageRaven` (`SiteMapPageRaven.java`, template `RAVEN`) — **both** share the name `CmsServiceConstants.SITE_MAP_PAGE_PLUGIN_NAME = "siteMapPage"` (`mrjun-.../CmsServiceConstants.java`) |
+| Variants | two page implementations, one per page template (`ARCHITECTUI_HTML_PRO` and `RAVEN`) — **both** share the name `siteMapPage` |
 | Config slot | `alias` — **a top-level node field** (sibling of `properties`/`roleAccess`); while `pageTitle`, `pageDescription`, `layout`, `metaTags`, `additionalCss`, `Redirect`, `isParsis` — are entries under `properties` |
 | Children | `html.plugin` (layout scaffold) + optionally nested `siteMapPage` (subpages) |
 
@@ -942,70 +919,69 @@ configure them** — just **keep them as-is** and append business pages next to 
 
 The `siteMapPage → plugin` table (from `empty/branches.json`, `.rootContent.children[]`):
 
-| Admin page (name) | `pluginName` inside | Class · where (nct-ui) | What it does | In depth |
-|---|---|---|---|---|
-| User management | `admin.user.management.plugin` | `UserManagementPlugin` · `plugin/admin/usermanagement/UserManagementPlugin.java` | managing project users | — |
-| Role Management | `admin.rolegroup.management.plugin` | `RoleGroupManagementPlugin` · `plugin/admin/usermanagement/RoleGroupManagementPlugin.java` | role groups | [12](12-queries-sources-schedulers-and-rest.md) |
-| Sources | `admin.sources.plugin` | `SourcesPlugin` · `plugin/report/sources/SourcesPlugin.java` | DB sources (rep-objects.sources) | [12](12-queries-sources-schedulers-and-rest.md) |
-| Schedulers | `admin.schedulers.plugin` | `SchedulerPlugin` · `plugin/report/schedulers/SchedulerPlugin.java` | schedulers | [12](12-queries-sources-schedulers-and-rest.md) |
-| Queries (list) | `admin.queries.plugin` | `QueriesPlugin` · `plugin/report/queries/list/QueriesPlugin.java` | the list of saved queries | [12](12-queries-sources-schedulers-and-rest.md) |
-| Queries (editor) | `admin.query.plugin` | `QueryPlugin` · `plugin/report/queries/viewedit/QueryPlugin.java` | the editor for a single query | [12](12-queries-sources-schedulers-and-rest.md) |
-| Queries (results) | `query.results.plugin` | `QueryResultsPlugin` · `plugin/report/queries/viewedit/QueryResultsPlugin.java` | the query results table | [12](12-queries-sources-schedulers-and-rest.md) |
-| Settings | `project.settings.plugin` | `ProjectSettingsPlugin` · `plugin/dynamic/projectsettings/ProjectSettingsPlugin.java` | project settings (rep-objects.settings) | [12](12-queries-sources-schedulers-and-rest.md) |
-| Audit Logs | `audit.log.list.plugin` | `AuditLogListPlugin` · `plugin/auditlog/AuditLogListPlugin.java` | the audit log | — |
-| Profile | `user.profile.plugin` | `UserProfilePlugin` · `plugin/profile/UserProfilePlugin.java` | the current user's profile | — |
-| ~~Ontology~~ *(page removed from the baseline)* | `ontology.viewer.plugin` | `OntologyViewerPlugin` · `plugin/ontology/OntologyViewerPlugin.java` | ontology viewer — **no config slot** (empty properties: `className`/`styleName`/`tagProperties`); the `NctBasePlugin<OntologyModel>` type param is **vestigial**, `initPluginContent` never reads `properties.model` (`OntologyViewerPlugin.java`) | — |
-| Contexts | `dynaform.context.list.plugin` | `ContextListPlugin` · `plugin/context/ContextListPlugin.java` | the list of contexts | [08](08-groovy-rules-and-context.md) |
-| Rules (list) | `executor.rule.list.plugin` | `RuleListPlugin` · `plugin/executor/rule/RuleListPlugin.java` | the list of rules | [08](08-groovy-rules-and-context.md) |
-| Rules (editor) | `executor.rule.script.plugin` | `RuleScriptPlugin` · `plugin/executor/rule/RuleScriptPlugin.java` | the rule script editor (no model/settings blob; `RuleDto` is a rep-object, resolved via `?rule=<identifier>`, `RuleScriptPlugin.java`) | [08](08-groovy-rules-and-context.md) |
-| Form Groups | `dynaform.form.groups.plugin` | `FormGroupsPlugin` · `plugin/dynaform/formfroups/FormGroupsPlugin.java` | the list of form groups | [06](06-form-groups-and-mapping.md) |
-| Processes (list) ⚠️ | `processes.plugin` | **⚠️ no `@PluginConfig` class** | ⚠️ **dead/legacy** — the process list was merged into the single master-detail `processes.selectedplugin`; the baseline node renders as `mrjun.plugin.not.found`. Leave it alone; author new process screens with `processes.selectedplugin` or `process.table.pluin` | [07](07-workflows-and-tasks.md) |
-| Processes | `processes.selectedplugin` | `ProcessSelectedPlugin` · `plugin/workflow/processes/ProcessSelectedPlugin.java` | the whole Processes screen: one self-contained master-detail panel — process list on the left, process detail on the right | [07](07-workflows-and-tasks.md) |
-| Workflows | `workflows.plugin` | `WorkflowsPlugin` · `plugin/workflow/workflows/list/WorkflowsPlugin.java` | the list of workflows | [07](07-workflows-and-tasks.md) |
-| Workflows (BPMN) | `bpmn2modeler.plugin` | `WorkflowBpmn2ModelerPlugin` · `plugin/workflow/workflows/bpmn2editor/WorkflowBpmn2ModelerPlugin.java` | the BPMN2 modeler | [07](07-workflows-and-tasks.md) |
-| Database | `database.management.plugin` | `DatabaseManagementPlugin` · `plugin/dynamic/database/DatabaseManagementPlugin.java` | DB schema management (`properties.model`) | [10](10-database-management.md) |
-| Business Logic | `dynamic.cruds.plugin` | `DynamicCrudsPlugin` · `plugin/dynamic/dynamiccruds/DynamicCrudsPlugin.java` | dynamic CRUD / business logic (`properties.model`) | [11](11-business-logic-dynamic-crud.md) |
-| Mail Templates | `messaging.mail.templates.plugin` | `MailTemplatesPlugin` · `plugin/mailtemplate/MailTemplatesPlugin.java` | mail-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.mailTemplates[]`, saved via `mailTemplateService` (see [15]) | [12](12-queries-sources-schedulers-and-rest.md),[15](15-pdf-and-mail.md) |
-| Pdf Templates | `report.pdf.templates.plugin` | `PdfTemplatesPlugin` · `plugin/pdftemplate/PdfTemplatesPlugin.java` | PDF-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.pdfTemplates[]`, saved via `pdfTemplateService` (see [15]) | [15](15-pdf-and-mail.md) |
-| ~~Branches~~ *(page removed from the baseline)* | `process.table.pluin` | `ProcessTablePlugin` · `plugin/process/ProcessTablePlugin.java` | the branches table (reused the process table) | [05](05-crud-tree-and-process-table.md) |
-| ~~reports~~ ⚠️ *(page removed from the baseline)* | `pdf.report.plugin`, `pdf.report.page.plugin` | **⚠️ no `@PluginConfig` class** (none declared anywhere in the platform sources) | ⚠️ **dead/legacy** — render as `mrjun.plugin.not.found`; for PDFs use `report.pdf.templates.plugin` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
+| Admin page (name) | `pluginName` inside | What it does | In depth |
+|---|---|---|---|
+| User management | `admin.user.management.plugin` | managing project users | — |
+| Role Management | `admin.rolegroup.management.plugin` | role groups | [12](12-queries-sources-schedulers-and-rest.md) |
+| Sources | `admin.sources.plugin` | DB sources (rep-objects.sources) | [12](12-queries-sources-schedulers-and-rest.md) |
+| Schedulers | `admin.schedulers.plugin` | schedulers | [12](12-queries-sources-schedulers-and-rest.md) |
+| Queries (list) | `admin.queries.plugin` | the list of saved queries | [12](12-queries-sources-schedulers-and-rest.md) |
+| Queries (editor) | `admin.query.plugin` | the editor for a single query | [12](12-queries-sources-schedulers-and-rest.md) |
+| Queries (results) | `query.results.plugin` | the query results table | [12](12-queries-sources-schedulers-and-rest.md) |
+| Settings | `project.settings.plugin` | project settings (rep-objects.settings) | [12](12-queries-sources-schedulers-and-rest.md) |
+| Audit Logs | `audit.log.list.plugin` | the audit log | — |
+| Profile | `user.profile.plugin` | the current user's profile | — |
+| ~~Ontology~~ *(page removed from the baseline)* | `ontology.viewer.plugin` | ontology viewer — **no config slot** (empty properties: `className`/`styleName`/`tagProperties`); the plugin never reads `properties.model` | — |
+| Contexts | `dynaform.context.list.plugin` | the list of contexts | [08](08-groovy-rules-and-context.md) |
+| Rules (list) | `executor.rule.list.plugin` | the list of rules | [08](08-groovy-rules-and-context.md) |
+| Rules (editor) | `executor.rule.script.plugin` | the rule script editor (no model/settings blob; the rule is a rep-object, resolved via `?rule=<identifier>`) | [08](08-groovy-rules-and-context.md) |
+| Form Groups | `dynaform.form.groups.plugin` | the list of form groups | [06](06-form-groups-and-mapping.md) |
+| Processes (list) ⚠️ | `processes.plugin` | ⚠️ **dead/legacy** — the process list was merged into the single master-detail `processes.selectedplugin`; the baseline node renders as `mrjun.plugin.not.found`. Leave it alone; author new process screens with `processes.selectedplugin` or `process.table.pluin` | [07](07-workflows-and-tasks.md) |
+| Processes | `processes.selectedplugin` | the whole Processes screen: one self-contained master-detail panel — process list on the left, process detail on the right | [07](07-workflows-and-tasks.md) |
+| Workflows | `workflows.plugin` | the list of workflows | [07](07-workflows-and-tasks.md) |
+| Workflows (BPMN) | `bpmn2modeler.plugin` | the BPMN2 modeler | [07](07-workflows-and-tasks.md) |
+| Database | `database.management.plugin` | DB schema management (`properties.model`) | [10](10-database-management.md) |
+| Business Logic | `dynamic.cruds.plugin` | dynamic CRUD / business logic (`properties.model`) | [11](11-business-logic-dynamic-crud.md) |
+| Mail Templates | `messaging.mail.templates.plugin` | mail-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.mailTemplates[]` (see [15]) | [12](12-queries-sources-schedulers-and-rest.md),[15](15-pdf-and-mail.md) |
+| Pdf Templates | `report.pdf.templates.plugin` | PDF-template **management scaffold** — the node carries **no** `properties.model` (properties = `className`/`styleName`/`tagProperties` only); the templates live in `rep-objects.pdfTemplates[]` (see [15]) | [15](15-pdf-and-mail.md) |
+| ~~Branches~~ *(page removed from the baseline)* | `process.table.pluin` | the branches table (reused the process table) | [05](05-crud-tree-and-process-table.md) |
+| ~~reports~~ ⚠️ *(page removed from the baseline)* | `pdf.report.plugin`, `pdf.report.page.plugin` | ⚠️ **dead/legacy** — render as `mrjun.plugin.not.found`; for PDFs use `report.pdf.templates.plugin` | [15](15-pdf-and-mail.md),[01](01-content-model-and-pages.md) |
 
 > ⚠️ **`pdf.report.plugin` / `pdf.report.page.plugin` are orphan/dead — do NOT author new nodes with them.**
 > They appeared once each in OLDER project exports (a `Home → reports → Pdf → html.plugin →
 > pdf.report.plugin → pdf.report.page.plugin` subtree) and are **absent from the current baseline**, but
-> **no class registers either name** via `@PluginConfig` anywhere in
-> `nct-ui`/`mrjun`/`richwicket` (grep = 0), so on the current code they render as `mrjun.plugin.not.found` (registry
-> miss). The live PDF plugin is **`report.pdf.templates.plugin`** (`PdfTemplatesPlugin.java`); write new PDF nodes
+> **the platform no longer registers either name**, so they render as `mrjun.plugin.not.found` (registry
+> miss). The live PDF plugin is **`report.pdf.templates.plugin`**; write new PDF nodes
 > under it. Same fact in [01-content-model-and-pages.md](01-content-model-and-pages.md) (the legacy-PDF-pair note) and
 > [15-pdf-and-mail.md](15-pdf-and-mail.md).
 >
 > ⚠️ **`processes.plugin` is orphan/dead in the same way — do NOT author new nodes with it.** The Workflows-console
-> process **list** was merged into the single master-detail `processes.selectedplugin`, and no class registers
-> `processes.plugin` via `@PluginConfig` any more, so the one node every baseline inherits renders as
+> process **list** was merged into the single master-detail `processes.selectedplugin`, and the platform no longer registers
+> `processes.plugin`, so the one node every baseline inherits renders as
 > `mrjun.plugin.not.found` next to the working Processes panel. Leave the inherited node where it is (removing it is
 > a cosmetic change, not a fix you owe anyone); for a process list of your own use `processes.selectedplugin` or the
 > live `process.table.pluin` ([05](05-crud-tree-and-process-table.md)).
 >
-> **One** plugin carries a `properties.model` whose DTO shape is documented **nowhere**: `discovery.plugin`
-> (`DiscoveryPluginModel`, genuinely read at `DiscoveryPlugin.java` via `getJsonProperty("model", …)`) — in the
+> **One** plugin carries a `properties.model` whose shape is documented **nowhere**: `discovery.plugin`
+> (it genuinely reads `properties.model`) — in the
 > absent-table below, an admin scaffold that never appears in a project export and is **not hand-authored**, so no construction recipe exists; if
-> ever needed, its model must be reverse-engineered from the class. (`ontology.viewer.plugin` does **not** carry a
-> model — its `NctBasePlugin<OntologyModel>` type param is vestigial and never read from `properties`; it renders as
+> ever needed, its model shape would have to be established first. (`ontology.viewer.plugin` does **not** carry a
+> model — it never reads `properties`; it renders as
 > an empty admin scaffold. It appeared once in older exports and is absent from the current baseline.)
 
-**Plugins from the code that are absent from project exports** (platform-level — they belong to the
+**Plugins known to the platform that are absent from project exports** (platform-level — they belong to the
 admin application/orgs, not the project; so they are not written into a project export):
 
-| `pluginName` | Class · where | Purpose | Status |
-|---|---|---|---|
-| `admin.organizations.plugin` | `OrganizationsPlugin` · `nct-ui/.../plugin/admin/orgabnizations/OrganizationsPlugin.java` | managing organizations (cross-project level) | scaffold, **never** in a project export |
-| `admin.projects.plugin` | `ProjectsPlugin` · `nct-ui/.../plugin/admin/projects/ProjectsPlugin.java` | managing projects | scaffold, **0** |
-| `admin.integrations.list.plugin` | `IntegrationsListPlugin` · `nct-ui/.../plugin/admin/integrations/IntegrationsListPlugin.java` | the list of integrations | scaffold, **0** |
-| `admin.localization.plugin` | `LocalizationPlugin` · `nct-ui/.../plugin/admin/localization/LocalizationPlugin.java` | localization | scaffold, **0** |
-| `project.template.management.plugin` | `ProjectTemplateManagementPlugin` · `nct-ui/.../plugin/admin/projecttemplate/ProjectTemplateManagementPlugin.java` | template management | scaffold, **0** |
-| `discovery.plugin` | `DiscoveryPlugin` · `nct-ui/.../plugin/discovery/DiscoveryPlugin.java` | Customer Discovery (`properties.model` `DiscoveryPluginModel`) | scaffold, **0** |
+| `pluginName` | Purpose | Status |
+|---|---|---|
+| `admin.organizations.plugin` | managing organizations (cross-project level) | scaffold, **never** in a project export |
+| `admin.projects.plugin` | managing projects | scaffold, **0** |
+| `admin.integrations.list.plugin` | the list of integrations | scaffold, **0** |
+| `admin.localization.plugin` | localization | scaffold, **0** |
+| `project.template.management.plugin` | template management | scaffold, **0** |
+| `discovery.plugin` | Customer Discovery (carries a `properties.model`) | scaffold, **0** |
 
-All six are `NctBasePlugin`/`NctBaseModelObjectObjectSyncedPlugin` without a project config. If such a node
+All six have no project config. If such a node
 does appear, it comes from the platform template, not authored into a project export.
 
 ---
@@ -1016,24 +992,23 @@ does appear, it comes from the platform template, not authored into a project ex
    process/db/dynamic-cruds → `model`; **chart → `Javascript`**; html/nct-html → `html`; tab → `tabModel`;
    help → `helpSettings`; label → `text`; image → `url`+props; siteMapPage → top-level props. Separately:
    `rule-script`/landing/form-plugin/`global.replacement`/`list.item` have **no config blob at all** — their
-   DTO comes as a rep-object via a URL parameter (`?rule=`, `?group=`, `formModeIdentifier`) or it is a
+   object comes as a rep-object via a URL parameter (`?rule=`, `?group=`, `formModeIdentifier`) or it is a
    container/behaviour editor (`global.replacement` edits query parameters). Do not write the crud config into
    `settings`, the chart config into `model`, and do not invent a `model`/`Javascript` slot where there is none
    (the tooling flags it as "settings-vs-model misuse").
-2. **`process.table.pluin` is a real typo** (`ProcessTablePlugin.java`). Do not "fix" it —
+2. **`process.table.pluin` is a real typo.** Do not "fix" it —
    the import will break. The tooling deliberately preserves it (`validate` catches `process.table.pluin` typo altered).
 3. **A `<plugin>` in html is not text but child nodes.** Each top-level `<plugin id name>` inside
-   `nct.html.plugin`/`html.plugin` spawns a **real content node** via
-   `getOrCreateChildContentComponent` (`AbstractHtmlPlugin.java`). Nested `<plugin>` (inside another
+   `nct.html.plugin`/`html.plugin` spawns a **real content node**. Nested `<plugin>` (inside another
    `<plugin>`) are ignored at the top level. This means: for a plugin from the html to actually render,
    the corresponding child content node must exist **and its `identifier` must equal the `<plugin id>`** (the match
-   is `Objects.equals(child.getIdentifier(), id)` — not by `name`, not by count/order; §1.1 step 3). A fresh-uuid
+   is an exact `identifier` equality — not by `name`, not by count/order; §1.1 step 3). A fresh-uuid
    child never matches → a blank child is auto-created and your plugin is orphaned (renders empty, import clean).
 4. **Site chrome and layout are scaffold.** The `html.plugin` layout, the `site.*` plugins and the root parsis are cloned
    at `page add`. Do not assemble them by hand — use `mrjun.py page add`.
 5. **The admin pages are already in empty.** 24+ `siteMapPage` nodes with admin plugins are part of the empty scaffold. Keep
    them unchanged; append business pages next to them.
-6. **`nct.parsis.plugin` vs `parsis.plugin`.** The former is the nct-ui subclass of the latter; both are drop containers
+6. **`nct.parsis.plugin` vs `parsis.plugin`.** The former is the platform-UI variant of the latter; both are drop containers
    without a JSON config (the config = `children`). In business pages the content slot is usually `nct.parsis.plugin`.
 7. **`chart.js.plugin` is not only charts.** It is an html+js+data widget; the chart type is set in `js`, not
    as a separate field. The data — via `replacements[]` → `$$('name', default, 'Type')`, each bound to a `query`.

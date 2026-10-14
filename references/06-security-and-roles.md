@@ -22,7 +22,7 @@ walked around and only one of them decides what data leaves the server.
 
 | # | Layer | Artefact | What it stops | Strength |
 |---|---|---|---|---|
-| 1 | Nav visibility | `site.kicker.plugin` → `modelGroups` → `PageModel.roleAccess` | the *link* appearing | cosmetic — the URL still works |
+| 1 | Nav visibility | `site.kicker.plugin` → `modelGroups` → page node's `roleAccess` | the *link* appearing | cosmetic — the URL still works |
 | 2 | Node access | any node's `roleAccess` (page **or** component) | the *node rendering* | real, but **disjunctive** and admin-bypassed |
 | 3 | Action predicate | action `predicateIdentifier` → `GroovyPredicate` | the *button*, re-checked server-side at execute **and** at form submit | real gate on writes |
 | 4 | Row scope | the table's `model.findRuleIdentifier` → `GroovyExecutionRule` | *which rows exist* for this caller | the only gate on reads |
@@ -351,7 +351,7 @@ moves at once:
 ```
 
 ✅ That triple is the supported answer to "this persona may not see this number", because
-`CrudTableColumnSettings` has **no** predicate — a column cannot be role-gated. Gate the form field, drop the
+A CRUD table column has **no** predicate — a column cannot be role-gated. Gate the form field, drop the
 table column, and gate the chart node if the number is also aggregated.
 
 ⛔ **Gate the label too.** A gated field beside an ungated label leaves a caption floating over nothing, and
@@ -365,7 +365,7 @@ component** is read from the shared node instead. Detach from the virtual templa
 
 ## 4. Layer 1 — the nav
 
-`PageModel.roleAccess` is the same object as a node's and membership is checked the same way. Omit it and the
+A page node's `roleAccess` is the same object as a node's and membership is checked the same way. Omit it and the
 item defaults to `publicReadAccess:true` → visible to everyone.
 
 ```jsonc

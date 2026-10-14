@@ -4,8 +4,8 @@
 This repo IS the distribution, so there is no packaging step left to hide behind: the only thing
 between a stray identity and the public is this check, run on every push.
 
-It carries NO word list. The seven structural rules below need none — an absolute home path, a
-`Class.java:123` citation, a private key and a hostname are recognisable by shape. Names of people
+It carries NO word list. The structural rules below need none — an absolute home path, a
+`Class.java` source-file name, a private key and a hostname are recognisable by shape. Names of people
 and customers cannot be, so they come in through the `IDENTITY_WORDS` repository secret
 (newline- or comma-separated, case-insensitive, matched as substrings so `rimm_<realm>_<client>`
 is caught, not just the bare word). IDENTITY_EXCEPTIONS holds the few literals that contain an
@@ -42,13 +42,17 @@ RULES = [
     ("windows absolute path",
      re.compile(r"\b[A-Za-z]:\\(?:Users|Windows)", re.I),
      "names a specific machine"),
-    # Match the SHAPE of a module path, not a hand-listed module set that goes stale. The elided
-    # citation style the docs use on purpose (`<module>/.../Class.java`, no line number) is
-    # deliberately NOT matched: it names a class, not a path anyone could open.
+    # Match the SHAPE of a module path, not a hand-listed module set that goes stale. (A bare class
+    # file name is caught by the "platform source file" rule below.)
     ("platform source tree",
      re.compile(r"\b(?:mrjun-(?:db|view|service|common)|rw-core)\b"
                 r"|(?<![\w.-])(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)+|transit)/src\b"),
      "points into a codebase the reader does not have"),
+    # The reader of this repo is an AI that builds projects from a PRD; it never sees the platform's
+    # source, so a class or file name gives it nothing to act on. `.java` never appears in an export.
+    ("platform source file",
+     re.compile(r"\b[A-Z][A-Za-z0-9_]*\.(?:java|kt|mjs)\b"),
+     "names a source file the reader does not have; describe the behaviour instead"),
     ("source citation",
      re.compile(r"\b[A-Za-z][A-Za-z0-9_]*\.(?:java|kt|mjs)\s*:\s*\d+"),
      "cites a file:line nobody can open, and which rots on the next build"),

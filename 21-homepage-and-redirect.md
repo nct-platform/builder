@@ -59,17 +59,17 @@ lands on an empty Home and the demo looks broken.
 
 ## How the root resolves (verified)
 
-1. Bare URL → `PluginPage` computes zero content-alias segments → `setContent(contentService.findRootPageContent(branchId))` (`PluginPage`), which returns the `parentId==null` content. That is the `Home` node — a **structural root**, not a flag.
-2. The `SiteMapPage` constructor reads the root's `Redirect` STRING property (`SiteMapPage.java`):
-   - **`Redirect` non-blank** → `setResponsePage(redirect)` (the CMS overload, `PluginPage.java`): the value is treated as a **slash-separated content-alias path**, alias-matched down the child tree (`ContentDbServiceImpl.java`), and the platform issues an HTTP redirect. The browser URL becomes `/<realm>/<alias>/<path>`.
+1. Bare URL → zero content-alias segments → the platform serves the root page content, the one with `parentId==null`. That is the `Home` node — a **structural root**, not a flag.
+2. The platform reads the root's `Redirect` STRING property:
+   - **`Redirect` non-blank** → the value is treated as a **slash-separated content-alias path**, alias-matched down the child tree, and the platform issues an HTTP redirect. The browser URL becomes `/<realm>/<alias>/<path>`.
    - **`Redirect` blank** (default) → the root renders **Home's own parsis/layout content**. If Home's parsis is just the empty layout shell, the root is blank.
 
 ## The `Redirect` value format (get this exactly right)
 
 `Redirect` is a **content-alias PATH relative to root**, e.g. `<landing-alias>` (top-level) or `parent-alias/child-alias` (nested). It is:
 
-- **the target page's `alias`** (`ContentDomain.getAlias()`), **case-sensitive** — NOT the page `name`, NOT its `identifier`/uuid, NOT a URL, NOT a filesystem path;
-- resolved by walking child `siteMapPage`s from the root, one alias segment at a time (matching is `Objects.equals` on `alias`);
+- **the target page's `alias`** (the node's `alias`), **case-sensitive** — NOT the page `name`, NOT its `identifier`/uuid, NOT a URL, NOT a filesystem path;
+- resolved by walking child `siteMapPage`s from the root, one alias segment at a time (matching is an exact comparison on `alias`);
 - a leading `/` is tolerated but unnecessary; do NOT include the `realm/alias` prefix (added/stripped automatically).
 
 A value that doesn't resolve is a **dead front door** (404 on the root).
@@ -98,8 +98,7 @@ A value that doesn't resolve is a **dead front door** (404 on the root).
 > every page delegates to that one node. **Your** business pages go in that same **SHARED** common node
 > (`branch.virtualPlugins[] name="Nct left nav"` → `content` → `properties.modelGroups`, `uniqueIdentifier`
 > e.g. `23ab2aca-…`), NOT in any per-page `modelGroups`. EVERY page — including a content-blank Home and any
-> redirect target — renders that one shared node via its own `site.kicker` node's `linkContentIdentifier`
-> (`PluginPanel.getContent` → `findOneByUniqueIdentifier`), so the left nav looks **identical everywhere** and
+> redirect target — renders that one shared node via its own `site.kicker` node's `linkContentIdentifier`, so the left nav looks **identical everywhere** and
 > the per-page `modelGroups` are **DEAD DATA** ([17-left-nav-quick-links.md](17-left-nav-quick-links.md)).
 > A redirect therefore changes only which **content** renders, never nav visibility: a blank Home shows the
 > SAME populated nav as the dashboard, and pointing the redirect at a page whose *per-page* `modelGroups` you
@@ -152,8 +151,8 @@ fabricate a chart page you have no columns for, and do not leave the queue unrea
 >   **(a)**). Do **not** copy the table onto Home: the worklist already exists as its own page (nav target,
 >   drill-down target, [07](07-workflows-and-tasks.md) Step 5), and a second copy is a second node to keep in sync.
 >
-> **You cannot have both.** `SiteMapPage`'s constructor builds Home's parsis and *then*, if `Redirect` is
-> non-blank, calls `setResponsePage(redirect)` (`SiteMapPage.java`) — the browser gets the target page, so a chart
+> **You cannot have both.** The platform builds Home's parsis and *then*, if `Redirect` is
+> non-blank, redirects — the browser gets the target page, so a chart
 > grid authored on a redirecting Home is dead weight that nobody ever sees. And the reverse is barred too: a
 > `crud.table`/`crud.tree`/`process.table` may not sit on a chart Home ("Home-as-dashboard: layout & what NOT to
 > put on it", below; `validate` WARNs via `_check_one_table_plugin_per_page`).
@@ -161,10 +160,10 @@ fabricate a chart page you have no columns for, and do not leave the queue unrea
 > ⚠️ **Whichever page is the front door must ALSO be a quick link** — otherwise, one drill-down later, the user
 > has no way back except editing the URL. `quicklink add --page <front-door page> --label …` (doc
 > [17](17-left-nav-quick-links.md)), first in the nav; for a chart home the target page **is** the root, so
-> `--page Home`. That link resolves through `ContentLink` → `calculatePageUrl`, which prefixes the target's own
+> `--page Home`. That link is built from the target's own
 > alias — the stock root `Home` has **no** `alias`, so the link comes out as the bare project URL and lands on
 > Home. ⛔ Do not give the root an alias: alias segments are matched only among a page's **children**
-> (`ContentDbServiceImpl.getContentDomain`), so `/<realm>/<alias>/<root-alias>` would `do404()` (`PluginPage`).
+> so `/<realm>/<alias>/<root-alias>` would 404.
 > **Not machine-checkable:** `_check_homepage_and_nav` counts a redirect target as reachable and never inspects
 > the root page itself, so `validate` stays silent for a front door with no quick link. It is a review rule —
 > check it by eye at closeout ([19](19-build-decision-procedure.md)).
@@ -181,10 +180,10 @@ filters nothing; `chart.js.plugin` only re-queries via the query-parameter event
 [14-plugin-catalog-all.md §2.4](14-plugin-catalog-all.md)).
 
 > ✅ **The chart filter bar is a DIFFERENT plugin, and it DOES belong here.** What the paragraph above bars is
-> `dynaform.filter.form.plugin`: its submit fires `onFilterSubmit` (`FilterSubmitButtonPlugin.java`) and the only
-> listeners are `CrudTablePlugin` / `CrudTreePlugin` / `ProcessTablePlugin` — no chart ever listens. The **chart**
-> filter bar is **`global.replacement.plugin`** (`GlobalReplacementPlugin.java`, a thin shell over `ParamsPanel`):
-> it fires `parametersOfQueryHasBeenChanged`, which is exactly the event `ChartJsPlugin` registers for, so it
+> `dynaform.filter.form.plugin`: its submit fires `onFilterSubmit` and the only
+> listeners are `crud.table` / `crud.tree` / `process.table` — no chart ever listens. The **chart**
+> filter bar is **`global.replacement.plugin`**:
+> it fires `parametersOfQueryHasBeenChanged`, which is exactly the event the chart plugin registers for, so it
 > re-runs the charts' parameterized queries. Put **one** on the dashboard, as a sibling in the same content
 > `nct.parsis.plugin` (id `parsis`) **ABOVE the grid-row nodes** — order: header html → filter bar → grid rows:
 > `node add --parent <page/parsis> --plugin global.replacement.plugin`. It stores **no** config (`--model` /

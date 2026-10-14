@@ -19,9 +19,9 @@
 > the whole workflow because of one timer.
 
 > ⛔ **`bpmnContent` must be SCHEMA-VALID, not just well-formed.** Flowable validates the XML against the BPMN 2.0
-> **XSD** on save (`BpmnXMLConverter.validateModel`); a well-formed-but-schema-invalid diagram is rejected
+> **XSD** on save; a well-formed-but-schema-invalid diagram is rejected
 > (*"Workflow validation failed … invalid XML"*) and **ABORTS the whole rep-objects import** — and because the
-> workflow save runs **before** rules/contexts/forms/settings/mail+pdf-templates in `CmsProjectServiceImpl.initAllObjects`,
+> workflow save runs **before** rules/contexts/forms/settings/mail+pdf-templates during the import,
 > **everything after it is silently skipped** (symptom: no workflow *and* empty charts *and* "no business-logic usages"
 > *and* missing templates, all at once — from ONE bad workflow). The most common trap: **child-element ORDER on event
 > elements.** BPMN 2.0 `tCatchEvent`/`tThrowEvent` require children in the order `extensionElements?, incoming*,
@@ -52,13 +52,13 @@ through their settings.
 >   on every branch.
 >
 > Plus `workflow list`; `list workflows`; `inspect`; `show <kind> <id>`. For more complex logic (multiple
-> outgoing conditional transitions from a gateway, a CSV of several `flowable:rule`s, custom `ActionDto` fields)
+> outgoing conditional transitions from a gateway, a CSV of several `flowable:rule`s, custom action fields)
 > refine the generated `bpmnContent` by hand per this doc. Full index and rules —
 > [`tools/README.md`](tools/README.md); before re-importing — `mrjun.py validate`.
 
 
-> ⛔⛔ **Every ActionDto field in a `userActions` payload is a STRING — a JSON array or a boolean kills the
-> whole task.** `validationRuleIdentifiers` is a **comma-separated String** (`UserTaskActionsDto.java`),
+> ⛔⛔ **Every action field in a `userActions` payload is a STRING — a JSON array or a boolean kills the
+> whole task.** `validationRuleIdentifiers` is a **comma-separated String**,
 > `direct` is `"on"`/`"off"`, and so are `predicateIdentifier`, `formGroupIdentifier`, the two
 > `onBeforeUserTask*RuleIdentifier`, `completeUserTask`, `icon`, `taskId`. Emit `["uuid"]` instead of
 > `"uuid"` and Jackson fails the ENTIRE payload — the user task then renders **with no action buttons at
@@ -67,7 +67,7 @@ through their settings.
 > on any non-string value in these fields.
 
 > **⚠️ `mrjun.py validate` now checks workflow internals — but as WARNs, and not exhaustively.**
-> `_check_workflow_refs` (`validate_cmds.py`) parses `bpmnContent` and flags: a serviceTask `flowable:rule`
+> It parses `bpmnContent` and flags: a serviceTask `flowable:rule`
 > that isn't an EXECUTION/VALIDATION rule; a conditional `predicateSequence.execute(...,'<uuid>')` whose UUID is
 > dangling, not a PREDICATE, **empty-bodied** (fails-open to `true`), or an **empty id** (`'')`; a conditional
 > `<sequenceFlow>` **missing the `flowable:sequence`/`flowable:rule` editor attributes** (re-save drops the
@@ -83,7 +83,7 @@ through their settings.
 
 Terminology:
 
-- **Workflow** — a process definition (BPMN 2.0 XML + deploy into Flowable). Exported as `FlowableWorkflowDto`.
+- **Workflow** — a process definition (BPMN 2.0 XML + deploy into Flowable). Exported as an object in `rep-objects.json.workflows`.
 - **Process (instance)** — a runtime instance of one workflow (not exported as a definition; see `processGroups`).
 - **Task** — a unit of work: automatic (`ServiceTask`, executes Groovy) or human (`UserTask`).
 
@@ -108,9 +108,8 @@ When you need to build this:
 > actually deployed (`deployed=true`). Don't reach for a workflow by default.
 
 Key fact for reconstruction: **`elements` is NOT an independent data source.** It is **derived
-from `bpmnContent`** by the Flowable server on every save/deploy
-(`FlowableWorkflowServiceImpl.java`
-`extractWorkflowElements`). Therefore the source of truth when building by hand is the **XML in `bpmnContent`**; `elements`
+from `bpmnContent`** by the Flowable server on every save/deploy.
+Therefore the source of truth when building by hand is the **XML in `bpmnContent`**; `elements`
 should be generated so that it matches it (the matching rules are below in the section "How `elements`
 is derived from `bpmnContent`"). Import will re-read the XML and rebuild the nodes anyway, but a consistent `elements`
 avoids desync in the UI (panels read node settings precisely from `elements`).
@@ -134,24 +133,24 @@ outnumber tasks**, and the `bpmn:Process` node itself counts as an element.
 
 ## Export shape
 
-`rep-objects.json.workflows` is an **array** of `FlowableWorkflowDto` objects. Plus `rep-objects.json.processGroups`
-is an array of `ProcessGroupDto`. The schema of a single workflow:
+`rep-objects.json.workflows` is an **array** of workflow objects. Plus `rep-objects.json.processGroups`
+is an array of process-group objects. The schema of a single workflow:
 
 ```jsonc
 {
-  "message": null, "errors": null, "id": null,      // AbstractSecuredDto housekeeping fields, irrelevant on import
+  "message": null, "errors": null, "id": null,      // housekeeping fields, irrelevant on import
   "realmName": "<realm>",                            // tenant (realm)
   "clientName": "<client>",                          // project (client)
   "identifier": "6c0b4335-...-68556dc6f53e",         // workflow UUID — stable identity key
   "creationTime": "2026-07-01T15:41:50.765427Z",
   "modificationTime": "2026-07-01T15:41:50.765435Z",
   "processDefinitionId": "Process_1:6:6090a3e4-...", // Flowable id of the deployed definition; null if not deployed
-  "name": "Service Center Workflow",                 // human-readable name (@NotBlank)
+  "name": "Service Center Workflow",                 // human-readable name (required, non-blank)
   "description": null,
   "externalId": "5fa50b61-...-76329eac821b",         // Flowable deployment id; null if not deployed
   "deployed": true,                                  // true after a successful deploy
   "bpmnContent": "<?xml ...>",                       // BPMN 2.0 XML — THE SOURCE OF TRUTH
-  "elements": [ /* WorkflowElementDto[] — derived from bpmnContent (this is a Set, order is nondeterministic) */ ],
+  "elements": [ /* element objects — derived from bpmnContent (this is a Set, order is nondeterministic) */ ],
   "contextIdentifiers": ["fe5e9b03-...-6a01362bc553"] // context UUIDs (see 08-groovy-rules-and-context.md)
 }
 ```
@@ -162,14 +161,14 @@ externalId, id, identifier, message, modificationTime, name, processDefinitionId
 **the exported DTO has no `status`/`workflowStatus`, no `latest`, no `processDefinitionKey`** —
 those fields exist on the entity but do not make it into the export. Don't invent them when building by hand.
 
-`WorkflowElementDto` (an `elements` element):
+An `elements` element:
 
 ```jsonc
 {
   "id": "Activity_0i94xes",                          // = the node's id in the XML
   "settings": {
-    "type": "bpmn:ServiceTask",                      // BpmnTaskType (@JsonProperty), see the types table below
-    "properties": [                                  // Set<ElementSettingsProperty> — a set of name/value pairs
+    "type": "bpmn:ServiceTask",                      // one of the 21 type strings, see the types table below
+    "properties": [                                  // a set of name/value pairs
       { "name": "id",   "value": "Activity_0i94xes", "type": null, "control": null, "order": 0 },
       { "name": "name", "value": "Update Integration", "type": null, "control": null, "order": 0 },
       { "name": "rule", "value": "694b564b-...,394a362b-...", "type": null, "control": null, "order": 0 }
@@ -179,17 +178,14 @@ those fields exist on the entity but do not make it into the export. Don't inven
 }
 ```
 
-**`elements` is a `Set<WorkflowElementDto>` (HashSet), and `properties` is a `Set<ElementSettingsProperty>`**
-(`FlowableWorkflowDto.java`, `ElementSettingDto.java`). Practical consequences for building by hand:
+**`elements` is a set of element objects, and `properties` is a set of name/value pairs.** Practical consequences for building by hand:
 - **Element order and property order are nondeterministic** — in the export they are in arbitrary order, and your
   `elements[]` **need not** match the XML order. The `order:0` field on all properties is a stub (no sorting
   uses it).
-- **Duplicate property names collapse.** `ElementSettingsProperty` has `@EqualsAndHashCode(exclude={"value","type","control"})`
-  (`ElementSettingDto.java`), i.e. equality/hash is by `name`+`order`. Don't put two properties with the same `name`.
-- The only key of a node is `id`. `WorkflowElementDto` is also `@EqualsAndHashCode(exclude="settings")` (equality
-  by `id`). Don't duplicate nodes with the same `id`.
+- **Duplicate property names collapse.** Property equality/hash is by `name`+`order` (not `value`/`type`/`control`). Don't put two properties with the same `name`.
+- The only key of a node is `id` (equality is by `id`, not `settings`). Don't duplicate nodes with the same `id`.
 
-`ProcessGroupDto` (a `processGroups` element) — a minimal container that groups running processes:
+A `processGroups` element is a minimal container that groups running processes:
 
 ```jsonc
 { "message": null, "errors": null, "id": null, "realmName": "<realm>", "clientName": "<client>",
@@ -198,7 +194,7 @@ those fields exist on the entity but do not make it into the export. Don't inven
   "name": "791029e6-...-9a702ffb6b6d", "description": "791029e6-...-9a702ffb6b6d" }
 ```
 
-**`ProcessGroupDto` fields:** `id` (`null` in the export), `identifier` (UUID — the real identity key),
+**Process-group fields:** `id` (`null` in the export), `identifier` (UUID — the real identity key),
 `name`, `description` (UUID placeholders in the default groups), `realmName`/`clientName`. Identity is
 carried by `identifier`, NOT by `id`/`name`. A ProcessTable references a group via `processGroupIdentifier`
 (see [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)) — so one workflow can be
@@ -209,71 +205,66 @@ Every project inherits the **same two default** processGroups from `empty`, with
 of an empty project ([12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md)).
 Don't duplicate them; for a new group add an element with a **new** `identifier` and meaningful `name`/`description`.
 
-## Node types (BpmnTaskType) — full enumeration
+## Node types — full enumeration
 
-The full enumeration of `settings.type` values (backing enum `BpmnTaskType.java`; the JSON value is set by
-`@JsonProperty`). All 21 constants are listed. `BpmnTaskType.get()` matches **case-insensitively**.
+The full enumeration of `settings.type` values. All 21 are listed; the platform matches the type **case-insensitively**.
 
-> ⛔ **HARD RULE — `elements[].settings.type` may ONLY be one of the 21 `@JsonProperty` strings in the table
+> ⛔ **HARD RULE — `elements[].settings.type` may ONLY be one of the 21 strings in the table
 > below.** Any other value — most easily `bpmn:BoundaryEvent`, `bpmn:EndEvent`, `bpmn:IntermediateCatchEvent` —
-> makes the platform importer throw a Jackson `InvalidFormatException` deserializing
-> `FlowableWorkflowDto.elements[].settings.type`, which **aborts the ENTIRE `rep-objects.json` import**. The
+> makes the platform importer throw a deserialization error on
+> `elements[].settings.type`, which **aborts the ENTIRE `rep-objects.json` import**. The
 > symptom is data-shaped and SCATTERED, not error-shaped: **no source is saved ("No source selected"),
 > `project-db.dump` is not restored (data/dates "gone"), the context imports empty, only `dynamic-cruds.json`
 > (a separate path) loads but can't work.** Verified live (`log/ui.log`:
-> `Cannot deserialize value of type BpmnTaskType from String "bpmn:BoundaryEvent" … ["workflows"]->
-> FlowableWorkflowDto["elements"]->WorkflowElementDto["settings"]->ElementSettingDto["type"]`).
+> `Cannot deserialize value of type BpmnTaskType from String "bpmn:BoundaryEvent" … ["workflows"]->["elements"]->["settings"]->["type"]`).
 > **End events → author as `bpmn:Task`. Boundary/timer events are NOT modellable — do not put them in
 > `elements[]` at all** (and keeping a `<boundaryEvent>`/`<timerEventDefinition>` only inside `bpmnContent`
 > desyncs the editor and gives no runtime timer, so avoid them entirely). `mrjun.py validate` now ERRORs on any
 > `elements[].settings.type` outside this set — do not pack until it passes.
 
-| `settings.type` (JSON) | enum value | Right-hand settings panel | Creatable in UI/MCP? |
-|---|---|---|---|
-| `bpmn:StartEvent` | `BPMN_START` | Common (no controls) | yes (`START_EVENT`) |
-| `bpmn:Process` | `BPMN_PROCESS` | Common | root (auto) |
-| `bpmn:Task` | `BPMN_TASK` | Common. **NB: the endEvent from the XML maps here** (`FlowableWorkflowServiceImpl.java` — "there is no separate type for EndEvent") | end-event (`END_EVENT`) |
-| `bpmn:UserTask` | `BPMN_USER_TASK` | `UserTaskSettingsPanel` (userActions) | yes (`USER_TASK`) |
-| `bpmn:ServiceTask` | `BPMN_SERVICE_TASK` | `ServiceTaskSettingsPanel` (delegateExpression + rule) | yes (`SERVICE_TASK`) |
-| `bpmn:SendTask` | `BPMN_SEND_TASK` | Common | ⚠️ not creatable |
-| `bpmn:ReceiveTask` | `BPMN_RECEIVE_TASK` | Common | ⚠️ not creatable |
-| `bpmn:ManualTask` | `BPMN_MANUAL_TASK` | Common | ⚠️ not creatable |
-| `bpmn:BusinessRuleTask` | `BPMN_BUSINESS_RULE_TASK` | Common | ⚠️ not creatable |
-| `bpmn:ScriptTask` | `BPMN_SCRIPT_TASK` | Common | ⚠️ not creatable |
-| `bpmn:CallActivity` | `BPMN_CALL_ACTIVITY` | `CallActivitySettingsPanel` (calledElement + inherit*) | yes (`CALL_ACTIVITY`) |
-| `bpmn:SubProcess` | `BPMN_SUB_PROCESS` | Common | yes (`SUB_PROCESS`) |
-| `bpmn:TextAnnotation` | `BPMN_TEXT_ANNOTATION` | Common (artifact) | ⚠️ not creatable |
-| `bpmn:Association` | `BPMN_ASSOCIATION` | Common (artifact) | ⚠️ not creatable |
-| `bpmn:SequenceFlow` | `BPMN_SEQUENCE_FLOW` | `SequenceFlowSettingsPanel` (sequence + rule + conditionExpression) | connected in the XML |
-| `bpmn:ExclusiveGateway` | `BPMN_EXCLUSIVE_FLOW` | Common | yes (`EXCLUSIVE_GATEWAY`) |
-| `bpmn:ParallelGateway` | `BPMN_PARALLEL_FLOW` | Common | yes (`PARALLEL_GATEWAY`) |
-| `bpmn:InclusiveGateway` | `BPMN_INCLUSIVE_FLOW` | Common | yes (`INCLUSIVE_GATEWAY`) |
-| `bpmn:ComplexGateway` | `BPMN_COMPLEX_FLOW` | Common | ⚠️ not creatable |
-| `bpmn:EventBasedGateway` | `BPMN_EVENT_BASED_FLOW` | Common | ⚠️ not creatable |
-| `bpmn:DataStoreReference` | `BPMN_DATA_STORE_REFERENCE` | Common | ⚠️ not creatable |
+| `settings.type` (JSON) | Right-hand settings panel | Creatable in UI/MCP? |
+|---|---|---|
+| `bpmn:StartEvent` | Common (no controls) | yes (`START_EVENT`) |
+| `bpmn:Process` | Common | root (auto) |
+| `bpmn:Task` | Common. **NB: the endEvent from the XML maps here** (there is no separate type for EndEvent) | end-event (`END_EVENT`) |
+| `bpmn:UserTask` | own panel (userActions) | yes (`USER_TASK`) |
+| `bpmn:ServiceTask` | own panel (delegateExpression + rule) | yes (`SERVICE_TASK`) |
+| `bpmn:SendTask` | Common | ⚠️ not creatable |
+| `bpmn:ReceiveTask` | Common | ⚠️ not creatable |
+| `bpmn:ManualTask` | Common | ⚠️ not creatable |
+| `bpmn:BusinessRuleTask` | Common | ⚠️ not creatable |
+| `bpmn:ScriptTask` | Common | ⚠️ not creatable |
+| `bpmn:CallActivity` | own panel (calledElement + inherit*) | yes (`CALL_ACTIVITY`) |
+| `bpmn:SubProcess` | Common | yes (`SUB_PROCESS`) |
+| `bpmn:TextAnnotation` | Common (artifact) | ⚠️ not creatable |
+| `bpmn:Association` | Common (artifact) | ⚠️ not creatable |
+| `bpmn:SequenceFlow` | own panel (sequence + rule + conditionExpression) | connected in the XML |
+| `bpmn:ExclusiveGateway` | Common | yes (`EXCLUSIVE_GATEWAY`) |
+| `bpmn:ParallelGateway` | Common | yes (`PARALLEL_GATEWAY`) |
+| `bpmn:InclusiveGateway` | Common | yes (`INCLUSIVE_GATEWAY`) |
+| `bpmn:ComplexGateway` | Common | ⚠️ not creatable |
+| `bpmn:EventBasedGateway` | Common | ⚠️ not creatable |
+| `bpmn:DataStoreReference` | Common | ⚠️ not creatable |
 
-**What can actually be created** (10 types via MCP `createFlowElement`, `WorkflowMcpTools.java`):
+**What can actually be created** (10 types via MCP `createFlowElement`):
 `START_EVENT`, `END_EVENT`, `USER_TASK`, `SERVICE_TASK`, `EXCLUSIVE_GATEWAY`, `PARALLEL_GATEWAY`,
 `INCLUSIVE_GATEWAY`, `CALL_ACTIVITY`, `SUB_PROCESS`, `BOUNDARY_EVENT`. ⚠️ Note the `BOUNDARY_EVENT` **MCP
-create-code** is separate from the `BpmnTaskType` **JSON enum**: there is **no `@JsonProperty("bpmn:BoundaryEvent")`**,
+create-code** is separate from the `settings.type` **string set**: there is **no `bpmn:BoundaryEvent` type string**,
 so a boundary event **cannot be serialized into `elements[].settings.type` at all** — hand-authoring one there
 aborts the whole import (see the HARD RULE box above). Treat `BOUNDARY_EVENT` as **not usable** when building an
-export by hand. The ⚠️-marked types exist in the enum,
+export by hand. The ⚠️-marked types exist in the set,
 but **can be created neither in the UI modeler nor via MCP** — don't plan a workflow around SendTask/ReceiveTask/
 ScriptTask/EventBasedGateway/ComplexGateway/ManualTask/BusinessRuleTask/TextAnnotation/Association/
 DataStoreReference (they can be authored only by hand via raw XML, but there is no runtime support).
 
-**Types invented by old docs that do NOT exist in the enum:** `IntermediateCatchEvent`, `IntermediateThrowEvent`,
-`BoundaryEvent`, `EndEvent`. There is **no** `BPMN_END` in the enum — the end-event projects onto `bpmn:Task` (see above).
+**Types invented by old docs that do NOT exist in the set:** `IntermediateCatchEvent`, `IntermediateThrowEvent`,
+`BoundaryEvent`, `EndEvent`. There is **no** separate end-event type — the end-event projects onto `bpmn:Task` (see above).
 Older platform documentation lists these nonexistent types — **that is stale information**; don't carry it
 over.
 
 Only **4 types** have their own settings panel and, correspondingly, extra `properties` in
-`elements`: ServiceTask, UserTask, SequenceFlow, CallActivity, and everything else → `CommonTaskSettingsPanel`
-(only `id`/`name`). The panel is chosen by `@BpmnSettingsPanel(taskType=...)` via
-`SettingsPanelFactory.getaClass` with an annotation scan (
-`AnnotationUtils.findClassesWithAnnotation("com.devsegment", BpmnSettingsPanel.class)`), fallback —
-`CommonTaskSettingsPanel`.
+`elements`: ServiceTask, UserTask, SequenceFlow, CallActivity, and everything else → the common panel
+(only `id`/`name`).
 
 ---
 
@@ -299,10 +290,10 @@ actually extracted):
 
 ### 1. Service Task (`bpmn:ServiceTask`) — an automatic step that executes Groovy rules
 
-> ⛔ **A service-task rule's RETURN VALUE is not a verdict.** `RuleTask` never reads it: `return false` is
+> ⛔ **A service-task rule's RETURN VALUE is not a verdict.** The rule task never reads it: `return false` is
 > ignored and the token advances exactly as if the rule had returned nothing. To stop a step, **throw** — the
 > exception aborts the transaction. Note what that means for a step reached by completing a user task: the
-> rollback takes the `taskService.complete()` with it, so the user task re-opens and the operator sees the
+> rollback takes the task completion with it, so the user task re-opens and the operator sees the
 > form again with no message. That re-opening loop is the THROW path, not the `false` path; the two are
 > unrelated, and reading `false` as "stop" is the usual way to arrive at the wrong diagnosis.
 
@@ -339,32 +330,32 @@ prefix**; only `flowable:` has a prefix):
 </serviceTask>
 ```
 
-Fields (`name` · type · meaning · required · default · backing):
+Fields (`name` · type · meaning · required · default):
 
-| Property | Type | Meaning | Required? | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | string | node id (matches the id in the XML) | yes | — | `FlowElement.getId()` (`FlowableWorkflowServiceImpl.java`) |
-| `name` | string | task label; used in logs/history | no | skipped if null (`addProperty`) | `flowElement.getName()` |
-| `delegateExpression` | string | which Java delegate to execute. Values come from `getDelegateExpressions` (`RimmController.java`); the only registered one is `${ruleTask}` (the token itself comes from the Spring bean name `@Component("ruleTask")`, `RimmController.java` builds the key as `${…}` from `Component.value()`; the bean is `RuleTask`, while `@JavaDelegateCnf(name="Rule Task")` only sets the display name). **Dollar-brace `${...}`, NOT `#{...}`** | yes (for a rule task) | `${ruleTask}` | `serviceTask.getImplementation()` |
-| `implementation` | string | the same value as `delegateExpression` (duplicated by the extractor) | yes | `${ruleTask}` | `serviceTask.getImplementation()` |
-| `implementationType` | string | Flowable implementation type | yes | `delegateExpression` | `serviceTask.getImplementationType()` |
-| `rule` | string | **CSV of Groovy rule UUIDs** (order = execution order). In the XML — the `flowable:rule` attribute | no | — | the `flowable:rule` **attribute** (generic attribute loop, see "How `elements` is derived") |
-| `exclusive` | boolean | Flowable exclusive flag of the activity | no | `true` | `activity.isExclusive()` |
-| `async` | boolean | asynchronous execution | no | `false` | `activity.isAsynchronous()` |
-| `resultVariableName` | string | result variable name (usually absent) | no | skipped if null | `serviceTask.getResultVariableName()` |
+| Property | Type | Meaning | Required? | Default |
+|---|---|---|---|---|
+| `id` | string | node id (matches the id in the XML) | yes | — |
+| `name` | string | task label; used in logs/history | no | skipped if null |
+| `delegateExpression` | string | which delegate to execute. The only registered one is `${ruleTask}` (its display name in the dropdown is "Rule Task"). **Dollar-brace `${...}`, NOT `#{...}`** | yes (for a rule task) | `${ruleTask}` |
+| `implementation` | string | the same value as `delegateExpression` (duplicated by the extractor) | yes | `${ruleTask}` |
+| `implementationType` | string | Flowable implementation type | yes | `delegateExpression` |
+| `rule` | string | **CSV of Groovy rule UUIDs** (order = execution order). In the XML — the `flowable:rule` attribute | no | — |
+| `exclusive` | boolean | Flowable exclusive flag of the activity | no | `true` |
+| `async` | boolean | asynchronous execution | no | `false` |
+| `resultVariableName` | string | result variable name (usually absent) | no | skipped if null |
 
-**How `rule` is set in the UI:** the `ServiceTaskSettingsPanel.java` panel shows a `delegateExpression`
+**How `rule` is set in the UI:** the service-task panel shows a `delegateExpression`
 dropdown; if `${ruleTask}` is chosen, a `rule` control is added (a multi-select of rules of
 types `EXECUTION_RULE` and `VALIDATION_RULE`, `ruleType=[EXECUTION_RULE, VALIDATION_RULE]`, `singleSelect=false`).
 Multiple rules are encoded as a CSV. When the delegate is changed to a non-`${ruleTask}` value, the `rule` control and
 property are removed.
 
-**Runtime:** `RuleTask.execute` (`RuleTask.java`) reads `rule` from the task variables, **splits on the
-comma** (`ruleIds.split(",")`) and executes each rule **in order left to right**, running
-**one shared** `ContextDataDto` through the chain (`context.getContextData()`). For each rule a
+**Runtime:** the rule task reads `rule` from the task variables, **splits on the
+comma** and executes each rule **in order left to right**, running
+**one shared** `contextData` through the chain. For each rule a
 per-rule diff is computed and logged; the final mutated `contextData` is saved back into the
-process variables (`workflowExecutionService.saveContextDataToProcessVariables`, `ContextDataDto.CONTEXT_DATA_VARIABLE_KEY`). **Access-change detection:** before execution an `AccessDto`
-snapshot is taken; if a rule changed `access`, the engine updates `ProcessAccess`. Rules are of
+process variables. **Access-change detection:** before execution an access
+snapshot is taken; if a rule changed `access`, the engine updates the process access. Rules are of
 type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)).
 
 > ⛔ **CONTRACT — a service-task rule's RETURN VALUE is ignored.** `null`, `true`, `false`, a Map, a List:
@@ -378,7 +369,7 @@ type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08
 > mind.
 >
 > To ABORT a step, `throw new ServiceException("Order is already shipped — cannot cancel")`. The message
-> reaches the user verbatim (`AbstractGroovyExecutor` special-cases `ServiceException`; everything else is
+> reaches the user verbatim (the platform special-cases `ServiceException`; everything else is
 > prefixed "Failed to execute Groovy script: "). Note what an abort costs: the service task runs inside the
 > transaction that completed the user task, so throwing rolls that completion back and the **user task
 > re-opens** — which is correct, but means "the task came back" is the normal appearance of a failed rule,
@@ -390,13 +381,13 @@ type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08
 > step that could never succeed.
 
 > ⛔ **TRAP — a serviceTask rule that uses `context.<ctx>.<alias>.data` needs `<alias>` SEEDED into the process
-> `contextData` FIRST, or it throws `No CRUD data available for CRUD: <alias>` (`DynamicRuleContext.groovy`).
+> `contextData` FIRST, or it throws `No CRUD data available for CRUD: <alias>`.
 > `.data` is evaluated on property access **before** `.get()/.put()` — a `?: [:]` fallback does NOT save you, and a
 > rule cannot create the missing entry itself (`.data.put()` throws too; there is no seed-a-new-alias API).** The
 > process's initial `contextData` **is the start form's contextData**, so the workflow's **start form** (the
 > `process.table` `userStartProcessActions` → `formGroupIdentifier` form) MUST seed the process's main entity: give
 > it **≥1 field bound `scope:"CRUD"` + `crudAlias:"<alias>"`** (any column of `<alias>`), so
-> `FormPlugin.collectContextDataFromForm` creates `crudDataMap["<alias>"]`, which flows through `startProcess` into
+> the form submit creates `crudDataMap["<alias>"]`, which flows through `startProcess` into
 > the process — the first serviceTask's `context.<ctx>.<alias>.data.get()/.put()` (and every downstream serviceTask
 > reading the SAME entity) then works. **A start form whose fields are ALL `scope:"GLOBAL"` (attrs) seeds NOTHING —
 > the first serviceTask throws.** Canonical shape: an **Intake** start form whose
@@ -406,7 +397,7 @@ type `EXECUTION_RULE`/`VALIDATION_RULE` (see [08-groovy-rules-and-context.md](08
 > it never seeds a CRUD entity. (Headless start — scheduler/action, no form — must pass an initial `contextData`
 > whose `crudDataMap["<alias>"]` exists; the document's exact shape and the rule that builds it are
 > [27](27-event-driven-process-start.md) §4.) `validate` WARNs when a workflow's
-> serviceTask uses `<alias>.data` but no start form seeds `<alias>` (`_check_workflow_start_seeds_entity`) —
+> serviceTask uses `<alias>.data` but no start form seeds `<alias>` —
 > and what an unseeded alias costs is silence, not an error: the executor auto-creates an empty envelope for
 > it, so `.data.get()` answers an empty map and the task computes nulls. The throw `No CRUD data available for
 > CRUD: <alias>` is the other failure — a missing CONTEXT entry ([27](27-event-driven-process-start.md) §3
@@ -436,7 +427,7 @@ The full node (long UUIDs/localizations trimmed):
 }
 ```
 
-`userActions` is a **JSON string** (a serialized `UserTaskActionsDto`) sitting inside `value` (double
+`userActions` is a **JSON string** (the serialized action list) sitting inside `value` (double
 escaping). The parsed content of node `Activity_0b6e033`:
 
 ```json
@@ -481,57 +472,56 @@ escaping). The parsed content of node `Activity_0b6e033`:
 }
 ```
 
-The container is `UserTaskActionsDto {List<ActionDto> actions, List<ActionError> errors}`
-(`UserTaskActionsDto.java`); `ActionError {predicateIdentifier, error}`. `errors` in a
+The container is an object `{actions:[…], errors:[…]}`; an error entry is
+`{predicateIdentifier, error}`. `errors` in a
 definition is usually empty.
 
 Node properties of a user task:
 
-| Property | Type | Meaning | Required? | Default | Backing |
-|---|---|---|---|---|---|
-| `id`, `name`, `exclusive`, `async` | as for a service task | — | — | — | — |
-| `candidateUsers` | string (CSV) | Flowable candidate users | no | `""` | `String.join(",", userTask.getCandidateUsers())` |
-| `candidateGroups` | string (CSV) | Flowable candidate groups | no | `""` | `String.join(",", userTask.getCandidateGroups())` |
-| `assignee` | string | explicit assignee | no | skipped if null | `userTask.getAssignee()` |
-| `formKey` | string | Flowable form key | no | skipped if null | `userTask.getFormKey()` |
-| `userActions` | string (JSON) | list of action buttons; in the XML — `flowable:userActions` | no | skipped if the attribute is absent | the `flowable:userActions` **attribute** (generic attribute loop), deserialized by `UserTaskActionsDto.fromJson` |
+| Property | Type | Meaning | Required? | Default |
+|---|---|---|---|---|
+| `id`, `name`, `exclusive`, `async` | as for a service task | — | — | — |
+| `candidateUsers` | string (CSV) | Flowable candidate users | no | `""` |
+| `candidateGroups` | string (CSV) | Flowable candidate groups | no | `""` |
+| `assignee` | string | explicit assignee | no | skipped if null |
+| `formKey` | string | Flowable form key | no | skipped if null |
+| `userActions` | string (JSON) | list of action buttons; in the XML — the `flowable:userActions` **attribute** | no | skipped if the attribute is absent |
 
 > **`candidateGroups`/`candidateUsers` value format.** Each is a **comma-separated string** (empty `""` = none),
-> joined by the extractor from Flowable's candidate lists (`String.join(",", userTask.getCandidateGroups())` /
-> `getCandidateUsers()`, `FlowableWorkflowServiceImpl.java`). Every workflow export checked carries only `""`, so
+> joined by the extractor from Flowable's candidate lists. Every workflow export checked carries only `""`, so
 > there is **no live example** of the token form. In practice a user task's per-action visibility is gated not here but
-> by an action `predicateIdentifier` running `service.security.hasAnyRoleGroup(...)` (§2 `ActionDto`), which the
+> by an action `predicateIdentifier` running `service.security.hasAnyRoleGroup(...)` (§2 action fields), which the
 > exports do use — prefer that over `candidateGroups`/`candidateUsers` unless you specifically need Flowable's
 > candidate-inbox routing.
 
 > **About `assignee`/`dueDate`/`priority`/timer-boundary.** In real exports a user task carries **only**
 > `exclusive, candidateGroups, candidateUsers, id, name, async, userActions` — there are **NO** `dueDate`/`priority`
 > properties, and no timer/boundary events appear in any workflow export checked. `assignee`/
-> `candidateUsers`/`candidateGroups` **can** be set via MCP (`WorkflowMcpTools.java`), and `BOUNDARY_EVENT`
-> **can be created** (its only setting is `attachedToRef`, `WorkflowMcpTools.java`), but
-> `dueDate`/`priority`/`timerDuration`/`cancelActivity`/escalation are **found nowhere in the code or exports**.
+> `candidateUsers`/`candidateGroups` **can** be set via MCP, and `BOUNDARY_EVENT`
+> **can be created** (its only setting is `attachedToRef`), but
+> `dueDate`/`priority`/`timerDuration`/`cancelActivity`/escalation are **found nowhere in the platform or exports**.
 > The old-doc sections about due-date/priority/escalation are **aspirational, not confirmed**. Don't carry them over.
 
-Fields of a single `ActionDto` (backing — `UserTaskActionsDto.ActionDto`, `UserTaskActionsDto.java`):
+Fields of a single action:
 
-| Field | Type | Meaning | Required? | Default | Backing/note |
-|---|---|---|---|---|---|
-| `id` | string (UUID) | action id | yes | — | |
-| `localizedNames` | map locale→string | action label in the dropdown/history. The key is the full locale code `en_US` | yes | — |; resolved via `getLocalizedName`/`lookupLocalized` (fallback full→lang→first) |
-| `localizedButtonNames` | map locale→string | submit-button label on the form (for non-direct). Empty → falls back to `localizedNames` | no | mirrors `localizedNames` |, `getLocalizedButtonName` |
-| `predicateIdentifier` | string (UUID) | predicate rule: whether to show the action on this task/row | no | `null` (the string `"null"` is also treated as null, getter) | rule of type `PREDICATE` |
-| `onBeforeUserTaskStartRuleIdentifier` | string (UUID) | EXECUTION rule when the task opens (for non-direct: before the form opens) | no | `null` | getter (`"null"`→null) |
-| `onBeforeUserTaskCompleteRuleIdentifier` | string (UUID) | EXECUTION rule before the task completes (on click/complete). It runs as the person who pressed the button — record the decision and `service.security.user().email` here; ⛔ a `service.access.*` change made here is DISCARDED: apply access in the service task that follows ("Stage-wise case access") | no | `null` | getter (`"null"`→null) |
-| `validationRuleIdentifiers` | string (CSV) | validation rules; all must pass | no | `null` | getter (`"null"`→null) |
-| `direct` | `"on"`/`"off"` | `"on"` = direct action (no form, execute + complete immediately); `"off"` = open the form | no | — | `isDirect()` = `direct=="on"` |
-| `formGroupIdentifier` | string (UUID) | the form group to open (for non-direct). May be the string `"null"` or `null` | no | — |; see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) |
-| `completeUserTask` | `"on"`/`"off"` | whether to complete the task after the action | no | `"on"` (null is normalized to `"on"` in `fromJson`; `shouldCompleteUserTask` = `!"off"`) | |
-| `icon` | string | icon CSS class (e.g. `pe-7s-album`, `pe-7s-pen`, `pe-7s-check`) | no | `null` | |
-| `submitForm` | boolean | for non-direct: whether to submit the form (validation+persist+complete-rule) or only run the rules. null → true | no | `null`→`true` (`shouldSubmitForm`) | |
-| `formInModal` | boolean | for non-direct: `true` → the Process Table opens this action's form in a DIALOG over the table and a successful submit refreshes the table in place; `null`/`false` → navigate to the form group's page. **A boolean here, NOT `"on"`/`"off"`** — same shape as `submitForm`. | no | `null`→`false` (`shouldOpenInModal`) | |
-| `modalWidth` | string | width of that dialog — any CSS length (`"90%"`, `"400px"`), applied as `max-width`. Blank → `80%`. Only read when `formInModal:true` | no | `null`→`80%` | |
-| `taskId` | string | runtime field (usually `null` in a definition) | no | `null` | |
-| `orInitLocalizedNames` / `orInitLocalizedButtonNames` | map | mirrors of `localizedNames`/`localizedButtonNames`, added by lazy initializer getters at serialization time (`getOrInitLocalizedNames`, `getOrInitLocalizedButtonNames`) | no | — | serialized, ignored on read as a lazy-init artifact |
+| Field | Type | Meaning | Required? | Default |
+|---|---|---|---|---|
+| `id` | string (UUID) | action id | yes | — |
+| `localizedNames` | map locale→string | action label in the dropdown/history. The key is the full locale code `en_US`; resolved with fallback full→lang→first | yes | — |
+| `localizedButtonNames` | map locale→string | submit-button label on the form (for non-direct). Empty → falls back to `localizedNames` | no | mirrors `localizedNames` |
+| `predicateIdentifier` | string (UUID) | predicate rule: whether to show the action on this task/row (a rule of type `PREDICATE`) | no | `null` (the string `"null"` is also treated as null) |
+| `onBeforeUserTaskStartRuleIdentifier` | string (UUID) | EXECUTION rule when the task opens (for non-direct: before the form opens) | no | `null` (`"null"`→null) |
+| `onBeforeUserTaskCompleteRuleIdentifier` | string (UUID) | EXECUTION rule before the task completes (on click/complete). It runs as the person who pressed the button — record the decision and `service.security.user().email` here; ⛔ a `service.access.*` change made here is DISCARDED: apply access in the service task that follows ("Stage-wise case access") | no | `null` (`"null"`→null) |
+| `validationRuleIdentifiers` | string (CSV) | validation rules; all must pass | no | `null` (`"null"`→null) |
+| `direct` | `"on"`/`"off"` | `"on"` = direct action (no form, execute + complete immediately); `"off"` = open the form | no | — |
+| `formGroupIdentifier` | string (UUID) | the form group to open (for non-direct; see [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)). May be the string `"null"` or `null` | no | — |
+| `completeUserTask` | `"on"`/`"off"` | whether to complete the task after the action | no | `"on"` (null is normalized to `"on"`; anything other than `"off"` completes) |
+| `icon` | string | icon CSS class (e.g. `pe-7s-album`, `pe-7s-pen`, `pe-7s-check`) | no | `null` |
+| `submitForm` | boolean | for non-direct: whether to submit the form (validation+persist+complete-rule) or only run the rules. null → true | no | `null`→`true` |
+| `formInModal` | boolean | for non-direct: `true` → the Process Table opens this action's form in a DIALOG over the table and a successful submit refreshes the table in place; `null`/`false` → navigate to the form group's page. **A boolean here, NOT `"on"`/`"off"`** — same shape as `submitForm`. | no | `null`→`false` |
+| `modalWidth` | string | width of that dialog — any CSS length (`"90%"`, `"400px"`), applied as `max-width`. Blank → `80%`. Only read when `formInModal:true` | no | `null`→`80%` |
+| `taskId` | string | runtime field (usually `null` in a definition) | no | `null` |
+| `orInitLocalizedNames` / `orInitLocalizedButtonNames` | map | mirrors of `localizedNames`/`localizedButtonNames`, added at serialization time; serialized, ignored on read as a lazy-init artifact | no | — |
 
 > **`formInModal` is honoured wherever a Process Table renders the action** — its per-row actions (these) and
 > its global/start actions. In the dialog the buttons the form page would put on its breadcrumb — the action's
@@ -573,11 +563,11 @@ Fields of a single `ActionDto` (backing — `UserTaskActionsDto.ActionDto`, `Use
   task completion run.  `submitForm=false` — only run the rules without persisting the form.
 
 > ⛔ **RUNTIME FLOOR — the action's own `validationRuleIdentifiers` only run on a build that carries the
-> 2026-08-08 `FormPlugin` fix.** Before it, the submit request carried ONLY the FORM's validators
-> (`FormDto.validators`); the action's slot was read nowhere on this path, so a precondition authored per
+> 2026-08-08 form fix.** Before it, the submit request carried ONLY the FORM's validators
+> (the form's `validators`); the action's slot was read nowhere on this path, so a precondition authored per
 > action never ran and its failure surfaced later as a raw *"Could not execute rule(s) …"* from the
 > service task instead of a field error in the form. When you must work against an older runtime, put
-> preconditions that MUST block a submit into `FormDto.validators` and guard them by state so they do not
+> preconditions that MUST block a submit into the form's `validators` and guard them by state so they do not
 > fire on the other actions of the same form (a form validator runs on EVERY submit of that form —
 > including "send back for rework", which you rarely want to block).
 >
@@ -599,9 +589,9 @@ use the **old single `name` field** instead of `localizedNames`:
   "completeUserTask":"on","icon":"pe-7s-pen"}],"errors":[]}
 ```
 
-`UserTaskActionsDto` and `ActionDto` are marked `@JsonIgnoreProperties(ignoreUnknown=true)`
-(`UserTaskActionsDto.java`) precisely so that legacy `name` and any unknown field don't break parsing
-(one property shouldn't sink the whole parse — otherwise `fromJson` would return an empty DTO). **For new builds
+The action list and each action ignore unknown fields
+precisely so that legacy `name` and any unknown field don't break parsing
+(one property shouldn't sink the whole parse — otherwise the platform would read an empty action list). **For new builds
 use `localizedNames`/`localizedButtonNames`, not `name`.** Note: `formGroupIdentifier`
 in the legacy sample is set to the string `"null"` — that's acceptable (the `"null"` string is treated as null), but it's cleaner to put
 JSON null.
@@ -635,7 +625,7 @@ JSON null.
 The corresponding XML (a transition from the gateway to another branch). ⚠️ **The `flowable:sequence` +
 `flowable:rule` attributes on the `<sequenceFlow>` are NOT extracted into `elements` (only `conditionExpression`
 is) — but you MUST still emit them in `bpmnContent`.** They are the BPMN editor's source-of-truth for the
-condition (`WorkflowBpmn2ModelerPanel.js` bakes `conditionExpression` from `sequence`+`rule`, one-way, in
+condition (the BPMN editor bakes `conditionExpression` from `sequence`+`rule`, one-way, in
 the browser). WITHOUT them the editor's SequenceFlow panel shows `sequence`/`rule` **EMPTY**, and **re-opening +
 saving the workflow DROPS the `<conditionExpression>`** → the flow silently goes unconditional, which breaks the
 exclusive gateway's XOR routing (a no-condition flow counts as always-true, so the branch is grabbed whenever the
@@ -654,31 +644,29 @@ fills `%s`):
 
 Fields:
 
-| Property | Type | Meaning | Required? | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | string | transition id | yes | — | |
-| `name` | string | the arrow's label on the canvas. Optional in general — **required on every branch out of a decision** (§4): the engine routes on the condition, a reader routes on the label | on branches | — | `sequenceFlow.getName()` |
-| `sourceRef` | string | source id | yes | — | `sequenceFlow.getSourceRef()` |
-| `targetRef` | string | target id | yes | — | `sequenceFlow.getTargetRef()` |
-| `conditionExpression` | string | Flowable condition. For a conditional transition = `${predicateSequence.execute(execution, '<predicateUuid>')}` | no | skipped if null | `sequenceFlow.getConditionExpression()` |
-| `sequenceExpression` | string | extra extension (usually absent) | no | — | from extension `sequenceExpression` |
+| Property | Type | Meaning | Required? | Default |
+|---|---|---|---|---|
+| `id` | string | transition id | yes | — |
+| `name` | string | the arrow's label on the canvas. Optional in general — **required on every branch out of a decision** (§4): the engine routes on the condition, a reader routes on the label | on branches | — |
+| `sourceRef` | string | source id | yes | — |
+| `targetRef` | string | target id | yes | — |
+| `conditionExpression` | string | Flowable condition. For a conditional transition = `${predicateSequence.execute(execution, '<predicateUuid>')}` | no | skipped if null |
+| `sequenceExpression` | string | extra extension (usually absent) | no | — |
 
-**How it is set in the UI:** `SequenceFlowSettingsPanel.java` — a `sequence` dropdown; when the value
-`${predicateSequence.execute(execution, '%s')}` is chosen (the only one from `getSequenceExpressions`,
-`RimmController.java`; the bean `predicateSequence` = `PredicateSequenceFlowExecutor`
-`@JavaSequenceCnf(name="Predicate Sequence")`) the controls `rule` (predicate,
-`RuleType.PREDICATE`) and `conditionExpression` (textField) are added. The plugin substitutes the
+**How it is set in the UI:** the sequence-flow panel has a `sequence` dropdown; when the value
+`${predicateSequence.execute(execution, '%s')}` is chosen (the only one offered; display name
+"Predicate Sequence") the controls `rule` (a `PREDICATE` rule) and `conditionExpression` (textField) are added. The plugin substitutes the
 chosen predicate UUID in place of `%s`.
 
-**Runtime:** `PredicateSequenceFlowExecutor.execute` (`PredicateSequenceFlowExecutor.java`) executes the
+**Runtime:** `predicateSequence.execute` executes the
 predicate rule by UUID. **Three outcomes — only one is the "unconditional" you might expect:**
 - **id is empty/null** (`execute(execution, '')` / no predicate) → returns `true`. This is the ONLY
   "always allow" path, and it needs the id *itself* empty.
 - **id is a non-empty UUID pointing at a MISSING rule** (a dangling ref — e.g. the predicate was deleted) →
-  **hard runtime error**: the Feign lookup throws, the executor's catch is commented out, so the
+  **hard runtime error**: the rule lookup throws and nothing catches it, so the
   exception propagates and **FAILS the gateway/process transaction**. It does NOT default to false or route on.
-- **id points at an EXISTING but EMPTY-bodied rule** → `ExecuteResponse.extractBooleanResult` **FAILS OPEN to
-  `true`** (`ExecuteResponse.java`) → the branch is **always taken**.
+- **id points at an EXISTING but EMPTY-bodied rule** → the platform **FAILS OPEN to
+  `true`** → the branch is **always taken**.
 
 So a "clear the condition to make it unconditional" edit is a trap: the correct unconditional flow is the
 **ABSENCE of the `<conditionExpression>`** (a bare `<sequenceFlow>`), never an empty/dangling predicate. The result
@@ -686,12 +674,11 @@ is coerced to boolean. Several outgoing conditional transitions from an exclusiv
 `true` — **for XOR logic you need exactly one unconditional default transition** (no `conditionExpression`) for the
 case where all predicates returned `false`, otherwise the process hangs on the gateway — and that transition has to
 be named in the gateway's own `default` attribute, or the routing depends on document order (the full contract,
-including why the fallback's settings panel is empty and why every branch needs a `name`, is in §4). Like `RuleTask`, the
+including why the fallback's settings panel is empty and why every branch needs a `name`, is in §4). Like the rule task, the
 executor detects access changes.
 
 > **⚠️ Two different predicate encodings (don't confuse them).** (a) **UI export** (what's in the real files): in
-> `<conditionExpression>` it writes `${predicateSequence.execute(execution, '<uuid>')}`. (b) **MCP path**
-> (`WorkflowMcpTools.java`): when `predicateIdentifier` is passed, it sets the extension `sequenceExpression`
+> `<conditionExpression>` it writes `${predicateSequence.execute(execution, '<uuid>')}`. (b) **MCP path**: when `predicateIdentifier` is passed, it sets the extension `sequenceExpression`
 > `conditionExpression = "${predicateResult}"` — **a different runtime contract**. For hand-building compatible with
 > UI exports, use form (a); don't mix them.
 
@@ -713,7 +700,7 @@ executor detects access changes.
 > That is the SHAPE the editor round-trips, not a model to copy: it has no `default` and no branch labels, which
 > is exactly the gateway that gets stuck or routes on document order. The shape to author is below.
 
-A gateway has no settings of its own (the panel is `CommonTaskSettingsPanel`, which returns an empty set of controls).
+A gateway has no settings of its own (the panel is the common one, which returns an empty set of controls).
 Only `id` and an optional `name` — **plus the `default` attribute, which no panel gives a designed control for.**
 It is not invisible: the settings panel lists every attribute of the selected element and renders a plain labelled
 row for the ones it has no control for, so a gateway that has a `default` shows a `default` row with the flow id
@@ -725,8 +712,8 @@ keep. The branching logic itself lives **in the outgoing
 
 #### How the engine actually picks the exit (all element types)
 
-One algorithm decides this for every element that has outgoing flows (`ExclusiveGatewayActivityBehavior` for XOR,
-the shared `TakeOutgoingSequenceFlowsOperation` for everything else, flowable-engine 7.0.1):
+One algorithm decides this for every element that has outgoing flows (the exclusive-gateway behaviour for XOR,
+the shared take-outgoing-flows operation for everything else, flowable-engine 7.0.1):
 
 1. walk the outgoing flows and keep the ones whose condition is `true` — **a flow with NO `<conditionExpression>`
    counts as `true`** — while **always skipping the flow named in the element's `default`**;
@@ -750,7 +737,7 @@ Read it as `if (rejected) … else …`. The fallback carrying no predicate is *
 
 > **⚠️ What that looks like in the editor, and why it reads like a bug.** Select the fallback branch: alongside
 > the flow's own id/sourceRef/targetRef its settings panel shows an EMPTY `sequence` dropdown and **no rule and no
-> condition**, because `SequenceFlowSettingsPanel` only adds the `rule`/`conditionExpression` controls once a
+> condition**, because the sequence-flow panel only adds the `rule`/`conditionExpression` controls once a
 > `sequence` template has been chosen, and the fallback deliberately has none. And `default` is not on this element at all — it is an
 > attribute of the GATEWAY — so selecting the branch cannot show it to you. So
 > on screen the `else` branch is indistinguishable from a branch somebody forgot to finish. **Two things make it legible, and both are
@@ -769,14 +756,14 @@ Read it as `if (rejected) … else …`. The fallback carrying no predicate is *
   something; there is no decision to read.)
 - **Inclusive** (`bpmn:InclusiveGateway`) — OR: every branch whose condition is `true`, in parallel. Same fallback
   contract as XOR: all-conditional with no `default` throws the same way the moment they are all `false`.
-- `Complex`/`EventBased` — in the enum but not creatable in UI/MCP (see the types table).
+- `Complex`/`EventBased` — in the type set but not creatable in UI/MCP (see the types table).
 
 Structurally, `ParallelGateway`/`InclusiveGateway` in `elements` are laid out the same way (only `id`/`name`).
 ⚠️ **`elements[]` does NOT carry `default`** — the platform re-derives `elements` from `bpmnContent` on every save,
 and `bpmnContent` is what is deployed, so the XML is the single source of truth for it. Both the editor (bpmn-js)
 and Flowable's own serializer preserve the attribute on a round-trip; nothing else will re-create it if it is lost.
 
-`validate` (`_check_gateway_branching`) WARNs on every failure mode above: a `default` that names a flow which is
+`validate` WARNs on every failure mode above: a `default` that names a flow which is
 not an outgoing flow of that element, a `default` that also carries a condition (never evaluated), all-conditional
 with no `default`, an unconditional fallback that is not the `default`, a second unconditional branch on an XOR,
 conditions/`default` on a parallel gateway, two unconditional exits out of a plain task (an implicit **fork**, not
@@ -793,7 +780,7 @@ a choice), and unlabelled decision branches.
 ```
 
 **The end event** is serialized as a node of type **`bpmn:Task`** (in this workflow — `Event_11uhywd`, name `bububu`),
-because there is no separate `BpmnTaskType` for EndEvent (`FlowableWorkflowServiceImpl.java`):
+because there is no separate type for EndEvent:
 
 ```json
 { "id": "Event_11uhywd", "settings": { "type": "bpmn:Task", "properties": [
@@ -815,7 +802,7 @@ skipped.
   { "name": "id", "value": "Process_1", "type": null, "control": null, "order": 0 } ] } }
 ```
 
-`createProcessElement` puts `id`/`name`/`documentation`/`isExecutable`. The process `id` is the
+The process node carries `id`/`name`/`documentation`/`isExecutable`. The process `id` is the
 workflow's **process key** — what a call activity's `calledElement` names (§7) and what ends up in
 `processDefinitionId` on deploy as a prefix (`<process id>:6:<uuid>`, the middle number being the
 Flowable deployment version; Flowable drops the prefix and leaves a bare id once the whole string would
@@ -832,37 +819,36 @@ in the child → readable in the parent. Contrast with **SubProcess** (`bpmn:Sub
 process instance with scoped variables, no reuse across workflows; a CallActivity is a separate
 child instance, reusable.
 
-Per the panel code (`CallActivitySettingsPanel.java`) its `properties` in `elements` would include:
+Per the call-activity panel, its `properties` in `elements` would include:
 
-| Property | Type | Meaning | Backing |
-|---|---|---|---|
-| `calledElement` | string | which workflow to call — the callee's **process key**, i.e. the very string in its own `<process id="...">`. The list — `getCallableWorkflows` (`WorkflowRimmServiceImpl.java`), one option per process key, name = `"<name> (<identifier>) — Deployed / Draft / Not deployed"`. Workflows that are **not deployed yet are offered too** (see the deploy note below) | dropdown SERVICE |
-| `inheritBusinessKey` | boolean | inherit the parent's business key | booleanField |
-| `inheritVariables` | boolean | pass all variables (contextData) into the child process | booleanField |
+| Property | Type | Meaning |
+|---|---|---|
+| `calledElement` | string | which workflow to call — the callee's **process key**, i.e. the very string in its own `<process id="...">`. The dropdown offers one option per process key, name = `"<name> (<identifier>) — Deployed / Draft / Not deployed"`. Workflows that are **not deployed yet are offered too** (see the deploy note below) |
+| `inheritBusinessKey` | boolean | inherit the parent's business key |
+| `inheritVariables` | boolean | pass all variables (contextData) into the child process |
 
 In XML this is `<callActivity id="..." calledElement="<process key>" flowable:inheritVariables="true"
 flowable:inheritBusinessKey="true"/>`.
 
 > ⚠️ **`calledElement` is a process KEY, never a process definition id.** Flowable resolves this attribute
-> by key (`CallActivityBehavior.getProcessDefinitionByKey`) and picks the callee's latest deployed version
+> by key and picks the callee's latest deployed version
 > for the tenant. Writing a definition id (`<key>:<version>:<dbId>`) makes the engine look up that entire
 > string *as a key*, so it never matches, and the start fails with a message that reads like a deployment
 > fault even though the callee is deployed in the right tenant:
 > `Process definition <key>:<version>:<id> was not found in sameDeployment[false] tenantId[...]`.
 > A hand-authored `.mrjun` must therefore set `calledElement` to the callee workflow's `<process id>`;
-> `mrjun.py validate` checks exactly that (`_check_callactivity_resolves`). To deliberately pin one
+> `mrjun.py validate` checks exactly that. To deliberately pin one
 > version — rarely what you want, since it stops tracking redeploys — set
 > `flowable:calledElementType="id"` alongside the id; without that attribute the value is always read as
 > a key. ⚠️ The exact mapping of CallActivity extension attributes is **not covered by an explicit
-branch** of `createWorkflowElement` — a CallActivity is an `Activity`, so the common `async`/`exclusive`
+branch** of the extractor — a CallActivity is an `Activity`, so the common `async`/`exclusive`
 plus custom extension attributes via the generic loop are captured; **`calledElement`/`inherit*` in
 `elements` will have to be added by hand from the XML when building manually.** ⚠️ UNVERIFIED on real data —
 treat a CallActivity as experimental and test it live before you rely on it.
 
 > **Deploying a caller deploys its callees first.** Flowable never looks at `calledElement` before
 > runtime — nothing at deploy time validates it — so a parent whose callee is still a draft deploys
-> silently and only fails when someone runs it. Deploy therefore walks the call graph first
-> (`FlowableWorkflowServiceImpl.deployCalledWorkflows`): every workflow reachable through a call activity
+> silently and only fails when someone runs it. Deploy therefore walks the call graph first: every workflow reachable through a call activity
 > whose latest version is not deployed is deployed **before** the caller, deepest first, each at most
 > once. The workflows list's per-row Deploy button asks for confirmation and names them, because
 > publishing a callee publishes whatever draft it currently holds.
@@ -877,11 +863,11 @@ treat a CallActivity as experimental and test it live before you rely on it.
 > ⚠️ **Process keys must be unique per workflow.** The modeler used to seed every new diagram with
 > `<process id="Process_1">`, so older projects can hold several workflows sharing one key — and to
 > Flowable those are ONE target. New diagrams are now stamped with `Process_<workflow identifier>`
-> (`WorkflowBpmn2ModelerPanel.js`, matching the MCP tool); existing content is never rewritten, because
+> (by the BPMN editor, matching the MCP tool); existing content is never rewritten, because
 > renaming a deployed key would orphan running instances and every `calledElement` pointing at it. Where
 > a duplicate remains, the dropdown shows the colliding workflows as ONE option that says so.
 
-Via MCP `createFlowElement` (`WorkflowMcpTools.java`) a CallActivity **can be created** — this confirms
+Via MCP `createFlowElement` a CallActivity **can be created** — this confirms
 type support, but is not a substitute for a working example.
 
 ---
@@ -889,16 +875,16 @@ type support, but is not a substitute for a working example.
 ## How `elements` is derived from `bpmnContent`
 
 This is critical for building by hand. On `saveWorkflow`/`deployWorkflow` the server parses the XML
-(`BpmnXMLConverter.convertToBpmnModel`, `FlowableWorkflowServiceImpl.java`) and for each `FlowElement`
-builds a `WorkflowElementDto` (`createWorkflowElement`). The rules:
+and for each flow element
+builds an `elements` node. The rules:
 
-1. **Node type** = `FlowElement → BpmnTaskType` (`mapFlowElementToBpmnTaskType`):
+1. **Node type** (flow element → `settings.type`):
    `startEvent`→`bpmn:StartEvent`, **`endEvent`→`bpmn:Task`**, `userTask`→`bpmn:UserTask`
    `serviceTask`→`bpmn:ServiceTask`, `sequenceFlow`→`bpmn:SequenceFlow`,
    `exclusiveGateway`→`bpmn:ExclusiveGateway`, etc. Plus a separate `bpmn:Process` node for the
-   `<process>` itself (`createProcessElement`).
-2. **Common properties** for all: `id`, `name`, `documentation`. `addProperty` **skips
-   null values** (guard) — that's why nodes without a name have no `name`, and a service task without
+   `<process>` itself.
+2. **Common properties** for all: `id`, `name`, `documentation`. The extractor **skips
+   null values** — that's why nodes without a name have no `name`, and a service task without
    a rule has no `rule`. `documentation` is skipped everywhere (always null).
 3. **For an Activity** (userTask/serviceTask/callActivity/subProcess): `async`, `exclusive`.
 4. **UserTask**: `assignee`, `candidateUsers` (CSV), `candidateGroups` (CSV), `formKey`. **`userActions` does
@@ -910,12 +896,11 @@ builds a `WorkflowElementDto` (`createWorkflowElement`). The rules:
 6. **SequenceFlow**: `sourceRef`, `targetRef`, `conditionExpression`, optionally `sequenceExpression`
    from an extension.
 7. **StartEvent**: `initiator`, `formKey`.
-8. **Generic extension ATTRIBUTES** of any element are added by the loop (`flowElement.getAttributes()`).
-   This loop runs **unconditionally for EVERY flow element** — before the `instanceof` branches below (the first,
-   `if (flowElement instanceof SequenceFlow)`, comes after it). Important clarifications (verified on the data):
+8. **Generic extension ATTRIBUTES** of any element are added by a loop over the element's attributes.
+   This loop runs **unconditionally for EVERY flow element** — before the per-type branches. Important clarifications (verified on the data):
    - `rule` on a service task and `userActions` on a user task come from **THIS loop** — they are custom
      ATTRIBUTES on the task tag, stored under their bare local name (`rule`, `userActions`, no prefix). The
-     extractor also has `getExtensionElements()` branches for both names, but with attribute-form XML those
+     extractor also has extension-element branches for both names, but with attribute-form XML those
      branches never fire — see the ⛔ below before you reach for `<extensionElements>`.
    - `flowable:sequence`/`flowable:rule` on a conditional sequence flow (example `Flow_0ffbm4d`) **do NOT make it**
      into `elements` — only `conditionExpression` is extracted (verified: the node has just
@@ -930,10 +915,10 @@ builds a `WorkflowElementDto` (`createWorkflowElement`). The rules:
 > on the `<serviceTask>`, `flowable:userActions="<escaped JSON>"` on the `<userTask>` (exactly what the copy-paste
 > templates in this doc and `mrjun.py workflow add` emit). Writing them as an
 > `<extensionElements><flowable:rule>…</flowable:rule></extensionElements>` child **silently breaks the binding**:
-> the extension-element branch stores the parser object's `toString()` (a `[…ExtensionElement@…]` string, not your
-> CSV), and because `ElementSettingDto`'s property set is a `HashSet` keyed on the property NAME only, the correct
+> the extension-element branch stores the parser object's string form (a `[…ExtensionElement@…]` string, not your
+> CSV), and because the property set is keyed on the property NAME only, the correct
 > text that the generic extension pass would add later under the same name `rule` is dropped as a duplicate — the
-> garbage wins. `RuleTask` then splits that string on commas, resolves no rule id, and the service task executes
+> garbage wins. The rule task then splits that string on commas, resolves no rule id, and the service task executes
 > **nothing**, with no error; the user-task equivalent renders **no action buttons**. This is not a paper
 > distinction: import **re-derives `elements` from the XML** (your hand-written `elements[]` is discarded), so the
 > attribute form is the only thing that decides whether the binding exists — and `mrjun.py validate` only inspects
@@ -952,21 +937,21 @@ The goal is to set `rep-objects.json.workflows[]` by hand so that after import y
 
 ### BPMN skeleton and namespaces (important)
 
-> ⛔ **`bpmnContent` MUST be well-formed XML — a malformed one ABORTS the ENTIRE import.** On import Flowable
-> `saveWorkflowBackend` parses `bpmnContent`; if it is not well-formed — an unclosed tag, an unescaped `&`/`<`/`>`,
+> ⛔ **`bpmnContent` MUST be well-formed XML — a malformed one ABORTS the ENTIRE import.** On import the
+> platform parses `bpmnContent`; if it is not well-formed — an unclosed tag, an unescaped `&`/`<`/`>`,
 > or (the #1 hand-authoring mistake) a **`flowable:…` attribute used without declaring `xmlns:flowable`** — it
-> throws *"Workflow validation failed … invalid XML"*, which aborts `CmsProjectServiceImpl.initAllObjects` and
+> throws *"Workflow validation failed … invalid XML"*, which aborts the import and
 > **skips everything imported AFTER workflows** — rules, contexts, form groups, forms, settings, processGroups,
 > role groups and mail/PDF templates. Sources, the `project-db.dump` restore, queries and schedulers ran **earlier**
 > and survive, so do NOT read this symptom as a lost database: the *"no source selected / dump not restored"*
-> fingerprint belongs to a bad `elements[].settings.type` or a string `settings[].content`, which fails Jackson
+> fingerprint belongs to a bad `elements[].settings.type` or a string `settings[].content`, which fails deserialization
 > **before anything at all is saved**. So: **prefer `mrjun.py workflow add`** (it ET-parses before saving); when you hand-edit
 > the XML, declare EVERY namespace you use (see the root below), close every tag, escape entities inside
 > `conditionExpression`/text, and make every `sequenceFlow` `sourceRef`/`targetRef` point at a real element `id`.
-> `validate` now ET-parses `bpmnContent` and ERRORs on malformed XML / missing `<process>` / dangling flow refs —
+> `validate` now XML-parses `bpmnContent` and ERRORs on malformed XML / missing `<process>` / dangling flow refs —
 > but a green validate is still not import-proof; do a live import + read `log/ui.log`.
 
-> ⛔ **EXACTLY ONE `<startEvent>` per `<process>`.** `BpmnValidationService` raises the ERROR
+> ⛔ **EXACTLY ONE `<startEvent>` per `<process>`.** The platform raises the ERROR
 > `MULTIPLE_START_EVENTS` (*"Your workflow has multiple start events, but only one start event is allowed"*) and the
 > save throws — aborting the import at the workflow step exactly like malformed XML above. (Zero start events is
 > only a WARNING, `NO_START_EVENT`, but such a process can never be started.) A message/timer start event counts
@@ -992,8 +977,8 @@ Namespace rules (as the modeler itself writes them):
   `<serviceTask>`, `<userTask>`, `<exclusiveGateway>`, `<sequenceFlow>`, `<conditionExpression>`.
 - Only `flowable:` (extensions), `bpmndi:`/`dc:`/`di:` (diagram) carry a prefix.
 - ⚠️ The `settings.type` value in `elements` is **still** `bpmn:StartEvent` etc. (with a prefix) —
-  this is the JSON form of the enum, not the XML.
-- MCP generation (`createMinimalBpmn`, `WorkflowMcpTools.java`) uses a **different** targetNamespace
+  this is the JSON form of the type, not the XML.
+- MCP generation (a minimal BPMN created through MCP) uses a **different** targetNamespace
   `http://www.flowable.org/processdef`. For UI compatibility stick with `http://bpmn.io/schema/bpmn`.
 
 ### Step 0. A minimal "empty" workflow
@@ -1068,8 +1053,8 @@ CSV), `exclusive:true`, `async:false`. The rules must exist in `rep-objects.json
 </userTask>
 ```
 
-where `flowable:userActions` is `UserTaskActionsDto.toJson()` with **all `"` escaped as `&#34;`**
-(in the `rep-objects.json` JSON — as `\"`). A minimal `ActionDto`:
+where `flowable:userActions` is the action-list JSON with **all `"` escaped as `&#34;`**
+(in the `rep-objects.json` JSON — as `\"`). A minimal action:
 
 ```json
 { "id": "<UUID-action>",
@@ -1152,7 +1137,7 @@ a workflow nobody can open is a workflow nobody runs.
 > ⛔ **THE INVARIANT: every workflow in `rep-objects.json.workflows[]` gets EXACTLY ONE worklist page.** Never
 > zero — a workflow reachable only from the author console (`processes.plugin`) is one no end user ever runs.
 > One page is **THE** queue for that workflow; deliberate per-group filtered views of the same workflow are a
-> separate, later decision (§`ProcessGroupDto`), not a substitute for it. The page is, in full:
+> separate, later decision (process groups, above), not a substitute for it. The page is, in full:
 > 1. a **dedicated `siteMapPage` with its own `alias`** — a real page, not a tab, not a panel bolted onto
 >    someone else's page;
 > 2. whose content parsis holds **exactly ONE `process.table.pluin`** whose model `workflowIdentifier` is this
@@ -1186,11 +1171,11 @@ python3 tools/mrjun.py quicklink add --page "<Process> queue" --group "<business
   reachability check knows the tab exists, and a platform build without the parameter opens the first tab. The
   only reliable route in is a person who already knows to open another page and then click across —
   which is precisely the person who does not need the queue.
-- **The unlinked-page check is blind to it.** `validate`'s reachability warning walks `siteMapPage` nodes only
-  (`_check_homepage_and_nav`, `tools/mrjunkit/validate_cmds.py:490-504`), so a `process.table.pluin` buried in a
+- **The unlinked-page check is blind to it.** `validate`'s reachability warning walks `siteMapPage` nodes only,
+  so a `process.table.pluin` buried in a
   `nct.tab.plugin` of an already-linked host page produces **no warning at all** — and the one-table-per-page
-  rule explicitly *permits* it, because separate tabs are that rule's only exception
-  (`_check_one_table_plugin_per_page`, same file, `:1245`). "validate is clean" therefore says nothing here.
+  rule explicitly *permits* it, because separate tabs are that rule's only exception.
+  "validate is clean" therefore says nothing here.
   Tabs are for a secondary view of the same work; the primary queue of a workflow is never one.
 
 **Name the page and the link after the WORK, not after the engine.** `"<Process> queue"`, `"<Entity> cases"`,
@@ -1210,17 +1195,16 @@ prevent — and it is silent (no error, no log line the author sees). Three veri
 
 | Cause | Mechanism (verified in source) | Fix |
 |---|---|---|
-| **Process-group scoping** | The plugin puts `processGroupIdentifier` into the `ProcessFilter` **only if the group resolves** (`processGroupService.existsByIdentifier`, `initPluginContent`, `ProcessTablePlugin.java`), and the backend then requires equality on the joined group (`findAllProcesses`, `FlowableProcessServiceImpl.java`, nct-workflow). If the identifier is blank or dangling, the plugin **creates a brand-new group named after the node's `uniqueIdentifier` and rewrites the node's model** (`showProcessGroupSelectionDialog`, `ProcessTablePlugin.java`) — everything started under the previous group silently drops out, permanently. Two nodes over one workflow with two different groups likewise each show only their own rows. | ONE group per workflow, declared in `rep-objects.json.processGroups[]`, with the SAME `processGroupIdentifier` in the node model **and** in the mirror. Never ship a placeholder/dangling group id (Step 4). |
-| **Missing `columnSettings`** | `columnSettings` (null → `[]`) drives one `<th>` (`columnHeaders`) and one `<td>` (`columns`) each (`ProcessTablePlugin.java`). With `[]` the table still lists a row per process, but every row is just the Actions dropdown under no headers — which every reader reports as "the page is empty". A `scope:"CRUD"`/`"CONTEXT"` column additionally needs the process's context data (bulk-prefetched via `getContextDataBulk` in the data provider); a `contextIdentifier`/`crudAlias`/`fieldExpression` that doesn't match what the workflow actually writes yields blank cells. | Author ≥3 columns that identify the case to a human (who / what / when / state) and confirm at least one non-blank cell after the first real run. `validate` catches only the coarser version: a `workflowIdentifier` absent from `rep.workflows[]` (`validate_cmds.py::_check_process_table_workflow_exists`). |
-| **Per-process access rows** | `findAllProcesses` **INNER-JOINs** `accesses` and demands `access == true` plus one of USER == caller email / ROLE ∈ caller roles / ROLE_GROUP ∈ caller role groups (`FlowableProcessServiceImpl.java`, nct-workflow — the same block repeats on the `filterExpression` path). A form-started process writes exactly **one** access row — the starter, `type=USER`, `isOwner=true` (`startProcess`, same file) — and nothing in an export grants any other. The UI calls this with the **logged-in user's** token (`FeignClientInterceptor` forwards it for every non-`/internal/` URL), so a colleague who did not start the case matches no row: empty queue. | Grant on the start path: an `EXECUTION_RULE` on the workflow's first service task calls `service.access.addRoleGroupAccess("<Role Group>")` (or `addRoleAccess` / `addUserAccess`, [16](16-groovy-service-api.md) §2.7). `RuleTask` diffs `contextData.access` before/after and persists it via `processAccessService.updateAccesses` (`RuleTask.java`; the predicate path does the same, `PredicateSequenceFlowExecutor.java`). |
-| **A rule-started process has no BUSINESS starter** | A process started by `service.workflow.start(...)` (shape C) is owned by whoever the rule is running as — for a scheduler tick, the schedule's `serviceUserEmail`, which travels through both hops of the pipeline. It is **not ownerless on a stock deployment**: when that is blank too, the platform falls back to **the project's configured author account** and writes ONE USER row for it (`isOwner=true`), alongside the `admin` and `nct_author` ROLE rows every programmatic start grants unconditionally (`startProcess` / `grantProgrammaticStartAccess`, `FlowableProcessServiceImpl.java`, nct-workflow). ⚠️ That fallback is a **configuration value whose in-code default is EMPTY** — a deployment that blanks it disables the fallback (the field's own javadoc: *"Blank disables the fallback and leaves the process ownerless"*), so the case gets no owner USER row and no `owner` process variable, and is reachable only by admins and authors. You cannot see that from the export, which is the reason to pass an owner rather than inherit one. So the failure is not "no access rows" but "no BUSINESS user on the case" — and that owner is also the identity EVERY service task of the case executes as: `RuleTask` would prefer the last completed user task's assignee, but the platform never assigns a user task to whoever completes it, so there is none and `owner` wins for the whole case (unless the BPMN hard-codes an assignee). | Pass `owner`, `roleGroups` or `emails` in the call's options ([16](16-groovy-service-api.md) §2.12) — they are written in the same transaction as the process, so there is no window in which the case is invisible. The first-service-task grant works too, but only from the moment that task runs. Recipe: [27](27-event-driven-process-start.md) §6. |
+| **Process-group scoping** | The plugin puts `processGroupIdentifier` into the process filter **only if the group resolves**, and the backend then requires equality on the joined group. If the identifier is blank or dangling, the plugin **creates a brand-new group named after the node's `uniqueIdentifier` and rewrites the node's model** — everything started under the previous group silently drops out, permanently. Two nodes over one workflow with two different groups likewise each show only their own rows. | ONE group per workflow, declared in `rep-objects.json.processGroups[]`, with the SAME `processGroupIdentifier` in the node model **and** in the mirror. Never ship a placeholder/dangling group id (Step 4). |
+| **Missing `columnSettings`** | `columnSettings` (null → `[]`) drives one `<th>` and one `<td>` each. With `[]` the table still lists a row per process, but every row is just the Actions dropdown under no headers — which every reader reports as "the page is empty". A `scope:"CRUD"`/`"CONTEXT"` column additionally needs the process's context data (bulk-prefetched); a `contextIdentifier`/`crudAlias`/`fieldExpression` that doesn't match what the workflow actually writes yields blank cells. | Author ≥3 columns that identify the case to a human (who / what / when / state) and confirm at least one non-blank cell after the first real run. `validate` catches only the coarser version: a `workflowIdentifier` absent from `rep.workflows[]`. |
+| **Per-process access rows** | The process listing **INNER-JOINs** `accesses` and demands `access == true` plus one of USER == caller email / ROLE ∈ caller roles / ROLE_GROUP ∈ caller role groups (the same check repeats on the `filterExpression` path). A form-started process writes exactly **one** access row — the starter, `type=USER`, `isOwner=true` — and nothing in an export grants any other. The UI calls this with the **logged-in user's** token, so a colleague who did not start the case matches no row: empty queue. | Grant on the start path: an `EXECUTION_RULE` on the workflow's first service task calls `service.access.addRoleGroupAccess("<Role Group>")` (or `addRoleAccess` / `addUserAccess`, [16](16-groovy-service-api.md) §2.7). The rule task diffs `contextData.access` before/after and persists it (the predicate path does the same). |
+| **A rule-started process has no BUSINESS starter** | A process started by `service.workflow.start(...)` (shape C) is owned by whoever the rule is running as — for a scheduler tick, the schedule's `serviceUserEmail`, which travels through both hops of the pipeline. It is **not ownerless on a stock deployment**: when that is blank too, the platform falls back to **the project's configured author account** and writes ONE USER row for it (`isOwner=true`), alongside the `admin` and `nct_author` ROLE rows every programmatic start grants unconditionally. ⚠️ That fallback is a **configuration value whose default is EMPTY** — a deployment that blanks it disables the fallback (*"Blank disables the fallback and leaves the process ownerless"*), so the case gets no owner USER row and no `owner` process variable, and is reachable only by admins and authors. You cannot see that from the export, which is the reason to pass an owner rather than inherit one. So the failure is not "no access rows" but "no BUSINESS user on the case" — and that owner is also the identity EVERY service task of the case executes as: the rule task would prefer the last completed user task's assignee, but the platform never assigns a user task to whoever completes it, so there is none and `owner` wins for the whole case (unless the BPMN hard-codes an assignee). | Pass `owner`, `roleGroups` or `emails` in the call's options ([16](16-groovy-service-api.md) §2.12) — they are written in the same transaction as the process, so there is no window in which the case is invisible. The first-service-task grant works too, but only from the moment that task runs. Recipe: [27](27-event-driven-process-start.md) §6. |
 | **A rule-started process has no process group** | Same call, different column: the group comes from the starting NODE, and a rule is not a node. With no `groupIdentifier` the process is created with `group=null`, and the group filter above is an INNER join — so a group-scoped worklist excludes it for everyone, admins included, with nothing logged. | Pass `groupIdentifier` in the options, with the SAME identifier the `process.table` node uses. |
 
-> ⚠️ **`updateAccesses` deletes every access row of the process and recreates the submitted list**
-> (`deleteAllByProcessId` then re-save, `ProcessAccessServiceImpl.java`). That is safe only because
-> `contextData.access` was hydrated from the DB rows first (`getContextDataDto` →
-> `processAccessService.getProcessAccess`, `WorkflowExecutionService.java`), which makes an `add*` call
-> additive. A rule that assembles a fresh `AccessDto` — or calls `clearAllAccess()` — wipes the owner row too,
+> ⚠️ **Saving access deletes every access row of the process and recreates the submitted list.**
+> That is safe only because
+> `contextData.access` was hydrated from the DB rows first, which makes an `add*` call
+> additive. A rule that assembles a fresh access object — or calls `clearAllAccess()` — wipes the owner row too,
 > and the case vanishes for its own starter.
 
 > ⛔ **These rows ARE the case's access list — author them, do not just clear them.** The backend lists a case to
@@ -1228,9 +1212,8 @@ prevent — and it is silent (no error, no log line the author sees). Three veri
 > grant the groups that work a case when it opens, move it from group to group as it advances, and hide it from
 > whoever no longer needs it — "Stage-wise case access" below. Two limits to design around: they are not a fetch
 > rule you can author (they are written by rules — [16](16-groovy-service-api.md) §2.7 — and by the start
-> options), and nct-ui keeps a list
-> page for a few seconds per `(realm, client, filter)` with **no user in the key** (`@Cacheable` on
-> `nct-ui/.../service/FlowableProcessServiceImpl.java`), so for that moment a second person with the same filter can
+> options), and the platform caches a list
+> page for a few seconds per `(realm, client, filter)` with **no user in the key**, so for that moment a second person with the same filter can
 > be shown the first person's page. Route queues with access rows; but where the PRD makes a list CONFIDENTIAL
 > ("an `<actor>` must never see another's `<cases>`"), build that list as a `crud.table.plugin` with a scoped
 > fetch rule ([05](05-crud-tree-and-process-table.md)), and gate every action by predicate either way — the rows
@@ -1278,8 +1261,8 @@ open their worklist and find the case — and a member of the PREVIOUS group fin
 the author account usually holds every group.
 
 > ⚠️ **Not machine-checkable in the direction that matters.** `validate` warns node→workflow (a process table
-> bound to a workflow that isn't in the project, `validate_cmds.py::_check_process_table_workflow_exists`) and page→nav (an unlinked
-> business page, `:490-504`), but **nothing warns workflow→page**: a workflow with no worklist page passes
+> bound to a workflow that isn't in the project) and page→nav (an unlinked
+> business page), but **nothing warns workflow→page**: a workflow with no worklist page passes
 > clean. So make it a review step — for each entry in `rep-objects.json.workflows[]`, find the
 > `process.table.pluin` whose model `workflowIdentifier` equals it, confirm that node's page is a `siteMapPage`
 > with an alias, and confirm a quick link points at that page.
@@ -1291,14 +1274,12 @@ When you MODIFY a filled `.mrjun` that already carries a workflow (scenario C in
 source of truth. To add/remove a step: insert or delete the `<serviceTask>`/`<userTask>`/`<exclusiveGateway>`
 element(s), **re-route the `sequenceFlow`s** so `sourceRef`/`targetRef` (and the `<incoming>`/`<outgoing>` on
 each node) still form one connected start→…→end path, and update `elements[]` to match — **or just leave
-`elements` alone**, since import re-reads the XML and rebuilds the nodes anyway (`extractWorkflowElements`,
-`FlowableWorkflowServiceImpl.java`). Keep the workflow's `identifier` **stable** (it is the identity key;
+`elements` alone**, since import re-reads the XML and rebuilds the nodes anyway. Keep the workflow's `identifier` **stable** (it is the identity key;
 changing it makes a new workflow and orphans any `process.table.pluin` `workflowIdentifier` pointing at it).
 
-**Deploy fields on re-import — you can't fake "already deployed".** Import saves every workflow through
-`saveWorkflow → saveAndDeploy(dto, deploy=false)` (`FlowableWorkflowServiceImpl.java`, both the UI and the
-`/internal/.../save` backend path via `saveWorkflowBackend`, `FlowableWorkflowController.java`). The
-`deploy=false` branch **hard-clears** `externalId`, `processDefinitionId`, `processDefinitionKey` to `null` and
+**Deploy fields on re-import — you can't fake "already deployed".** Import saves every workflow without deploying (both the UI and the
+backend save path). The
+save-without-deploy branch **hard-clears** `externalId`, `processDefinitionId`, `processDefinitionKey` to `null` and
 sets `deployed=false` — regardless of what your JSON said. So an imported workflow always lands as
 an **un-deployed draft**; the engine assigns real deploy ids (`processDefinitionId = "Process_1:6:<uuid>"` — the
 middle integer, `6`, is the Flowable **deployment version**, which the engine bumps on each re-Deploy; `externalId =
@@ -1312,15 +1293,14 @@ invent `Process_1:6:<uuid>`/deployment-id values.
 
 ### Process runtime context (for reference when writing rules)
 
-Variables flow through the process: `contextData` (a serialized `ContextDataDto`,
-key `ContextDataDto.CONTEXT_DATA_VARIABLE_KEY`, `RuleTask.java`) — progressively enriched at each step;
+Variables flow through the process: `contextData` (a serialized object stored in a process variable) — progressively enriched at each step;
 `userId`/owner; `userActionId` (which user-task action was chosen). Rules read/write `contextData`
 via `context.<ctx>.data.getAttr/setAttr(...)`, `context.<ctx>.<alias>.data.get()/put(...)` (see
 [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)). The real enum statuses (don't invent
 RUNNING/SUSPENDED/DRAFT/PUBLISHED/ARCHIVED from old docs):
-- `ProcessStatus` (`ProcessStatus.java`): **`NEW, STARTED, CANCELED, DELETED, COMPLETED`** (US spelling
+- Process status: **`NEW, STARTED, CANCELED, DELETED, COMPLETED`** (US spelling
   `CANCELED`).
-- `WorkflowStatus` (`WorkflowStatus.java`): **`ACTIVE, DELETED`** — and this field is not on the exported DTO
+- Workflow status: **`ACTIVE, DELETED`** — and this field is not in the export
   anyway.
 
 ---
@@ -1335,19 +1315,19 @@ whose columns are all empty.
 ### The one fact everything follows from
 
 **A process never loads a CRUD row by itself.** A CRUD row reaches a form through
-`FormPlugin.initCrudMode()`, which only runs when `resolveSettingsNavigation()` produced `crudTableNavData`
+the form's CRUD mode, which only runs when the navigation produced crud-table navigation data
 — i.e. when the launching action was found in a **crud-table** settings object. A workflow user-task action
 lives in the workflow definition, and a process-table global action lives in `globalActions`; neither is a
-crud-table action, so `crudTableNavData` stays null, `initCrudMode()` returns immediately, and no `crudId`
-is ever resolved. The form is handed `workflowExecutionService.getContextData(processIdentifier)` and
+crud-table action, so that navigation data stays null, CRUD mode returns immediately, and no `crudId`
+is ever resolved. The form is handed the process's context data and
 nothing else.
 
 So, from inside a process:
 
 | Channel | Works? | Why |
 |---|---|---|
-| `contextData.attrs` (GLOBAL scope) | **yes** | serialized into the process variable and merged on every hop (`ContextDataMergeUtil`) |
-| `crudDataMap[alias]` **written by the current form** | **yes** | `collectContextDataFromForm` writes CRUD-scoped control VALUES there even with no row bound — which is why CREATE works inside a workflow. Only controls the user FILLED: a null value returns early, so an untouched control seeds nothing |
+| `contextData.attrs` (GLOBAL scope) | **yes** | serialized into the process variable and merged on every hop |
+| `crudDataMap[alias]` **written by the current form** | **yes** | the form submit writes CRUD-scoped control VALUES there even with no row bound — which is why CREATE works inside a workflow. Only controls the user FILLED: a null value returns early, so an untouched control seeds nothing |
 | `crudDataMap[alias]` **that a rule explicitly `put` earlier** | **yes, as a SNAPSHOT** | only if the map already had an entry for that context — see the three start shapes below |
 | the same map when **nothing put anything** | **no** | there is no automatic load; the fields render blank |
 | `attrs._crudEntityId` | **no** | set by crud-table navigation only |
@@ -1359,7 +1339,7 @@ Two of them are start FORMS (A, B); the third is a RULE (C) and has no form at a
 to combine.
 
 **Shape A — the intake CREATES the subject.** The start form's fields are `scope: CRUD` over the entity, so
-`collectContextDataFromForm` creates `crudDataMap["<alias>"]`, and that map flows into the process. The
+the form submit creates `crudDataMap["<alias>"]`, and that map flows into the process. The
 first service task does `…data.put(…service.create(…data.get()))`, and from then on
 `context.<ctx>.<alias>.data.get()` returns the row on every later step. This is the shape the serviceTask
 TRAP above documents, and it is the right one when the process itself brings the record into existence.
@@ -1369,8 +1349,7 @@ changes the record must `put` it back or the next form shows stale values.
 **Shape B — the subject ALREADY EXISTS and is picked.** The start form is a picker; there is nothing to
 create. Here the crud map is not just empty, it **cannot be created by a rule**: with no CRUD-scoped control
 on the start form, `contextDataMap[<ctx>]` itself is absent, and `context.<ctx>` throws *"No context data
-available for context"* before you can reach `.data.put(...)` (`DynamicRuleContext.groovy`;
-`enhanceContextDataWithCrudInfo` only fills a context entry that already exists). So in shape B **everything
+available for context"* before you can reach `.data.put(...)` (the platform only fills a CRUD entry into a context entry that already exists). So in shape B **everything
 runs on GLOBAL attributes** — the rest of this section is shape B, and it is the shape most "act on an
 existing record" processes need.
 
@@ -1397,16 +1376,16 @@ Four things are specific to shape C and easy to get wrong:
 * **Visibility is yours to arrange — and "never ownerless" is one config value away from false.** There is no
   submitting user; `owner` defaults to the user the rule runs as, and for a scheduler tick that is the
   schedule's `serviceUserEmail`. When even that is blank the platform falls back to **the project's configured
-  author account** as owner, with its own `isOwner` USER row and its `owner` process variable
-  (`FlowableProcessServiceImpl.java`, nct-workflow); admin and author ROLE access is granted on every
-  programmatic start whatever happens. But that fallback is a **configuration value whose in-code default is
-  empty**, and the field's javadoc says so outright — *"Blank disables the fallback and leaves the process
+  author account** as owner, with its own `isOwner` USER row and its `owner` process variable;
+  admin and author ROLE access is granted on every
+  programmatic start whatever happens. But that fallback is a **configuration value whose default is
+  empty**, and its description says so outright — *"Blank disables the fallback and leaves the process
   ownerless"* — so on a deployment that blanks it (and the recipient's deployment is not yours) there is no
   owner row and no `owner` variable at all:
   the case is visible only to admins and authors, and every service task of it runs with **no user**. Either
   way the risk is not "nobody sees it" but "**nobody who should work it sees it**" — and with the fallback on,
   that one account is also the identity EVERY service task of the case executes as (no user task is ever
-  assigned to whoever completes it, so the engine's "last assignee" stays empty — `RuleTask.java`), so
+  assigned to whoever completes it, so the engine's "last assignee" stays empty), so
   `service.security.user()` inside the case returns it, not the person the case is about. Pass `owner`,
   `roleGroups` or `emails` to put the case in front of the people who must act on it —
   see the per-process access table under *"Then prove it is not empty for anyone but you"* above, and
@@ -1429,7 +1408,7 @@ Four things are specific to shape C and easy to get wrong:
 ### Rule 2 — the process start form binds by `<crudAlias>Id`
 
 The new instance's initial `contextData` **is the start form's `contextData`**
-(`FormSubmissionServiceImpl.startWorkflowProcess` serializes it into `CONTEXT_DATA_VARIABLE_KEY`). So the
+(serialized into the process variable at start). So the
 subject has to travel in a **control's own value**:
 
 > the start form carries a `scope: GLOBAL` picker whose **`fieldExpression` is exactly `<crudAlias>Id`**
@@ -1496,15 +1475,15 @@ return (row.status == 'X')
 > for ever and the other is unreachable code that still reads as a decision on the diagram**. Nothing in the
 > BPMN shows it: the branch, its predicate, its label and the `default` are all exactly right. Using the
 > snapshot for the **id** is fine (ids do not go stale) — that is what `_rid` does. `validate`
-> (`_check_gateway_predicate_reads_record`) WARNs when a gateway predicate's answer can come from it.
+> WARNs when a gateway predicate's answer can come from it.
 
-`service.crud` **is** available in a PREDICATE (`GroovyPredicate` compiles with the same
-`ExecutionRuleTemplate.groovy` and gets `setCrud(...)`); `service.notification` / `service.report` are not.
+`service.crud` **is** available in a PREDICATE (it is compiled with the same
+rule template as an execution rule); `service.notification` / `service.report` are not.
 
 ### Rule 5 — the display attributes come from a SERVICE TASK
 
 Only a service task's context result is written back to the process
-(`RuleTask` → `saveContextDataToProcessVariables`). So the pattern for "the user task must show the
+(the rule task saves it to the process variables). So the pattern for "the user task must show the
 record" is:
 
 1. the first service task after the start event runs a **bind** rule: it resolves `<alias>Id`, re-publishes
@@ -1521,7 +1500,7 @@ keep showing the value the bind rule read. The same trap as shape A's snapshot, 
 
 ### Rule 6 — process-table columns are GLOBAL
 
-`ProcessTablePlugin.extractColumnValue` resolves **all three** scopes against the process's stored
+The process table resolves **all three** column scopes against the process's stored
 context-data document: `GLOBAL` from its root `attrs` — past five names intercepted first and taken off the
 process row itself (`businessKey`, `workflowName`, `status`, `identifier`, `id`) — `CONTEXT` from
 `contextDataMap[ctx].attrs`, `CRUD` from `contextDataMap[ctx].crudDataMap[alias]` → `value`. So a CRUD-scoped
@@ -1552,8 +1531,8 @@ Before shipping any workflow:
 - [ ] no global action on the process table opens a CRUD form group (it has no row — see
       [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)).
 
-`python3 mrjun.py validate` checks most of this mechanically (`_check_process_context_binding`) and names
-the rule, the form group and the column; the dual-wired read is `_check_crud_action_form_values`, which ERRORs
+`python3 mrjun.py validate` checks most of this mechanically and names
+the rule, the form group and the column; for the dual-wired read it ERRORs
 on a literal `getAttr("<field>")` but by design cannot see a read done through a variable — the
 attrs-first-then-row shape stays yours to get right. Treat every one of its findings as a blocker: each corresponds to
 a screen that is blank or a step that throws on the first live run.
@@ -1630,37 +1609,36 @@ saves, its lines table is empty, and any downstream branch that counts those lin
 
 ## Gotchas
 
-1. **`bpmnContent` is the source of truth; `elements` is derived.** The server re-reads the XML on every save/deploy
-   (`extractWorkflowElements`, `FlowableWorkflowServiceImpl.java`). If you edit by hand — edit the XML and
+1. **`bpmnContent` is the source of truth; `elements` is derived.** The server re-reads the XML on every save/deploy.
+   If you edit by hand — edit the XML and
    keep `elements` in agreement; on a mismatch the XML wins.
-2. **`elements` and `properties` are a `Set` (HashSet).** The order is nondeterministic (doesn't match the XML — that's
-   normal), and properties with the same `name` collapse (`@EqualsAndHashCode` by `name`+`order`,
-   `ElementSettingDto.java`). Don't duplicate nodes by `id` or properties by `name`.
+2. **`elements` and `properties` are sets.** The order is nondeterministic (doesn't match the XML — that's
+   normal), and properties with the same `name` collapse (equality by `name`+`order`). Don't duplicate nodes by `id` or properties by `name`.
 3. **`endEvent` in the XML becomes `bpmn:Task` in `elements`**. Don't be alarmed and don't "fix" it —
-   there is no separate `BpmnTaskType` for the end event (`BPMN_END` doesn't exist).
-4. **`addProperty` skips null.** A missing property (`name`, `rule`, `assignee`, `documentation`) in
-   `elements` is normal, not an error (guard). Don't add `{"name":"rule","value":null}`.
+   there is no separate end-event type.
+4. **Null properties are skipped.** A missing property (`name`, `rule`, `assignee`, `documentation`) in
+   `elements` is normal, not an error. Don't add `{"name":"rule","value":null}`.
 5. **`userActions` — double escaping.** Inside `elements[].properties.value` it's a string with `\"`; inside
    the XML attribute `flowable:userActions` the same quotes are `&#34;`. Easy to mix up the levels.
-6. **`rule` in a service task is a CSV.** Multiple rules = `"uuid1,uuid2"`; `RuleTask` splits on the comma
-   (`RuleTask.java`) and executes them in order, sharing one `contextData`. The order in the string = the execution
+6. **`rule` in a service task is a CSV.** Multiple rules = `"uuid1,uuid2"`; the rule task splits on the comma
+   and executes them in order, sharing one `contextData`. The order in the string = the execution
    order.
 7. **The only supported `delegateExpression` is `${ruleTask}`** (dollar-brace, not `#{...}`),
-   the only `sequence` is `${predicateSequence.execute(execution, '%s')}`. Both come from registered
-   beans (`RimmController.java`); there are no other values in the dropdowns. Don't invent arbitrary
+   the only `sequence` is `${predicateSequence.execute(execution, '%s')}`. Both are the only registered values;
+   there are no other values in the dropdowns. Don't invent arbitrary
    delegates.
 8. **`conditionExpression` vs `flowable:sequence`/`flowable:rule`.** The UI writes into the XML of a conditional transition BOTH
    `<conditionExpression>` (what Flowable actually executes) AND the duplicate attributes
    `flowable:sequence="...'%s'"` + `flowable:rule="<uuid>"` (see the `Flow_0ffbm4d` example). Into `elements`
    only `conditionExpression` is extracted. For execution `conditionExpression` alone is enough; the duplicates are
    for re-rendering in the editor. **Don't confuse** the UI form `${predicateSequence.execute(...)}` with the MCP form
-   `${predicateResult}` (`WorkflowMcpTools.java`) — different contracts.
+   `${predicateResult}` — different contracts.
 9. **`deployed`/`processDefinitionId`/`externalId` are set by the engine.** When building by hand set
    `deployed:false` and the other two `null`. Their concrete values (`Process_1:6:<uuid>`, a deployment UUID)
-   are generated by Flowable at deploy time and shouldn't be invented. The exported DTO has **no**
+   are generated by Flowable at deploy time and shouldn't be invented. The export has **no**
    `status`/`workflowStatus`/`latest`/`processDefinitionKey` — don't add them.
 10. **`predicateIdentifier`/`formGroupIdentifier`/rule fields may be the string `"null"`** in legacy data;
-    the `ActionDto` getters treat `"null"` as `null`. For new data put
+    the platform treats `"null"` as `null` in action fields. For new data put
     JSON `null`. Use `localizedNames`/`localizedButtonNames`, not legacy `name`.
 11. **`processGroups` in an empty project already contains two default elements** with fixed `identifier`s
     (`b0c1f90e-...`, `32d9be5f-...`) and UUID placeholders in `name`/`description`. Don't duplicate them; for a new
@@ -1702,14 +1680,14 @@ saves, its lines table is empty, and any downstream branch that counts those lin
     viewer renders the stored diagram as-is), it must be the **LAST** child of its `<bpmndi:BPMNEdge>`, after the
     waypoints: the DI schema is `waypoint+` then an optional `BPMNLabel`, and the other order is well-formed XML
     that the XSD still rejects — which fails the workflow at import and **aborts the whole rep-objects import**
-    with it. See §4. `mrjun.py validate` WARNs on the branching half (`_check_gateway_branching`) and
-    **ERRORs** on the label-order half (`_check_workflow_xml`), because that one does not merely mis-route a
+    with it. See §4. `mrjun.py validate` WARNs on the branching half and
+    **ERRORs** on the label-order half, because that one does not merely mis-route a
     case, it stops the whole import.
 13. **Namespace trap:** the process body is WITHOUT the `bpmn:` prefix (default ns), while `settings.type` in `elements`
-    is WITH the `bpmn:` prefix (the JSON form of the enum). Old docs that write `<bpmn:serviceTask>` in the XML are stale (S6).
+    is WITH the `bpmn:` prefix (the JSON form of the type). Old docs that write `<bpmn:serviceTask>` in the XML are stale (S6).
 14. **Timer/boundary/due-date/priority — not confirmed.** `BOUNDARY_EVENT` can be created, but only with
-    `attachedToRef` (`WorkflowMcpTools.java`); there is no plumbing for `timerDuration`/`cancelActivity`/`dueDate`
-    `priority` in the code or exports. Don't design around them.
+    `attachedToRef`; there is no plumbing for `timerDuration`/`cancelActivity`/`dueDate`
+    `priority` in the platform or exports. Don't design around them.
 15. **Non-creatable node types.** SendTask/ReceiveTask/ScriptTask/EventBasedGateway/ComplexGateway/ManualTask/
-    BusinessRuleTask/TextAnnotation/Association/DataStoreReference are in the enum, but can be created neither in the UI nor
+    BusinessRuleTask/TextAnnotation/Association/DataStoreReference are in the type set, but can be created neither in the UI nor
     MCP and have no runtime delegates — don't use them.

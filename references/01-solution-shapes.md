@@ -409,8 +409,9 @@ there is; that is why the NOTIFY category exists.
 against 271 KB-scale Groovy: the arithmetic is in the database and the rules are thin. Second-biggest cost:
 **localisation of a three-locale, non-Latin-default tenant** — trilingual group and leaf nav maps, 78 trilingual
 inline help nodes that explain the *interaction model* rather than the field, a mail template triplicated per
-locale with a dynamic alias dispatch, and a 40-entry transliteration table in every PDF rule because the renderer
-font cannot set the default script.
+locale with a dynamic alias dispatch, and (in that delivery, which predates the renderer's multi-script fonts) a
+40-entry transliteration table in every PDF rule because the renderer's single font could not set the default script
+— the renderer now prints every script, so a new build needs no such table.
 
 ### Failure modes this shape invites
 

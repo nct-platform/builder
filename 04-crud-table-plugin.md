@@ -5,7 +5,7 @@
 > ⛔ **ONE table per PAGE — the ONLY exception is separate tabs.** The rule is about *tables*, not about
 > *this plugin*: it covers `crud.table.plugin`, `crud.tree.plugin` and `process.table.pluin` **in any
 > combination**. Two `crud.table.plugin` collide technically (shared type-scoped Settings panel +
-> `getKey()` sync channel, both page-wide); a crud-table next to a **process-table** does not collide —
+> sync channel, both page-wide); a crud-table next to a **process-table** does not collide —
 > and is still forbidden, because a page is one workplace answering one question. The one way to
 > co-locate two tables is **each in its own tab** (`nct.tab.plugin`); otherwise give each its own page.
 > And a **dashboard (charts) carries no table** — the `dynaform` filter drives tables, not charts.
@@ -40,23 +40,20 @@ partially outdated — the notes below flag each place it diverges from what the
 > `node add --plugin crud.table.plugin --model @model.json`, `node set-model <id>`, `node patch-model <id> --set rowsPerPage=num:25` (table config lives in `properties.model`, the CLI picks the slot itself).
 > Full index and rules — [`tools/README.md`](tools/README.md); before re-importing — `mrjun.py validate`.
 
-Plugin registration:
-`@PluginConfig(pluginName = "crud.table.plugin", displayName = "CRUD Table", group = "Lists", renderBodyOnly = false)`
-(`CrudTablePlugin.java`).
+Plugin registry key: `crud.table.plugin` (display name "CRUD Table", group "Lists").
 
 ## Export shape
 
 In the content tree a `crud.table.plugin` node stores its ENTIRE configuration as a JSON string in
 `properties.model.stringValue` (**not `settings`** — unlike form controls! see
 [01-content-model-and-pages.md](01-content-model-and-pages.md) about `properties` slots). The plugin renders
-specifically **from `properties.model`** (`CrudTablePlugin.java`), yet the same model is **additionally
+specifically **from `properties.model`**, yet the same model is **additionally
 mirrored** into a `rep-objects.settings[]` object with field `type:"CrudTable"` (the join key is
 `setting.name == node.uniqueIdentifier`). Expect roughly one such `CrudTable` object per table node (plus
 leftovers of deleted nodes). **The mirror is not decoration.** The node RENDERS from `properties.model`, but the
 FORM a non-direct action opens reads the **mirror**: the action navigates with `settingsName=<node.uniqueIdentifier>`
 and the form loads `settings[name == that]` to learn the `crudAlias`, `contextIdentifier`, the action's button
-label, its `predicateIdentifier`, its `onBeforeStart`/`onBeforeComplete` rules and `submitForm`
-(`SettingsNavigationHelper`). So: **missing mirror ⇒** the form never enters CRUD mode — no entity is loaded,
+label, its `predicateIdentifier`, its `onBeforeStart`/`onBeforeComplete` rules and `submitForm`. So: **missing mirror ⇒** the form never enters CRUD mode — no entity is loaded,
 no predicate re-check, no persist rule, nothing is written; **stale mirror ⇒** the form runs the OLD action
 config while the table renders the new one (an action id the mirror doesn't know gives a blank submit button
 and no rules, yet the submit still reports success). Keep the two in sync — `node set-model`/`patch-model` do it
@@ -70,12 +67,11 @@ it is read from the mirror once and rendered — but anything you AUTHOR belongs
 platform refreshes the mirror from it on every save. See
 [28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) §4a for what that means when you edit a live project.
 
-> ⚠️ **The mirror's `content` is a JSON OBJECT, not a string.** `SettingsDto.content` is a Jackson `ObjectNode`,
-> so the mirror stores the parsed model **object** — the OPPOSITE of `properties.model.stringValue`, which is a
+> ⚠️ **The mirror's `content` is a JSON OBJECT, not a string.** The mirror stores the parsed model **object** — the OPPOSITE of `properties.model.stringValue`, which is a
 > JSON *string*. If you edit a table by hand and write the mirror `content` as a string (e.g. by copying the node's
 > model stringValue), the platform IMPORTER dies with `MismatchedInputException: Cannot deserialize ObjectNode from
-> String value` (chain `Qss["settings"]->SettingsDto["content"]`, `CmsProjectServiceImpl.initAllObjects`). That
-> exception aborts the ENTIRE REPORT-path import (`readOtherFilesFromFolder`→`initAllObjects`): sources are never
+> String value` (chain `Qss["settings"]->SettingsDto["content"]`). That
+> exception aborts the ENTIRE REPORT-path import: sources are never
 > saved (business logic shows "No source selected"), `project-db.dump` is never restored (all data/dates look
 > gone), even though the dynamic-CRUD replay still runs. **`mrjun.py node set-model`/`patch-model` keep this mirror
 > in sync as an object** — prefer them over hand-editing. `validate` flags a string `content` as an ERROR, but is
@@ -97,24 +93,24 @@ Node schema (trimmed to the relevant parts):
     "model": {
       "key": "model", "propertyType": "STRING",
       "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
-      "stringValue": "<JSON — CrudTablePluginModel>"          // <-- parse this
+      "stringValue": "<JSON — root model>"          // <-- parse this
     },
     "className": {...}, "styleName": {...}, "tagProperties": {...}
     // import-touched nodes ALSO carry runtime STRING slots "importMapping" and/or "lastImportReport"
   } }
 ```
 
-The parsed `model.stringValue` = **`CrudTablePluginModel`**:
+The parsed `model.stringValue` = the **root model**:
 
 ```
 { contextIdentifier, crudAlias,
-  columnSettings: [ CrudTableColumnSettings ],
-  filterSettings: [ CrudTableFilterSettings ],
-  createActions: { actions: [ ActionDto ] },
-  editActions:   { actions: [ ActionDto ] },
+  columnSettings: [ <column> ],
+  filterSettings: [ <filter> ],
+  createActions: { actions: [ <action> ] },
+  editActions:   { actions: [ <action> ] },
   rowsPerPage: 15,
   findRuleIdentifier,                 // fetch rule (may be absent → auto-created)
-  importSettings: CrudTableImportSettingsDto }
+  importSettings: { … } }
 ```
 
 ### Worked example (truncated — a static CRUD `inventoryCount`)
@@ -242,9 +238,7 @@ across actions is a normal and cheap pattern.
 
 > ⛔⛔ **LOAD-BEARING — `onBeforeCompleteRuleIdentifier` IS the PERSIST hook; a Create/Edit/Delete action
 > WITHOUT it submits and SAVES NOTHING.** "Create Default Actions" does **not** only create the form group + form
-> — it also creates **three EXECUTION rules** and wires one onto each default action
-> (`CrudDefaultActionsService.buildCreate/Update/DeleteScript` + `CrudTableSettingsControlPanel.finalizeDefaultActions`,
->):
+> — it also creates **three EXECUTION rules** and wires one onto each default action:
 >
 > | action | `onBeforeCompleteRuleIdentifier` → rule body | rule name | `direct` |
 > |---|---|---|---|
@@ -254,7 +248,7 @@ across actions is a normal and cheap pattern.
 >
 > These are `EXECUTION_RULE` / `GroovyExecutionRule` and — critically — **context-scoped**:
 > `contextIdentifiers=[<the CRUD's context>]`, so `context.<ctx>.<crud>` resolves at submit (an **empty-context**
-> persist rule throws — "cannot resolve context.<ctx>.<crud>"). On submit, `FormPlugin` (`FormPlugin.java`)
+> persist rule throws — "cannot resolve context.<ctx>.<crud>"). On submit, the form
 > runs the action's `onBeforeCompleteRuleIdentifier` — **that rule IS the database write; there is no separate
 > auto-persist.** So a Create/Edit form action with **NO** onBeforeCompleteRule (or one whose rule never calls
 > `.service.create/update/delete(...)` / a custom persist method) opens the form, accepts input, submits — and
@@ -263,7 +257,7 @@ across actions is a normal and cheap pattern.
 > **all three** (create→create rule, edit→update rule, delete→delete rule). `validate` now **WARNs** on a
 > Create/Edit form action or a direct action with no `onBeforeCompleteRuleIdentifier` (`_check_action_persist`)
 > — and on the reverse shape, a `submitForm:false` action that DOES carry an `onBeforeCompleteRuleIdentifier`,
-> because that rule can never run (see §`ActionDto`: `submitForm:false` skips validation *and* rule execution).
+> because that rule can never run (see the Action shape section: `submitForm:false` skips validation *and* rule execution).
 > Legit exceptions (not flagged): `submitForm:false` with **no** rule (a read-only Back button), and a
 > workflow-**start** action on a **process** table (the workflow persists, not onBeforeComplete).
 
@@ -277,7 +271,7 @@ context UUID and alias — in the dynamic example below the context is `catalog_
 The same shape, but written in the **old action style** — the actions carry a `name` field (String) instead of
 `localizedNames` (the create action's keys = `id, name, icon, formGroupIdentifier, direct`),
 and there is **no** `findRuleIdentifier` (created on first render — see Gotchas). ⚠️ This is an outdated schema:
-on the current code the action's `name` is ignored (the CRUD `ActionDto` has no such field), and the label renders
+on the current code the action's `name` is ignored (the CRUD action has no such field), and the label renders
 empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 
 ```json
@@ -313,63 +307,59 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 
 ## Per-field reference
 
-### `CrudTablePluginModel` (root)
+### CRUD table settings (root)
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `contextIdentifier` | String (UUID) | Identifier of the context from which rules see other CRUDs via `context.<alias>.…`. Empty → fallback to `crudAlias`. | no (needed if rules/actions use context) | `null` | `CrudTablePluginModel.java`; fallback `CrudTablePlugin.java` (visibility) and (edit action) |
-| `crudAlias` | String | **Short** alias of the CRUD the table shows (e.g. `inventoryCount`, `product_categories_cruid`). | yes | `null` | `CrudTablePluginModel.java` |
-| `columnSettings` | `CrudTableColumnSettings[]` | Table columns. | no | `[]` | |
-| `filterSettings` | `CrudTableFilterSettings[]` | Filters over the table. | no | `[]` | |
-| `createActions` | `CrudTableActionsDto` = `{ actions: ActionDto[] }` | Header "create" actions, rendered as **breadcrumb buttons** above the table (`CrudTablePlugin.hasBreadcrumbButtons()`, `breadcrumbButtons()` looping `getCreateActions()`; the Import button shares the same bar). | no | `null` | |
-| `editActions` | `CrudTableActionsDto` = `{ actions: ActionDto[] }` | Per-row actions in the row's dropdown menu (Edit/Delete/custom). | no | `null` | |
-| `rowsPerPage` | int | Pagination page size. On `crud.tree.plugin` the default = `Integer.MAX_VALUE` (2147483647). | no | `15` | (tree: `plugin/crud/tree/CrudTreePluginModel.java`) |
-| `findRuleIdentifier` | String (UUID) | EXECUTION rule `Find — <crudName>` returning a page of rows. Empty → auto-created at render time. | no | `null` |; auto `CrudTablePlugin.java` |
-| `importSettings` | `CrudTableImportSettingsDto` | CSV/Excel import settings. | no | `null` | |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `contextIdentifier` | String (UUID) | Identifier of the context from which rules see other CRUDs via `context.<alias>.…`. Empty → fallback to `crudAlias`. | no (needed if rules/actions use context) | `null` |
+| `crudAlias` | String | **Short** alias of the CRUD the table shows (e.g. `inventoryCount`, `product_categories_cruid`). | yes | `null` |
+| `columnSettings` | column object[] | Table columns. | no | `[]` |
+| `filterSettings` | filter object[] | Filters over the table. | no | `[]` |
+| `createActions` | object `{ actions: action[] }` | Header "create" actions, rendered as **breadcrumb buttons** above the table (the Import button shares the same bar). | no | `null` |
+| `editActions` | object `{ actions: action[] }` | Per-row actions in the row's dropdown menu (Edit/Delete/custom). | no | `null` |
+| `rowsPerPage` | int | Pagination page size. On `crud.tree.plugin` the default = `Integer.MAX_VALUE` (2147483647). | no | `15` |
+| `findRuleIdentifier` | String (UUID) | EXECUTION rule `Find — <crudName>` returning a page of rows. Empty → auto-created at render time. | no | `null` |
+| `importSettings` | object (see §Import settings) | CSV/Excel import settings. | no | `null` |
 
-### `CrudTableColumnSettings` (element of `columnSettings[]`)
+### table column settings (element of `columnSettings[]`)
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | String (UUID) | Unique column id. | yes | — | `CrudTableColumnSettings.java` |
-| `name` | String | **@Deprecated** legacy header; fallback if `localizedNames` is empty. | no | `null` | |
-| `localizedNames` | Map\<locale,String\> | Header per locale (`en_US`, `ru_RU`, `hy_AM`, …). | yes (in practice) | `null` |; resolve `getLocalizedName` |
-| `fieldExpression` | String | Path to the row DTO field, supports nesting: `documentNumber`, `plant.code`, `address.city`, `categoryLabel`. | yes | `null` | |
-| `dataClass` | String (FQN) | Java field type: `java.lang.String`, `java.lang.Integer`, `java.lang.Long`, `java.math.BigDecimal`, `java.time.LocalDate`, `java.lang.Boolean`, or an enum class FQN (`com.devsegment.erp.dto.enums.CountStatus`). | yes | `null` | |
-| `enumDisplayField` | String | For an enum column — which enum property to draw in the cell. `null`/`""`/`"name"` → render the constant name; otherwise (e.g. `displayName`) — the value from `enumValues`. | no | `null` |; render `EnumColumnUtils.formatEnumCellValue` (`EnumColumnUtils.java`) |
-| `enumValues` | Map\<constName, Map\<prop,String\>\> | Snapshot of the enum's property table (the gateway cannot `Class.forName` the enum class, since it lives in the integration service). Projects the raw name through `enumDisplayField`. Snapshotted at design time from `FieldDto.enumValues`. | no | `null` | |
-| `enumName` | String | Registry name of the project Enumeration (for dynamic enums). Mirrors `FieldDto.enumName`. `null` for non-enum columns. | no | `null` | |
-| `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** the raw `true` text (e.g. `pe-7s-check`). Blank → raw text. | no | `null` |; render `BooleanIconColumnUtils.buildCell` (`utils/BooleanIconColumnUtils.java`) |
-| `falseIcon` | String | Boolean columns only: Pe-7s CSS class rendered instead of the raw `false` text (e.g. `pe-7s-close`). Blank on this side → that value falls back to raw text. | no | `null` | |
-| `money` | boolean | **Numeric columns only** (`Integer/Long/Short/Byte/Double/Float/BigDecimal/BigInteger` + primitives): render the cell as money — grouped digits, fixed decimals, optional `currency` marker. `false` → the number is drawn as-is. | no | `false` |; render `ColumnCellFormatUtils.format` → `MoneyColumnUtils.formatCellValue` (`utils/MoneyColumnUtils.java`) |
-| `currency` | String | Money columns: the marker drawn with the amount — a symbol (`$`, `€`, `֏`, `₹`) or an ISO code (`USD`, `AMD`). **Free text** — the settings control is an autocomplete over suggestions, not a closed list. Blank → amount only. | no | `null` | |
-| `moneyFormat` | String (enum name) | Money columns: the grouping/decimal standard. One of `US` (1,234.56) · `EUROPEAN` (1.234,56) · `SPACE_COMMA` (1 234,56) · `SPACE_DOT` (1 234.56) · `SWISS` (1'234.56) · `INDIAN` (12,34,567.89) · `PLAIN` (1234.56). Blank → `US`. | no | `null` (= `US`) | |
-| `moneyDecimals` | Integer | Money columns: decimal places, `0`–`6`. Null → `2`. Needed as its own key because the DB scale is already lost before the UI sees the value (a `BigDecimal(1234.50)` arrives as the double `1234.5`), so this is the only authority on how many decimals show. | no | `null` (= `2`) | |
-| `dateFormat` | String (**moment.js — never a Java pattern**; `dd.MM.yyyy` renders as the literal `dd.11.yyyy`, see [02](02-form-controls-reference.md) §5) | **Temporal columns only** (`dataClass` = `java.time.LocalDate` / `LocalDateTime` / `Instant`): display pattern, e.g. `DD/MM/YYYY HH:mm:ss`. **Same catalogue and same vocabulary as the Date Picker form control** (doc [14a](14a-plugin-config-reference.md) §Date Picker). Blank → the raw stored ISO value. | no | `null` | ; render `DateFormatColumnUtils.formatCellValue` (`utils/DateFormatColumnUtils.java`) |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `id` | String (UUID) | Unique column id. | yes | — |
+| `name` | String | **@Deprecated** legacy header; fallback if `localizedNames` is empty. | no | `null` |
+| `localizedNames` | Map\<locale,String\> | Header per locale (`en_US`, `ru_RU`, `hy_AM`, …). | yes (in practice) | `null` |
+| `fieldExpression` | String | Path to the row DTO field, supports nesting: `documentNumber`, `plant.code`, `address.city`, `categoryLabel`. | yes | `null` |
+| `dataClass` | String (FQN) | Java field type: `java.lang.String`, `java.lang.Integer`, `java.lang.Long`, `java.math.BigDecimal`, `java.time.LocalDate`, `java.lang.Boolean`, or an enum class FQN (`com.devsegment.erp.dto.enums.CountStatus`). | yes | `null` |
+| `enumDisplayField` | String | For an enum column — which enum property to draw in the cell. `null`/`""`/`"name"` → render the constant name; otherwise (e.g. `displayName`) — the value from `enumValues`. | no | `null` |
+| `enumValues` | Map\<constName, Map\<prop,String\>\> | Snapshot of the enum's property table (the table cannot load the enum class itself, since it lives in the integration service). Projects the raw name through `enumDisplayField`. Snapshotted at design time from the CRUD field's `enumValues`. | no | `null` |
+| `enumName` | String | Registry name of the project Enumeration (for dynamic enums). Mirrors the CRUD field's `enumName`. `null` for non-enum columns. | no | `null` |
+| `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** the raw `true` text (e.g. `pe-7s-check`). Blank → raw text. | no | `null` |
+| `falseIcon` | String | Boolean columns only: Pe-7s CSS class rendered instead of the raw `false` text (e.g. `pe-7s-close`). Blank on this side → that value falls back to raw text. | no | `null` |
+| `money` | boolean | **Numeric columns only** (`Integer/Long/Short/Byte/Double/Float/BigDecimal/BigInteger` + primitives): render the cell as money — grouped digits, fixed decimals, optional `currency` marker. `false` → the number is drawn as-is. | no | `false` |
+| `currency` | String | Money columns: the marker drawn with the amount — a symbol (`$`, `€`, `֏`, `₹`) or an ISO code (`USD`, `AMD`). **Free text** — the settings control is an autocomplete over suggestions, not a closed list. Blank → amount only. | no | `null` |
+| `moneyFormat` | String (enum name) | Money columns: the grouping/decimal standard. One of `US` (1,234.56) · `EUROPEAN` (1.234,56) · `SPACE_COMMA` (1 234,56) · `SPACE_DOT` (1 234.56) · `SWISS` (1'234.56) · `INDIAN` (12,34,567.89) · `PLAIN` (1234.56). Blank → `US`. | no | `null` (= `US`) |
+| `moneyDecimals` | Integer | Money columns: decimal places, `0`–`6`. Null → `2`. Needed as its own key because the DB scale is already lost before the UI sees the value (a `BigDecimal(1234.50)` arrives as the double `1234.5`), so this is the only authority on how many decimals show. | no | `null` (= `2`) |
+| `dateFormat` | String (**moment.js — never a Java pattern**; `dd.MM.yyyy` renders as the literal `dd.11.yyyy`, see [02](02-form-controls-reference.md) §5) | **Temporal columns only** (`dataClass` = `java.time.LocalDate` / `LocalDateTime` / `Instant`): display pattern, e.g. `DD/MM/YYYY HH:mm:ss`. **Same catalogue and same vocabulary as the Date Picker form control** (doc [14a](14a-plugin-config-reference.md) §Date Picker). Blank → the raw stored ISO value. | no | `null` |
 
-> **Enum render** (`extractColumnValue` → `EnumColumnUtils.formatEnumCellValue`): for an enum column
-> the "live" projection from the integration service (`enumProjections`) is taken; if absent — the snapshot
+> **Enum render:** for an enum column
+> the "live" projection from the integration service is taken; if absent — the snapshot
 > `enumValues` from the column setting. The enum path takes priority over value localization
-> (`CrudTablePlugin.java` — the `extractColumnValue` method, enum branch before localization). Non-enum
+> (the enum branch runs before localization). Non-enum
 > columns must **omit** `enumDisplayField/enumValues/enumName`.
 
 > **Localization of DATA (not the header):** if a row column has a localized value (a CRUD with
-> `localizationField`, see [11](11-business-logic-dynamic-crud.md)), the runtime first takes it via
-> `localizedValueUtil.getLocalizedValue(rowData, fieldExpression, locale)`, otherwise — the direct field
-> (`CrudTablePlugin.java`). This is the column's "localize" feature; it does not apply to enums.
+> `localizationField`, see [11](11-business-logic-dynamic-crud.md)), the runtime first takes the localized value for `fieldExpression` and the current locale, otherwise — the direct field.
+> This is the column's "localize" feature; it does not apply to enums.
 
-> **Boolean icons** (`BooleanIconColumnUtils.buildCell`, `utils/BooleanIconColumnUtils.java`, called from
-> `CrudTablePlugin.java`): for a boolean column (`dataClass == java.lang.Boolean`) with at least one of
+> **Boolean icons:** for a boolean column (`dataClass == java.lang.Boolean`) with at least one of
 > `trueIcon`/`falseIcon` set, the cell renders that Pe-7s icon (as `<i class="…">`, escaping off) **instead of**
 > the raw `true`/`false` text — `trueIcon` for a truthy value, `falseIcon` for falsy. A side with a **blank**
 > icon falls back to the raw text; both blank → plain `true`/`false`. Icons come from the fixed
-> `Pe7sDropDownField.PE7S_ICONS` set; defaults `pe-7s-check`/`pe-7s-close`, with a name-aware prefill
-> `defaultIconsFor` (e.g. `lock → pe-7s-lock/pe-7s-unlock`). The tree and process table render this
+> Pe-7s icon set; defaults `pe-7s-check`/`pe-7s-close`, with a name-aware prefill (e.g. `lock → pe-7s-lock/pe-7s-unlock`). The tree and process table render this
 > identically via the same helper. Omit both keys for non-boolean columns.
 
 > **Cell alignment.** Numeric (`Integer/Long/Short/Byte/Double/Float/BigDecimal/BigInteger` + their primitives)
-> and boolean cells are **right-aligned** at render (CSS `text-end`, `BooleanIconColumnUtils.isRightAligned`
-> / `RIGHT_ALIGN_CLASS`), spreadsheet-style; string/enum cells stay left. Pure render CSS — no
+> and boolean cells are **right-aligned** at render (CSS `text-end`), spreadsheet-style; string/enum cells stay left. Pure render CSS — no
 > settings key.
 
 > ⛔ **The column's `dataClass` must be numeric because the VALUE is money — not the other way round.**
@@ -378,8 +368,7 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > CRUD `dtoFields`, form control, column) rather than only here — the full rule and the `validate` check
 > are in [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
 >
-> **Money render** (`MoneyColumnUtils.formatCellValue`, reached from `extractColumnValue` via
-> `ColumnCellFormatUtils`): with `money: true` on a numeric column the amount is grouped per
+> **Money render:** with `money: true` on a numeric column the amount is grouped per
 > `moneyFormat`, rounded HALF_UP to `moneyDecimals` places, and the `currency` marker is attached —
 > **a letters-only marker (an ISO code) always trails** the amount after a non-breaking space
 > (`1,234.50 USD`), **a symbol follows the standard**: leading for `US`/`SWISS`/`INDIAN`/`PLAIN`
@@ -388,7 +377,7 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > unchanged — a mis-typed column degrades, it never breaks the row. Money columns are numeric, so
 > they are right-aligned by the rule above with no extra key.
 
-> **Date render** (`DateFormatColumnUtils.formatCellValue`, same seam): with a non-blank `dateFormat`
+> **Date render:** with a non-blank `dateFormat`
 > on a temporal column the stored ISO value is re-drawn through that moment.js pattern. An `Instant`
 > renders at **UTC**, matching what the Date Picker form control writes, so a table never disagrees
 > with the form that filled it. Textual tokens (`MMMM`, `MMM`) render in the **viewer's locale**
@@ -409,11 +398,11 @@ empty — for new nodes use `localizedNames`, not `name` (see Gotchas):
 > Table offer the identical controls; the List form control carries the keys but has no UI for them
 > (it does not persist a `dataClass` at all, so its boolean icons are equally dormant).
 
-### `CrudTableFilterSettings` (element of `filterSettings[]`)
+### table filter settings (element of `filterSettings[]`)
 
-> ⚠️ The concept document `table-plugins.md` (section "Filter Controls", lines ~585-662) describes rich
+> ⚠️ The concept document `table-plugins.md` (section "Filter Controls") describes rich
 > filter types (Text/Dropdown/Date/Autocomplete, `ruleIdentifier`, `key`, `displayName`, `dateFormat`
-> etc.) — **those fields DO NOT exist on the `CrudTableFilterSettings` model**. The real filter model = exactly the five
+> etc.) — **those fields DO NOT exist on the table filter settings model**. The real filter model = exactly the five
 > fields below. In practice `filterSettings` is almost always `[]` — real filtering is done by a standalone
 > filter form (see below); the inline descriptor only carries a plain scalar default such as an `active` flag.
 
@@ -423,41 +412,41 @@ Example (a rare populated inline filter):
   "filterField": "active", "dataClass": "java.lang.Boolean", "defaultValue": "true" }
 ```
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | String (UUID) | Unique filter id. | yes | — | `CrudTableFilterSettings.java` |
-| `name` | String | Filter control label (**plain String**, NOT localized). | yes | `null` | |
-| `filterField` | String | Field of the CRUD's **filter class** (not the entity!) — `companyId`, `active`, `minPrice`. Goes into the fetch rule's `attrs`/`filter` under this key. The filter class is separate from the row DTO: the entity may have `price`, while the filter has `minPrice`/`maxPrice`. | yes | `null` | |
-| `dataClass` | String (FQN) | Filter type. Controls the conversion of `defaultValue`. | yes | `null` | |
-| `defaultValue` | String | Default value, stored as a string; converted per `dataClass` via `getTypedDefaultValue()`. | no | `null` |; convert |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `id` | String (UUID) | Unique filter id. | yes | — |
+| `name` | String | Filter control label (**plain String**, NOT localized). | yes | `null` |
+| `filterField` | String | Field of the CRUD's **filter class** (not the entity!) — `companyId`, `active`, `minPrice`. Goes into the fetch rule's `attrs`/`filter` under this key. The filter class is separate from the row DTO: the entity may have `price`, while the filter has `minPrice`/`maxPrice`. | yes | `null` |
+| `dataClass` | String (FQN) | Filter type. Controls the conversion of `defaultValue`. | yes | `null` |
+| `defaultValue` | String | Default value, stored as a string; converted per `dataClass`. | no | `null` |
 
-`getTypedDefaultValue()` converts per `dataClass`: `java.lang.Boolean`/`boolean` →
-`Boolean.parseBoolean`, `Integer`/`int`, `Long`/`long`, `Double`/`double`, `Float`/`float`,
+The `defaultValue` string is converted per `dataClass`: `java.lang.Boolean`/`boolean` →
+boolean, `Integer`/`int`, `Long`/`long`, `Double`/`double`, `Float`/`float`,
 `Short`/`short`; everything else stays a String.
 
-### `ActionDto` (element of `createActions.actions[]` / `editActions.actions[]`)
+### Action shape (element of `createActions.actions[]` / `editActions.actions[]`)
 
-This is a **dedicated** class `CrudTableActionsDto.ActionDto`, distinct from the workflow `ActionDto` from
-[07-workflows-and-tasks.md](07-workflows-and-tasks.md). The CRUD `ActionDto` does **NOT** have the fields
+This is a **dedicated** shape, distinct from the workflow action from
+[07-workflows-and-tasks.md](07-workflows-and-tasks.md). The CRUD action does **NOT** have the fields
 `validationRuleIdentifiers`, `completeUserTask`, `taskId`, `onBeforeUserTaskStartRuleIdentifier`,
 `onBeforeUserTaskCompleteRuleIdentifier` — those belong only to the workflow action. Do not carry them over here.
 `direct` here is a primitive `boolean` (serialized as `"direct":true/false`), NOT the string `"on"/"off"`
 (the strings `"on"/"off"` belong to the workflow action; `action.md` mixes both classes — don't confuse them).
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | String (UUID) | Unique action id. | yes | — | `CrudTableActionsDto.java` |
-| `localizedNames` | Map\<locale,String\> | Action label in the menu/breadcrumb/audit. **In practice REQUIRED** for a visible label: the CRUD `ActionDto` has NO `name` field, and `getLocalizedName` reads ONLY `localizedNames`, with no legacy fallback. An old-schema action carrying a single `name` is broken: GSON silently drops the unknown key, the label renders EMPTY. | yes | `null` |; resolve `getLocalizedName` |
-| `localizedButtonNames` | Map\<locale,String\> | Label of the SUBMIT button in the form (non-direct only). Empty → falls back to `localizedNames`. | no | `null` |; resolve `getLocalizedButtonName` |
-| `icon` | String | CSS class of the `pe-7s-*` icon (`pe-7s-plus`, `pe-7s-pen`, `pe-7s-trash`, `pe-7s-exapnd2`). | no | `null` | |
-| `formGroupIdentifier` | String (UUID) | Form group a non-direct action leads to; the form receives URL params `group`, `settingsName`, `caller`, `actionId` and (for edit) `crudId` (`navigateToForm` `CrudTablePlugin.java`). The field's javadoc (`CrudTableActionsDto.java` "crud and crudId") is outdated — `crud` is not passed. | no (non-direct only) | `null` | |
-| `direct` | boolean | `true` → execute immediately (rules + refresh), no form. `false` → navigate to a form. | no | `false` |; branching `CrudTablePlugin.java` |
-| `predicateIdentifier` | String (UUID) | PREDICATE visibility rule. The action is visible only if the rule returned true for this row. Empty → always visible. | no | `null` |; eval `CrudTablePlugin.java` |
-| `onBeforeStartRuleIdentifier` | String (UUID) | EXECUTION rule before opening the form / before the direct operation. | no | `null` |; run `CrudTablePlugin.java` |
-| `onBeforeCompleteRuleIdentifier` | String (UUID) | EXECUTION rule before saving (form submit / direct create/update/delete). | no | `null` |; run `CrudTablePlugin.java` |
-| `submitForm` | Boolean (nullable) | Non-direct: `true`/`null` → validate the form and run `onBeforeComplete`; `false` → skip validation **and** rule execution entirely (the submit button becomes a Back). `null` = `true` (`shouldSubmitForm()`). | no | `null`(=true) |; `shouldSubmitForm()` |
-| `formInModal` | Boolean (nullable) | Non-direct: `true` → the form opens in a DIALOG over the table (no page navigation) and a successful submit refreshes the table in place; `null`/`false` → the classic navigation to the form group's page. Ignored for `direct:true`. | no | `null`(=false) |; `shouldOpenInModal()` |
-| `modalWidth` | String | Width of that dialog — any CSS length (`"90%"`, `"400px"`), applied as `max-width` on the modal. Only read when `formInModal:true`; blank → `80%`. | no | `null`(=`80%`) | |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `id` | String (UUID) | Unique action id. | yes | — |
+| `localizedNames` | Map\<locale,String\> | Action label in the menu/breadcrumb/audit. **In practice REQUIRED** for a visible label: the CRUD action has NO `name` field, and ONLY `localizedNames` is read, with no legacy fallback. An old-schema action carrying a single `name` is broken: the unknown key is silently dropped, the label renders EMPTY. | yes | `null` |
+| `localizedButtonNames` | Map\<locale,String\> | Label of the SUBMIT button in the form (non-direct only). Empty → falls back to `localizedNames`. | no | `null` |
+| `icon` | String | CSS class of the `pe-7s-*` icon (`pe-7s-plus`, `pe-7s-pen`, `pe-7s-trash`, `pe-7s-exapnd2`). | no | `null` |
+| `formGroupIdentifier` | String (UUID) | Form group a non-direct action leads to; the form receives URL params `group`, `settingsName`, `caller`, `actionId` and (for edit) `crudId`. No `crud` param is passed. | no (non-direct only) | `null` |
+| `direct` | boolean | `true` → execute immediately (rules + refresh), no form. `false` → navigate to a form. | no | `false` |
+| `predicateIdentifier` | String (UUID) | PREDICATE visibility rule. The action is visible only if the rule returned true for this row. Empty → always visible. | no | `null` |
+| `onBeforeStartRuleIdentifier` | String (UUID) | EXECUTION rule before opening the form / before the direct operation. | no | `null` |
+| `onBeforeCompleteRuleIdentifier` | String (UUID) | EXECUTION rule before saving (form submit / direct create/update/delete). | no | `null` |
+| `submitForm` | Boolean (nullable) | Non-direct: `true`/`null` → validate the form and run `onBeforeComplete`; `false` → skip validation **and** rule execution entirely (the submit button becomes a Back). `null` = `true`. | no | `null`(=true) |
+| `formInModal` | Boolean (nullable) | Non-direct: `true` → the form opens in a DIALOG over the table (no page navigation) and a successful submit refreshes the table in place; `null`/`false` → the classic navigation to the form group's page. Ignored for `direct:true`. | no | `null`(=false) |
+| `modalWidth` | String | Width of that dialog — any CSS length (`"90%"`, `"400px"`), applied as `max-width` on the modal. Only read when `formInModal:true`; blank → `80%`. | no | `null`(=`80%`) |
 
 > **What `formInModal:true` looks like at runtime.** The list stays on screen; the form the group's
 > predicates resolve to is rendered inside a dialog over it — the SAME form node, so every control, rule,
@@ -477,10 +466,8 @@ This is a **dedicated** class `CrudTableActionsDto.ActionDto`, distinct from the
 > dialog). Leave `formInModal` off when the form's page carries content around the form, or when a rule has to
 > navigate somewhere else.
 
-> ⚠️ **Outdated javadoc in the source.** `CrudTableActionsDto.java` (javadoc of the `direct` field)
-> claims "For create: calls ICrud.create() with default/empty DTO" — this is an **outdated comment**:
-> the current runtime does NOT call the built-in create/update/delete. All writes are done EXPLICITLY by the body
-> of a Groovy rule (`onBeforeStart`/`onBeforeComplete`), see below. Do not rely on this javadoc.
+> ⚠️ **No built-in persistence.** The runtime does NOT call a built-in create/update/delete for an action.
+> All writes are done EXPLICITLY by the body of a Groovy rule (`onBeforeStart`/`onBeforeComplete`), see below.
 
 > **Example of a non-direct action with `submitForm:false`** (open a form, change nothing) — here a
 > read-only "View Stock Movement" drill-down:
@@ -514,47 +501,44 @@ This is a **dedicated** class `CrudTableActionsDto.ActionDto`, distinct from the
 > no row context and **does not appear as a row action** (a real gotcha: it silently "isn't there"). A read-only
 > log or ledger screen (stock movements, payment postings, audit entries) therefore carries its `View Details` in
 > `editActions` (`direct:false`, `submitForm:false`) — mirror that. The runtime for direct: first (if present) `onBeforeStartRule`,
-> then `onBeforeCompleteRule`, then `refresh()` (`CrudTablePlugin.java`, method `executeEditAction`). There
+> then `onBeforeCompleteRule`, then `refresh()`. There
 > is NO built-in `create/update/delete` call — all writes are done EXPLICITLY by the body of a Groovy rule.
 
-### `CrudTableImportSettingsDto` (`importSettings`)
+### Import settings (`importSettings`)
 
 > ⚠️ `importSettings.enabled=true` is rare — most projects never switch Excel import on, so you will seldom find
 > a populated example to copy. Everything below is
-> documented from the DTO + code (`CrudTableImportSettingsDto.java`, `CrudTablePlugin.java`).
+> documented from the platform's model, not from a live example.
 
 Example (Import disabled — the typical default):
 ```json
 { "enabled": false, "localizedButtonNames": {}, "actions": [] }
 ```
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `enabled` | boolean | Master toggle. `false` → the Import button in the breadcrumb is hidden. | no | `false` | `CrudTableImportSettingsDto.java` |
-| `localizedButtonNames` | Map\<locale,String\> | Import button label per locale; fallback → `"Import"`. | no | `{}` |; resolve `getLocalizedButtonName` |
-| `buttonIcon` | String | `pe-7s-*` icon of the Import button (chosen via `Pe7sDropDownField`). | no | `null` | |
-| `visibilityPredicateIdentifier` | String (UUID) | PREDICATE — who to show the button to. Empty → everyone. | no | `null` |; eval `shouldShowImportButton` `CrudTablePlugin.java` |
-| `duplicateDetectionPredicateIdentifier` | String (UUID) | PREDICATE detecting row duplicates on import. Empty → no dedup. | no | `null` | |
-| `duplicateAction` | `DuplicateAction` enum | What to do if the dedup predicate returned true. Meaningful only when `duplicateDetectionPredicateIdentifier` is set. | no | `null` |; runtime map `CrudTablePlugin.java` |
-| `actions` | `CrudTableImportActionDto[]` | Pre-import rule bundles: 0 → no rules; 1 → auto; N\>1 → selection dialog (`ImportActionChoiceDialog`). | no | `[]` | |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `enabled` | boolean | Master toggle. `false` → the Import button in the breadcrumb is hidden. | no | `false` |
+| `localizedButtonNames` | Map\<locale,String\> | Import button label per locale; fallback → `"Import"`. | no | `{}` |
+| `buttonIcon` | String | `pe-7s-*` icon of the Import button. | no | `null` |
+| `visibilityPredicateIdentifier` | String (UUID) | PREDICATE — who to show the button to. Empty → everyone. | no | `null` |
+| `duplicateDetectionPredicateIdentifier` | String (UUID) | PREDICATE detecting row duplicates on import. Empty → no dedup. | no | `null` |
+| `duplicateAction` | enum (values below) | What to do if the dedup predicate returned true. Meaningful only when `duplicateDetectionPredicateIdentifier` is set. | no | `null` |
+| `actions` | object[] (shape below) | Pre-import rule bundles: 0 → no rules; 1 → auto; N\>1 → selection dialog. | no | `[]` |
 
-`DuplicateAction` (enum, `DuplicateAction.java`), **all values**: `OVERRIDE` (update on the found
+`duplicateAction`, **all values**: `OVERRIDE` (update on the found
 row) · `IGNORE` (skip, counter `skippedRows`) · `DUPLICATE` (`create` anyway) · `ASK` (pause the worker
-+ `ImportDuplicateDecisionDialog`, only the import owner responds). At runtime it is mapped
-1:1 to `DuplicateActionType.valueOf(name())` (`CrudTablePlugin.java`).
++ a decision dialog, only the import owner responds).
 
-`CrudTableImportActionDto` (`CrudTableImportActionDto.java`):
+An `actions[]` element:
 `{ id, localizedNames: Map, ruleIdentifiers: String[] }` — a named set
 of EXECUTION rules (by UUID), run before the import starts.
 
-> **The Excel-header → CRUD-field mapping is stored SEPARATELY**, NOT in `model`. The runtime writes it via
-> `getContent().setJsonProperty("importMapping", mapping)` (`CrudTablePlugin.java`) +
-> `contentService.save`. Since `setJsonProperty(name, value)` puts the JSON into the STRING slot
-> `getProperties().put(name, ...)` (`ContentDomain.java` → `setProperty`), it lands
+> **The Excel-header → CRUD-field mapping is stored SEPARATELY**, NOT in `model`. The runtime writes it
+> as a JSON string into the node's own property slot, so it lands
 > as **`properties.importMapping.stringValue`** — the same envelope as `properties.model`
-> (`ContentProperty` of type STRING, JSON inside `stringValue`), NOT as a separate top-level key.
-> The content = `ImportMappingDto` `{ headerToField: Map, ignoredHeaders: Set, lastSavedAtEpochMillis }`
-> (`ImportMappingDto.java`). **An `importMapping` key does not belong in a hand-built export** — it is user
+> (STRING property, JSON inside `stringValue`), NOT as a separate top-level key.
+> The content = `{ headerToField: Map, ignoredHeaders: Set, lastSavedAtEpochMillis }`.
+> **An `importMapping` key does not belong in a hand-built export** — it is user
 > data, written when a file is uploaded at runtime, not carried
 > with the page template. When building a page, we omit this slot.
 
@@ -564,21 +548,19 @@ of EXECUTION rules (by UUID), run before the import starts.
 
 The **"Create Default Actions"** button in one click does: (1) a `True` predicate rule, (2) a form group
 `"<crudName> Forms"` + a form `"<crudName> Form"` + a True mapping, (3) three EXECUTION rules, (4) three
-actions. Orchestration — `CrudDefaultActionsService`; assembling the actions —
-`CrudTableSettingsControlPanel.finalizeDefaultActions`.
+actions.
 
-**Rule names** (`CrudTableSettingsControlPanel.java`) — the convention `"<crudName> Action <Kind>"`:
+**Rule names** — the convention `"<crudName> Action <Kind>"`:
 
-| Kind | Rule name | Body (Groovy) | Builder |
-|---|---|---|---|
-| Create | `<crudName> Action Create` | `def created = context.<ctx>.<alias>.service.create(context.<ctx>.<alias>.data.get())`<br>`context.<ctx>.<alias>.data.put(created)` | `CrudDefaultActionsService.buildCreateScript(contextAlias, crudAlias)` |
-| Update | `<crudName> Action Update` | `context.<ctx>.<alias>.service.update(context.<ctx>.<alias>.data.get())` | `buildUpdateScript(contextAlias, crudAlias)` |
-| Delete | `<crudName> Action Delete` | `context.<ctx>.<alias>.service.delete(context.<ctx>.<alias>.data.get().id)` | `buildDeleteScript(contextAlias, crudAlias)` |
+| Kind | Rule name | Body (Groovy) |
+|---|---|---|
+| Create | `<crudName> Action Create` | `def created = context.<ctx>.<alias>.service.create(context.<ctx>.<alias>.data.get())`<br>`context.<ctx>.<alias>.data.put(created)` |
+| Update | `<crudName> Action Update` | `context.<ctx>.<alias>.service.update(context.<ctx>.<alias>.data.get())` |
+| Delete | `<crudName> Action Delete` | `context.<ctx>.<alias>.service.delete(context.<ctx>.<alias>.data.get().id)` |
 
-Here `<ctx>` = `context.getAlias()` (e.g. `catalog_context`), `<alias>` = the short CRUD alias. All three are
+Here `<ctx>` = the context alias (e.g. `catalog_context`), `<alias>` = the short CRUD alias. All three are
 `EXECUTION_RULE` / `executor=GroovyExecutionRule`, `contextIdentifiers=[<contextIdentifier>]`,
-`status=ACTIVE`, `description="Auto-generated by Create Default Actions"`
-(`CrudDefaultActionsService.java`).
+`status=ACTIVE`, `description="Auto-generated by Create Default Actions"`.
 
 A delete rule as stored (id `f8240612-…`):
 ```json
@@ -590,7 +572,7 @@ A delete rule as stored (id `f8240612-…`):
 meet in an existing project; the button's current convention is `<crudName> Action Delete`.
 The body is identical.)
 
-**The three assembled actions** (`finalizeDefaultActions`):
+**The three assembled actions:**
 
 | Action | List | `direct` | `icon` | `formGroupIdentifier` | `onBeforeCompleteRuleIdentifier` | name |
 |---|---|---|---|---|---|---|
@@ -599,14 +581,11 @@ The body is identical.)
 | Delete | `editActions` | `true` | `pe-7s-trash` | — | Delete rule | `Delete <crudName>` |
 
 The `localizedButtonNames` of each = a **copy** of `localizedNames` (so the form's submit
-button is not empty). Clicking the button again removes the previous default actions by name before adding new ones
-(`removeDefaultActions`, `CrudTableSettingsControlPanel.java`) — so as not to clone them.
+button is not empty). Clicking the button again removes the previous default actions by name before adding new ones — so as not to clone them.
 
 ## Fetch rule (the row source rule)
 
-`findRuleIdentifier` points to an EXECUTION rule `Find — <crudName>` (auto-named from
-`CrudDataRuleServiceImpl.java`, `ensureFindRule`) returning a page. The body is generated by
-`buildFindScript(alias)` (`CrudDataRuleServiceImpl.java`) — the exact text (here for the rule
+`findRuleIdentifier` points to an EXECUTION rule `Find — <crudName>` (auto-named) returning a page. The body is generated by the platform — the exact text (here for the rule
 `Find — Inventory Count`, `contextIdentifiers: []`):
 
 ```groovy
@@ -662,7 +641,7 @@ Four rules:
    Verify it live: sign in as a non-manager and count the rows.
 4. **A column the viewer may not see** (a cost/salary field) is the same problem one level down: leave it out of
    the projection, don't hide the cell. Per-column role gating does **not** exist on `crud.table.plugin` —
-   `CrudTableColumnSettings` has no predicate — so the supported answers are a second, group-gated screen (or
+   table column settings has no predicate — so the supported answers are a second, group-gated screen (or
    tab) carrying the extra column, or a hand-built table in an HTML component
    ([24c](24c-html-data-tables-and-paging.md)) whose rule projects the field only for permitted viewers.
 
@@ -674,7 +653,7 @@ Four rules:
 > ⚠️ Smoke-test `hasAnyRoleGroup` live before you build a permission model on
 > it — see [24](24-html-component-studio.md) §9a.
 
-> **NB — a fetch rule ≠ a choices rule.** A table/tree fetch rule returns **RAW rows** (a `PageResult`) on
+> **NB — a fetch rule ≠ a choices rule.** A table/tree fetch rule returns **RAW rows** (a page object) on
 > purpose. A dropdown/autocomplete **choices** rule is the OPPOSITE: it MUST convert rows to option pairs as its
 > last statement — `return service.global.conversion.toSelectOptions(list,"<key>","<display>")` (localized CRUD:
 > `toSelectOptionsLocalized`) / `toAutoCompleteOptions(list,"<display>")`. **Never** return a raw `find`/`findAll`
@@ -684,13 +663,13 @@ Four rules:
 The rule is **context-free** (`contextIdentifiers: []`), it uses `service.crud.<alias>.find(...)`
 directly. Pagination (`rowsInPage`/`pageNumber`), all `filterField` values from the inline `filterSettings` **and**
 values from a standalone `dynaform.filter.form.plugin` (see "Standalone Filter Form" below) arrive in
-`attrs` — they are transparently forwarded by the `attrs?.each { … }` loop above. Returns a `PageResult` (exactly 4 fields: `content`/`pageNumber`/`totalElements`/`totalPages`).
+`attrs` — they are transparently forwarded by the `attrs?.each { … }` loop above. Returns a page object (exactly 4 fields: `content`/`pageNumber`/`totalElements`/`totalPages`).
 For a dynamic CRUD `service.crud.<alias>.find` resolves to the GROOVY method `find` from `dynamic-cruds.json`
 (count+findAll paging, see [11](11-business-logic-dynamic-crud.md)); for a static one — to the Java `@Crud`
 (see [11](11-business-logic-dynamic-crud.md) about static vs dynamic).
 
-`crud.tree.plugin` uses the analog `buildFindByParentScript` → `Find children — <crudName>` via
-`service.crud.<alias>.findByParent(...)` (`CrudDataRuleServiceImpl.java`), see
+`crud.tree.plugin` uses the analogous generated rule `Find children — <crudName>` via
+`service.crud.<alias>.findByParent(...)`, see
 [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md).
 
 ## Standalone Filter Form (filter panel above the table)
@@ -703,8 +682,8 @@ renders a full panel of filter controls **above** the table. This is NOT `filter
 |---|---|---|
 | Where it lives | in `crud.table.plugin` → `properties.model.filterSettings[]` | a separate sibling node `dynaform.filter.form.plugin` |
 | What it is | a 5-field descriptor (`id/name/filterField/dataClass/defaultValue`) | a container with real form controls + a submit button |
-| Config slot | part of the table's `model` | `properties.filterFormModel` (`FilterFormDto`; empty `{}` or `{name,description,waitSelector}`) — see `FilterFormPlugin.java` |
-| How values reach the fetch rule | the table puts them in `attrs` by `filterField` | on submit-button click it reads `provider.getFilterValues()` and triggers a refresh → values into the same `attrs` |
+| Config slot | part of the table's `model` | `properties.filterFormModel` (empty `{}` or `{name,description,waitSelector}`) |
+| How values reach the fetch rule | the table puts them in `attrs` by `filterField` | on submit-button click it reads the filter values and triggers a refresh → values into the same `attrs` |
 
 **Node structure — the layout is INLINE HTML with `<plugin>` tags, matched to child nodes by SYMBOLIC id.**
 The filter form is a **sibling** of `crud.table.plugin`
@@ -759,23 +738,21 @@ nct.parsis.plugin                              ← shared page content slot
 
 Key facts (verified against the code):
 
-- `FilterFormPlugin extends NctBasePlugin<FilterFormDto>` (**not** `FormPlugin` — no ContextDataDto, no
-  scopes/form groups). The filter values are a plain `Map<String,Object> filterValues`, **transient**,
-  not persisted (`FilterFormPlugin.java`). Its own config slot is `properties.filterFormModel`
-  (`getJsonProperty("filterFormModel", …)`), NOT `settings`/`model`.
+- The filter form is **not** a regular form (no context data, no
+  scopes/form groups). The filter values are a plain map `filterValues`, **transient**,
+  not persisted. Its own config slot is `properties.filterFormModel`, NOT `settings`/`model`.
 - The filter controls are ordinary `dynaform.form.*.field.plugin` (`text`/`dropdown`/`datepicker`/…). Their
-  binding field is **`filterKey`** in the control's `settings` (`FilterControlSettings.java`;
-  `BaseFormControl` reads/writes `provider.getFilterValues().get(getSettings().getFilterKey())`)
+  binding field is **`filterKey`** in the control's `settings`
   — NOT `filterField` (that is the inline `filterSettings` field) and NOT `key` (that is the
   enum key-field). `filterKey` is the value key in `filterValues`. Controls live in the **inner**
-  `nct.parsis.plugin` whose identifier **must be exactly `filter.parsis`** (`FilterFormPlugin.java`
-  the plugin creates this drop container by that literal id — with `mrjun.py` use `node add --identifier filter.parsis`).
+  `nct.parsis.plugin` whose identifier **must be exactly `filter.parsis`** (the plugin
+  creates this drop container by that literal id — with `mrjun.py` use `node add --identifier filter.parsis`).
 - `dynaform.filter.submit.button.plugin` (slot `properties.settings` = `{"buttonName":"Filter"}` + an optional
-  `waitComponentIdentifier` — the `uniqueIdentifier` of an `IRefreshable` sibling to overlay a loading indicator on
-  during submit, `FilterSubmitButtonSettings.java`, picked via a component chooser in its settings panel)
-  on click finds the parent `IFilterFormProvider` (= FilterFormPlugin),
-  reads `getFilterValues()` and triggers the `onFilterSubmit(filterValues)` event
-  (`FilterSubmitButtonPlugin.java`) → the table re-queries rows, values arrive in the fetch rule's `attrs`
+  `waitComponentIdentifier` — the `uniqueIdentifier` of a refreshable sibling to overlay a loading indicator on
+  during submit, picked via a component chooser in its settings panel)
+  on click finds the parent filter form,
+  reads its `filterValues` and triggers the `onFilterSubmit(filterValues)` event
+  → the table re-queries rows, values arrive in the fetch rule's `attrs`
   under the same keys.
 - The table's fetch rule is **already** ready to accept these values: the loop `attrs?.each { k, v -> … filter[k] = … }`
   (in the generated fetch-rule listing above, §"Fetch rule") transparently forwards any keys from the filter
@@ -799,7 +776,7 @@ Key facts (verified against the code):
 > [18-existing-schema-to-dynamic-wiring.md §2](18-existing-schema-to-dynamic-wiring.md).
 
 > **Filter-form binding across table types — one filter form drives EVERY table on its page.** The submit
-> button fires `onFilterSubmit` as a **page-wide broadcast** (`EventUtils.java` → `page.visitChildren`),
+> button fires `onFilterSubmit` as a **page-wide broadcast**,
 > so the form and its tables only need to be on the **same page**, not siblings. What `filterKey` must equal
 > depends on the table it feeds:
 >
@@ -807,7 +784,7 @@ Key facts (verified against the code):
 > |---|---|---|
 > | `crud.table.plugin` | the CRUD **filter-class field name** (`branch`, `status`, `customerName`) — raw, no prefix | fetch rule `attrs` → `service.crud.<alias>.find(filter)` |
 > | `crud.tree.plugin` | same (a filter-class field); do NOT reuse the `parentFilterFieldExpression` key | `additionalFilter` → `findByParent(filter)` |
-> | `process.table.pluin` | the **exact `{token}`** inside the table's `filterExpression`, **prefix included and NOT stripped** (`{filter_branch}` ⇒ `filterKey:"filter_branch"`) | `ProcessFilter.filterValues` → the filter expression (see [05](05-crud-tree-and-process-table.md)) |
+> | `process.table.pluin` | the **exact `{token}`** inside the table's `filterExpression`, **prefix included and NOT stripped** (`{filter_branch}` ⇒ `filterKey:"filter_branch"`) | the filter values → the filter expression (see [05](05-crud-tree-and-process-table.md)) |
 >
 > So a control with `filterKey:"branch"` satisfies a crud table filtering on `branch`, but does **NOT** satisfy
 > a process expression `{filter_branch}` — that needs `filterKey:"filter_branch"`.
@@ -818,7 +795,7 @@ This is the step that gets skipped, and it fails **silently** — the control re
 submit button flashes, and the table returns exactly the same rows.
 
 The fetch rule needs no edit: the auto-find wrapper forwards the whole filter map. But
-`DynamicMethodExecutor` builds its parameter values **only from the method's declared `parameters[]`** and
+the dynamic-method executor builds its parameter values **only from the method's declared `parameters[]`** and
 substitutes a `:name` **only when that name is declared**. An undeclared key evaporates between the form and
 the SQL — and this is true of **every** key in that map, including one your fetch rule computed itself (a
 role scope, a tenant/branch restriction), not just the ones a filter form submitted. So for every filter key,
@@ -864,10 +841,8 @@ Two arithmetic traps that follow from this:
 
 > ⛔ **Decide, per action, what a user meets when it cannot run** — not offered (this predicate), explained before submit (a validation in its form), or refused in words (a direct action) — and never the rule's or the database's error underneath. The decision table and the order of questions: [25](25-form-settings-validation-and-events.md) "An action that cannot run".
 
-For each row the runtime evaluates ALL distinct non-empty `predicateIdentifier` values in a single call to
-`executePredicatesWithCrudContext` (plural), which loads the FULL entity by id and substitutes it into
-`context.<ctx>.<alias>.data` (`CrudTablePlugin.java`, method `evaluatePredicates` — distinct
-via `!predicateIds.contains(...)`; `contextIdentifier` empty → fallback to `crudAlias`).
+For each row the runtime evaluates ALL distinct non-empty `predicateIdentifier` values in a single batched call, which loads the FULL entity by id and substitutes it into
+`context.<ctx>.<alias>.data` (`contextIdentifier` empty → fallback to `crudAlias`).
 A single predicate used by several
 actions (like `7fcdc152-…` for Edit and Start above) is evaluated once per row.
 
@@ -877,10 +852,10 @@ context.rimmContext.inventoryCount.data.get().status == 'DRAFT'
 ```
 PREDICATE / `GroovyPredicate`, `contextIdentifiers: ["77cd568d-…"]`. The predicate MUST return a
 Boolean via an explicit `return`/an expression that yields a Boolean — see
-`ExecutionRuleTemplate` in [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md).
+[08-groovy-rules-and-context.md](08-groovy-rules-and-context.md).
 
-✅ **This is a real gate, not decoration.** The check is re-run server-side in the execute endpoint itself
-(`executeEditAction` → `isActionVisibleForEntity`), fail-closed: a crafted/stale request naming a hidden action is
+✅ **This is a real gate, not decoration.** The check is re-run server-side in the execute endpoint itself,
+fail-closed: a crafted/stale request naming a hidden action is
 rejected. A **form-based** action is re-checked a second time, **at submit**: the form's submit path re-evaluates
 the predicate, taking its id from the saved CRUD settings (not from the request) and matching the context by
 whether an entity id is present, and blocks with "This action is not available." on `false` **or on any error**.
@@ -888,7 +863,7 @@ So a form URL reached directly with someone else's row id does not slip through.
 
 ## Action lifecycle
 
-Checked against `executeEditAction` (`CrudTablePlugin.java`):
+The runtime sequence:
 
 - **Form-based** (`direct:false`): click → visibility predicate → `onBeforeStartRule` (before opening) →
   navigate to the form group `formGroupIdentifier` → the user submits → **the visibility predicate is
@@ -896,10 +871,10 @@ Checked against `executeEditAction` (`CrudTablePlugin.java`):
   (before persist) → write by the rule → audit → `refresh()`. With `submitForm:false` the submit does **none**
   of that — not the validation and not the rule; it clears the message panel and redirects back.
 - **Direct** (`direct:true`): click → re-check visibility (fail-closed) → `onBeforeStartRule` (opt.) →
-  `onBeforeCompleteRule` (opt.) → audit (`crudAuditService.logDirectAction`, before/after entity + traceId)
+  `onBeforeCompleteRule` (opt.) → audit (before/after entity + traceId)
   → `refresh()` of the whole table. No form.
 
-A visibility predicate error → the action is hidden (`nctError` + `return false`). An error / `!isSuccess()` of the
+A visibility predicate error → the action is hidden (`nctError` + `return false`). An error / failure of the
 `onBeforeStart`/`onBeforeComplete` rule → `nctError` for each and abort without write/refresh.
 
 > **⛔ The submitted values arrive on the ROW, not in the attrs.** A form opened from a table action is bound to
@@ -930,10 +905,10 @@ your project's set is ([20](20-localization.md)).
 
 2. **Fetch rule** — add to `rep-objects.json.rules[]` an object with
    `ruleType=EXECUTION_RULE`, `executor=GroovyExecutionRule`, `name="Find — <Entity>"`,
-   `contextIdentifiers: []`, `rule.ruleScriptStr` = the body of `buildFindScript("<entity>")` verbatim
+   `contextIdentifiers: []`, `rule.ruleScriptStr` = the fetch-rule body shown in §Fetch rule above verbatim
    (replacing `inventoryCount` with `<entity>` in the last line). Remember its `identifier` →
-   `findRuleIdentifier`. (It can be omitted: on the first render the plugin creates it itself,
-   `CrudTablePlugin.java`, and writes it back into `model`.)
+   `findRuleIdentifier`. (It can be omitted: on the first render the plugin creates it itself
+   and writes it back into `model`.)
 
 3. **True predicate** — if not present yet: an object in `rep-objects.json.rules[]` with `name="True"`,
    `ruleType=PREDICATE`, `executor=GroovyPredicate`, `rule.ruleScriptStr="return true"`
@@ -993,7 +968,7 @@ your project's set is ([20](20-localization.md)).
 
 8. **DONE-WHEN — the settings mirror exists.** Every table node needs one `rep-objects.json.settings[]` object
    `{ "type":"CrudTable", "name":"<node.uniqueIdentifier>", "content": <the SAME model> }` plus the
-   `AbstractSecuredDto` housekeeping keys every `settings[]` object carries (`identifier`, `realmName`,
+   housekeeping keys every `settings[]` object carries (`identifier`, `realmName`,
    `clientName`, `creationTime`, `modificationTime`, `deleted:false`, `message`/`errors`/`id` all `null`).
 
    ⛔ **Do not write it by hand — let the toolkit do it.** Place the node with
@@ -1016,7 +991,7 @@ your project's set is ([20](20-localization.md)).
    applies in reverse: when you change a node's `model`, patch the matching `settings[].content` too (and when you
    delete a node, dropping its setting is good hygiene, not a hard requirement).
 
-The resulting render (`CrudTablePlugin.html`): `<div class="row crud-table-plugin"> … <table class="mb-0
+The resulting render: `<div class="row crud-table-plugin"> … <table class="mb-0
 table table-hover">` with `<th>` per column, `<tr>` per row and a per-row `<div class="dropdown d-inline-block">`
 action menu.
 
@@ -1044,56 +1019,53 @@ Bootstrap button styles: `btn-info` (blue) · `btn-success` (green) · `btn-warn
 
 - **The property key is `model`, NOT `settings`.** Form controls put their config in
   `properties.settings.stringValue`; `crud.table.plugin`/`crud.tree.plugin`/`process.table.pluin` — in
-  `properties.model.stringValue` (`CrudTablePlugin.java`). Putting it in `settings` is useless — the plugin
+  `properties.model.stringValue`. Putting it in `settings` is useless — the plugin
   does not read it.
 - **`crudAlias` is the short alias.** At runtime the CRUD is resolved by the short alias; the full
-  realm/client-prefixed key (`crud.getAlias()`) is trimmed by `CrudKeyGenerator.extractSimpleAlias`
-  (`CrudTableSettingsControlPanel.java`). In `model` we write the short one.
+  realm/client-prefixed key is trimmed to the short alias by the settings panel. In `model` we write the short one.
 - **`findRuleIdentifier` can be omitted** — at render time, if `crudAlias` is set and the rule is empty,
   the plugin creates `Find — <crudName>` and writes the id back into `model`. But then the rule
   will appear in the DB, not in your export, until you re-export. For a reproducible export
   it is better to create the rule and the id explicitly. An older export may have no `findRuleIdentifier` at all.
 - **True predicate: only `return true`.** A bare `true` in a GroovyPredicate body is discarded
-  by the template trailer → `null` → "Predicate rule must return Boolean"
- (`CrudDefaultActionsService.java`).
+  by the template trailer → `null` → "Predicate rule must return Boolean".
 - **Writes are done by rules, not by the plugin.** The plugin has no built-in create/update/delete — direct and
-  non-direct actions only run the `onBeforeStart`/`onBeforeComplete` rules
-  (`CrudTablePlugin.java`), which themselves call `context.<ctx>.<alias>.service.create/update/delete`.
-  Forget the rule → the action saves nothing. (The outdated javadoc `CrudTableActionsDto.java` says
-  otherwise — ignore it.)
+  non-direct actions only run the `onBeforeStart`/`onBeforeComplete` rules,
+  which themselves call `context.<ctx>.<alias>.service.create/update/delete`.
+  Forget the rule → the action saves nothing.
 - **The fetch rule is context-free** (`contextIdentifiers: []`) and uses `service.crud.<alias>`,
   whereas the action rules are context-bound and use `context.<ctx>.<alias>.service` — these are different
   access paths, don't mix them up (see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)).
 - **The visibility predicate loads the FULL row** (not only the form fields) — `.status` is available even if
-  it is not in the columns/form (`CrudTablePlugin.java`). The predicate MUST return a Boolean.
+  it is not in the columns/form. The predicate MUST return a Boolean.
 - **One predicate — multiple actions.** The runtime deduplicates distinct non-empty
   `predicateIdentifier` values per row, so reusing a single predicate (Edit+Start in
   `inventoryCount`) is a normal pattern, it does not duplicate the evaluation.
-- **`localizedButtonNames` empty → `localizedNames` is used** (`CrudTableActionsDto.java`).
+- **`localizedButtonNames` empty → `localizedNames` is used**.
   Default actions copy the names into button-names so the form's submit button is not empty; when building by
   hand a non-direct action without either map will show an empty submit button — fill in both.
 - **Import mapping is not in `model`.** `headerToField`/`ignoredHeaders` live in
-  `properties.importMapping.stringValue` (`ImportMappingDto`, the same STRING envelope as `model`),
-  written at runtime when a file is uploaded (`CrudTablePlugin.java` → `ContentDomain.setJsonProperty`);
+  `properties.importMapping.stringValue` (the same STRING envelope as `model`),
+  written at runtime when a file is uploaded;
   they are runtime data, not part of a page template. When building a page — omit them.
 - **`lastImportReport` is a runtime-only slot too.** After an import that produced row errors the plugin writes
-  an `ImportErrorReportDto` into `properties.lastImportReport.stringValue` (`CrudTablePlugin.java`), reads
-  it to gate the "View upload errors" button (→ `ImportErrorReportDialog`), and clears it to the string
+  an error report into `properties.lastImportReport.stringValue`, reads
+  it to gate the "View upload errors" button, and clears it to the string
   `"null"` on dismiss. Unlike `importMapping` it **can** survive into an export — a node that once had a failed
   import carries the slot with `stringValue:"null"` (a cleared residue). Like `importMapping`, it is NOT part of
   the design-time template — omit it when building a page.
 - **`duplicateAction` is meaningful only with `duplicateDetectionPredicateIdentifier`.** Without a predicate the dedup
-  is not performed, and the value is ignored (`CrudTableImportSettingsDto.java`).
+  is not performed, and the value is ignored.
 - **There is no "refresh-on-complete" on CRUD-table actions.** A direct action does an unconditional
-  `refresh()` of the whole table (`CrudTablePlugin.java`). A configurable multi-select refresh is a
+  `refresh()` of the whole table. A configurable multi-select refresh is a
  feature of the List form control and form events, not of this plugin.
 - **An action carrying a single `name` uses an outdated/broken schema.** The
-  CRUD `ActionDto` has NO `name` field: GSON silently drops that key on parsing, and `getLocalizedName`
-  (`CrudTableActionsDto.java`) reads only `localizedNames` with no legacy fallback → such an
+  CRUD action has NO `name` field: that key is silently dropped on parsing, and the label is read
+  only from `localizedNames` with no legacy fallback → such an
   action renders with an EMPTY label. Always write `localizedNames` (+`localizedButtonNames`), not `name`.
-  (The fallback to the legacy `name` exists only for COLUMNS — `CrudTableColumnSettings.getLocalizedName` — but not for
+  (The fallback to the legacy `name` exists only for COLUMNS — table column settings — but not for
   actions; don't confuse them.)
-- **CRUD `ActionDto` ≠ workflow `ActionDto`.** In the CRUD version `direct` is a boolean (`true`/`false`), and there is NO
+- **CRUD action ≠ workflow action.** In the CRUD version `direct` is a boolean (`true`/`false`), and there is NO
   `validationRuleIdentifiers`/`completeUserTask`/`taskId`/`onBeforeUserTask*`. `action.md` mixes both
   classes — don't carry workflow fields over to the CRUD table (see [07](07-workflows-and-tasks.md)).
 - **`filterSettings` — only 5 fields** (`id`/`name`/`filterField`/`dataClass`/`defaultValue`).

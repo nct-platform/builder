@@ -11,7 +11,7 @@ import re
 
 from . import core
 
-# alias pattern is strict on the platform side (MailTemplateEditorPanel):
+# alias pattern is strict on the platform side:
 # starts with a lowercase letter, then letters/digits — no _ - . (§15 gotcha 2).
 _ALIAS_RE = re.compile(r"^[a-z][a-zA-Z0-9]*$")
 # {{placeholder}} tokens found in htmlContent/subject.

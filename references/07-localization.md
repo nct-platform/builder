@@ -132,7 +132,7 @@ absence as a defect**; if they are present, keep them in sync.
 
 ### 3.2 ⛔ The blank-button bug is real and common
 
-A CRUD `ActionDto` has no `name` field, so an action carrying only `name` renders an unlabelled button. One
+A CRUD action has no `name` field, so an action carrying only `name` renders an unlabelled button. One
 delivery ships **72 of them** on real reference pages; 71 also lack `localizedButtonNames`, so the in-form
 submit button is blank too. The other three: **0**.
 

@@ -5,7 +5,7 @@
 ## What it is / when to use
 
 Almost all the project's dynamic logic is **Groovy rules** (`rules[]` in
-`rep-objects.json`) executed by the `nct-executor` service. A rule is a short Groovy script
+`rep-objects.json`) executed by the platform. A rule is a short Groovy script
 (`rule.ruleScriptStr`), wrapped in a template class and run with preconfigured bindings
 (`context`, `service`, `param`, `validation`, `attrs`, `userId`, …). Three types:
 
@@ -19,7 +19,7 @@ All three types occur in a real project, and the mix is lopsided: `EXECUTION_RUL
 order of magnitude, `PREDICATE` comes second, `VALIDATION_RULE` is rare — but rare is not absent, so never
 assume a type is unused before counting: `jq -r '.rules[].ruleType' rep-objects.json | sort | uniq -c`.
 The rule syntax and rep-object shape are **identical** whether the CRUDs behind them are STATIC (compiled
-`@Crud` beans, no `dynamic-cruds.json`) or dynamic — only the crud backing differs; see §"MODIFY-FILLED".
+Java CRUDs, no `dynamic-cruds.json`) or dynamic — only the crud backing differs; see §"MODIFY-FILLED".
 
 A rule "sees" project data through the **context model**: the `context` rep-object (`contexts[]`)
 declares an `alias` (e.g. `finance_context`) and a list of `crudAliases`, and rules attach to it via
@@ -77,7 +77,7 @@ Measured on one delivery: the first shape killed **every** state-transition rule
 one dead from the first day, with the buttons and the confirm dialog all present, because the throw
 happens after the click. The second shape was introduced *while fixing the first*.
 
-`mrjun.py validate` checks both (`_check_groovy_var_used_before_def`, `_check_groovy_undefined_identifier`).
+`mrjun.py validate` checks both.
 Its scanner has to be careful about what really hides a name: a closure body does (it runs later), but
 an `if`/`try`/`for` body does **not**, and neither do parentheses — `((po?.x ?: '') as String)`
 evaluates `po` right there. A checker that skips everything inside brackets sees none of this.
@@ -103,7 +103,7 @@ Each paragraph reads perfectly on its own; nothing but a compile notices.
 * **Prefix helpers you fan out across several rules**, and treat that prefix as reserved
   (`__cySeq`, `__cyNext…`): a shared helper is the one name you must NOT rename later.
 * **Name locals for what they hold**, not for the mechanism (`__cyLotSeq`, not `__cySeq`).
-* `validate` now refuses a project with such a pair (`_check_groovy_duplicate_def`). It compares the
+* `validate` now refuses a project with such a pair. It compares the
   BLOCK PATH, not the nesting depth — `list.each { def x = … }` twice is legal, two different blocks.
 * And when it bites you anyway: **rename the narrower one**. The shared helper has five other callers
   that are all still right.
@@ -170,24 +170,24 @@ Worked example (EXECUTION, dropdown source) — **note `contextIdentifiers: []`*
 
 ### Field-by-field (rule)
 
-| Field | Type | Value / required | Default | Backing |
-|---|---|---|---|---|
-| `identifier` | String(uuid) | stable rule ID; **required** — referenced by the form's `settings.stringValue.ruleIdentifier`, the CRUD's `methods[].ruleIdentifier`, an action's `predicateIdentifier`/`onBeforeStartRuleIdentifier`/`onBeforeCompleteRuleIdentifier`. **Always a UUID**, not a slug | generated | `RuleDto.identifier` (`AbstractSecuredDto`) |
-| `name` | String | required; `service.rule("<name>")` resolves **by name** (`findByName`) | — | `RuleDto.name` |
-| `description` | String | opt.; auto-generated rules carry `alias:<camelCase> \| ... (generated from template)` | `null` | `RuleDto.description` |
-| `status` | enum | `ACTIVE`\|`UNUSED`\|`DELETED`. Everything except `DELETED` executes; **`UNUSED` is a usage-scanner label, the rule remains fully executable** (`RuleStatus.java`). **No `INACTIVE`/`DRAFT`** | `ACTIVE` | `RuleStatus` |
-| `ruleType` | enum | `PREDICATE`\|`EXECUTION_RULE`\|`VALIDATION_RULE`; determines `apply()` semantics | — | `RuleType` |
-| `executor` | String | name of the `@ExecutorRule` bean: `GroovyPredicate`/`GroovyExecutionRule`/`GroovyValidationRule`; **must match `ruleType` 1:1** | — | `@ExecutorRule(name=...)` |
-| `contextIdentifiers` | String[] | UUIDs of contexts from `contexts[]`; their `alias` becomes available as `context.<alias>`. **Often `[]`** — rules that only call `service.crud.<alias>` / `service.security` / `service.global` need no context (see below) | `[]` | `RuleScriptSettingsControlPanel.java` |
-| `rule.ruleScriptStr` | String | script body (Groovy). **Without** the template wrapper — the executor adds it. Line breaks = `\n`, quotes = `\"` (this is a single JSON string) | — | `AbstractGroovyExecutor.java` |
-| `hidden` | Boolean\|null | `true` → the rule is not shown in the Rules list. In practice `rules[]` carries only `null` and `false` — hand-written rules leave it `null`, generated ones write `false`; neither is anomalous. `true` marks a CRUD GROOVY method's body (`crud_<alias>_<method>`) — its own `access` is ignored | `null` | `RuleDto.hidden` |
-| `access` | Object\|null | who may RUN the rule: `{publicAccess, authenticatedUserAccess, roleGroups}`. **Absent/`null` = signed-in users.** Set it with `mrjun.py rule access` — §"Execution access" | absent | `RuleDto.access` |
+| Field | Type | Value / required | Default |
+|---|---|---|---|
+| `identifier` | String(uuid) | stable rule ID; **required** — referenced by the form's `settings.stringValue.ruleIdentifier`, the CRUD's `methods[].ruleIdentifier`, an action's `predicateIdentifier`/`onBeforeStartRuleIdentifier`/`onBeforeCompleteRuleIdentifier`. **Always a UUID**, not a slug | generated |
+| `name` | String | required; `service.rule("<name>")` resolves **by name** | — |
+| `description` | String | opt.; auto-generated rules carry `alias:<camelCase> \| ... (generated from template)` | `null` |
+| `status` | enum | `ACTIVE`\|`UNUSED`\|`DELETED`. Everything except `DELETED` executes; **`UNUSED` is a usage-scanner label, the rule remains fully executable**. **No `INACTIVE`/`DRAFT`** | `ACTIVE` |
+| `ruleType` | enum | `PREDICATE`\|`EXECUTION_RULE`\|`VALIDATION_RULE`; determines how the result is treated | — |
+| `executor` | String | name of the executor: `GroovyPredicate`/`GroovyExecutionRule`/`GroovyValidationRule`; **must match `ruleType` 1:1** | — |
+| `contextIdentifiers` | String[] | UUIDs of contexts from `contexts[]`; their `alias` becomes available as `context.<alias>`. **Often `[]`** — rules that only call `service.crud.<alias>` / `service.security` / `service.global` need no context (see below) | `[]` |
+| `rule.ruleScriptStr` | String | script body (Groovy). **Without** the template wrapper — the executor adds it. Line breaks = `\n`, quotes = `\"` (this is a single JSON string) | — |
+| `hidden` | Boolean\|null | `true` → the rule is not shown in the Rules list. In practice `rules[]` carries only `null` and `false` — hand-written rules leave it `null`, generated ones write `false`; neither is anomalous. `true` marks a CRUD GROOVY method's body (`crud_<alias>_<method>`) — its own `access` is ignored | `null` |
+| `access` | Object\|null | who may RUN the rule: `{publicAccess, authenticatedUserAccess, roleGroups}`. **Absent/`null` = signed-in users.** Set it with `mrjun.py rule access` — §"Execution access" | absent |
 
 > **`contextIdentifiers: []` — the dominant pattern for dropdown sources.** In a mature project a sizeable
 > minority of all rules carry an empty `contextIdentifiers`, and they are almost exclusively the
 > `RIMM_<alias>_cruid` rules (dropdown sources) and `Find — …` rules. They use the
-> context-**independent** path `service.crud.<alias>` (resolved against the full CRUD registry of the realm/client,
-> `DynamicRuleContext.groovy`), so they need no context. Attaching a context to such a rule
+> context-**independent** path `service.crud.<alias>` (resolved against the full CRUD registry of the realm/client),
+> so they need no context. Attaching a context to such a rule
 > is **not needed** — see the recipe below.
 
 ### Export shape — the `context` rep-object
@@ -208,12 +208,12 @@ Under the `contexts` key (an array). Worked example:
 }
 ```
 
-| Field | Type | Value | Backing |
-|---|---|---|---|
-| `identifier` | String(uuid) | context ID; goes into `rule.contextIdentifiers[]` and into the form's `settings.contextIdentifier` | `ContextDto` (`AbstractSecuredDto.identifier`) |
-| `name` | String | human-readable name | `ContextDto.name` |
-| `alias` | String | **syntactic token** — `context.<alias>...` in scripts; must be a valid Groovy identifier | `ContextDto.alias` |
-| `crudAliases` | String[] | list of CRUD aliases allowed within this context; the gate for `context.<alias>.<crud>` and `service.crud.<crud>` (when the rule has a context) | `ContextDto.crudAliases` |
+| Field | Type | Value |
+|---|---|---|
+| `identifier` | String(uuid) | context ID; goes into `rule.contextIdentifiers[]` and into the form's `settings.contextIdentifier` |
+| `name` | String | human-readable name |
+| `alias` | String | **syntactic token** — `context.<alias>...` in scripts; must be a valid Groovy identifier |
+| `crudAliases` | String[] | list of CRUD aliases allowed within this context; the gate for `context.<alias>.<crud>` and `service.crud.<crud>` (when the rule has a context) |
 
 > **One context per project — the typical pattern.** A production project normally has exactly **one** context
 > (`jq '.contexts | length'` → 1; a fresh empty starter → 0), whose `crudAliases` list every dynamic CRUD alias
@@ -224,7 +224,7 @@ Under the `contexts` key (an array). Worked example:
 
 > **`crudAliases[]` may be a SUPERSET.** The invariant is **one-directional**: every alias a rule reads via
 > `context.<alias>.<crudAlias>` (and every dynamic-crud in `dynamic-cruds.json`) **must** be in `crudAliases[]`
-> — `validate` errors the reverse (`validate_cmds.py`, "crud alias not listed in any context.crudAliases").
+> — `validate` errors the reverse ("crud alias not listed in any context.crudAliases").
 > But `crudAliases[]` may list **more** aliases than there are dynamic-cruds: it can include an alias with **no**
 > `dynamic-cruds.json` entry — `bl` (the Business-Logic CRUD) always is one, and a configuration/lookup alias
 > left over from an earlier iteration may be another (listed, no dynamic-crud, zero rule references).
@@ -232,7 +232,7 @@ Under the `contexts` key (an array). Worked example:
 
 > **MODIFY-FILLED — adding an alias to an existing context.** When a new rule needs
 > `context.<ctx>.<newAlias>.data` (or `service.crud.<newAlias>` with a bound context), run
-> `mrjun.py context add-alias <ctx> <newAlias>` (idempotent — re-running is a no-op; `rep_cmds.py`).
+> `mrjun.py context add-alias <ctx> <newAlias>` (idempotent — re-running is a no-op).
 > It appends to that single context's `crudAliases[]`. **Do NOT create a second context** for this — the
 > single-context layout is the norm; append to `contexts[0].crudAliases[]`.
 
@@ -246,7 +246,7 @@ Under the `contexts` key (an array). Worked example:
 > that "crud X belongs to context Y" is the alias appearing in `contexts[].crudAliases`. So if a context imports
 > with an empty/short `crudAliases`, the business-logic UI shows that **context with no CRUDs**, and every rule
 > resolving `context.<alias>.<crudAlias>` / `service.crud.<crudAlias>` throws at runtime:
-> `No CRUD found with alias <crudAlias> in context <contextAlias>` (the executor gate, `DynamicRuleContext.groovy`).
+> `No CRUD found with alias <crudAlias> in context <contextAlias>` (the executor gate).
 > Two causes, in order of likelihood: (1) the **whole rep-objects import aborted** on a malformed object (a
 > string-where-object; the context is a rep-object, so it was skipped along with sources/DB — see
 > [00](00-export-format-and-import.md), the scattered-symptom table) — this is NOT a context-data problem, it's a
@@ -366,11 +366,11 @@ body, a script that does not `return` explicitly returns `null`. A bare final ex
 `context...status == 'DRAFT'` written without `return`) is **discarded** — Groovy's "last expression is the
 value" does not apply here.
 
-- For **PREDICATE** this is fatal: `GroovyPredicate.apply()` casts the result to
-  `Boolean`; on `null`/non-Boolean it throws
-  `RuleExecutionException("Predicate rule must return Boolean, but returned: null")`.
+- For **PREDICATE** this is fatal: the predicate casts the result to
+  `Boolean`; on `null`/non-Boolean it fails with
+  "Predicate rule must return Boolean, but returned: null".
   **Always write `return <boolean expression>`.**
-- For **EXECUTION_RULE** `apply()` returns the result as-is (`(R) result`). If the rule
+- For **EXECUTION_RULE** the result is returned as-is. If the rule
   must return a value (dropdown source, fetch rule) — a `return` is needed. If it's a
   side-effect rule (`init`/`create`/`delete`, mutating `context.<...>.data`), there's nothing to return —
   the trailer returns `null`, and that's fine.
@@ -378,10 +378,10 @@ value" does not apply here.
 > This trailer is present in the current platform — it is not a legacy quirk that has since been fixed.
 
 > **Triage of `mrjun.py validate` "no top-level `return`" warnings.** `validate` emits this as a
-> **WARN** for **both** `PREDICATE` and `EXECUTION_RULE` (`tools/mrjunkit/validate_cmds.py`
-> it does not distinguish them). Interpret by type:
+> **WARN** for **both** `PREDICATE` and `EXECUTION_RULE`
+> (it does not distinguish them). Interpret by type:
 > - On a **`PREDICATE`** the warning is a **hard error to fix** — every one. Without `return` the trailer
->   returns `null`, `apply()` throws `"must return Boolean"`, and the button/field/mapping mis-behaves. Prepend
+>   returns `null`, the predicate throws `"must return Boolean"`, and the button/field/mapping mis-behaves. Prepend
 >   `return` to the boolean expression.
 > - On an **`EXECUTION_RULE`** it is **advisory**: fix only the **value-returning** ones (dropdown/`fetch`/
 >   `choices`, and GROOVY `find`/`count` methods that build a page map). A pure side-effect rule
@@ -389,9 +389,8 @@ value" does not apply here.
 
 ### The VALIDATION shape
 
-Same splice, same trailer — but here the return value is **ignored**: `GroovyValidationRule.apply()` reads
-not the result of `execute()`, but a fresh `ValidationResultCollector`
-(`validationCollector.createValidatedObject()`), to which the script added errors/warnings via
+Same splice, same trailer — but here the return value is **ignored**: the validation rule reads
+not the result of `execute()`, but a fresh message collector, to which the script added errors/warnings via
 the **`validation` binding** and the bare helpers available in a validation script:
 
 | Helper (bare, works in a validation script) | Equivalent | Category |
@@ -401,13 +400,13 @@ the **`validation` binding** and the bare helpers available in a validation scri
 | `addFieldError(field, msg)` / `validation.addFieldError(field, msg)` | field error | **blocks submit** |
 | `addFieldWarning(field, msg)` / `validation.addFieldWarning(field, msg)` | field warning | does not block |
 
-> ⚠️ **Only these four methods exist** on `ValidationResultCollector`
-> (`ValidationResultCollector.java`). There is **no** `addInfo(...)` in the code — do not use it
+> ⚠️ **Only these four methods exist** on the `validation` collector.
+> There is **no** `addInfo(...)` — do not use it
 > (older platform documentation mentions it in error). An empty collector = validation passed.
 
 > 🔑 **The `field` arg of `addFieldError`/`addFieldWarning` is the control's `name` (`settings.name`, the human
-> label), NOT its `fieldExpression`/column and NOT a component id.** At submit `FormPlugin` lands the message on
-> the control whose `getSettings().getName()` equals `field` (`FormPlugin.java`); a wrong name drops it
+> label), NOT its `fieldExpression`/column and NOT a component id.** At submit the form lands the message on
+> the control whose `settings.name` equals `field`; a wrong name drops it
 > silently, and a blank/absent `field` makes it a **global** (form-level) error. So you *read* the column via
 > `getField('<col>', …)` but *target* the control by its label. Global (`validators`) vs action-based
 > (`actionValidators`) form validation + this field-targeting → [25 §4.2](25-form-settings-validation-and-events.md).
@@ -430,8 +429,7 @@ if(code != null && code.size() > 10) {
 To **block an action and show the user a message**, `throw` from an **EXECUTION_RULE** (action logic /
 `onBeforeStart` / `onBeforeComplete`) — **not** from a predicate. When the rule throws, the operation aborts and
 the exception message surfaces as an **error toast**: for a CRUD-table action the UI shows the rule error verbatim
-via `err.getMessage()` (`CrudTablePlugin.java` before-start, before-complete; create-flow;
-catch-all `nctError("Failed to execute action: " + e.getMessage())`). A **PREDICATE** cannot do this —
+(before-start, before-complete, create-flow; the catch-all shows `Failed to execute action: <message>`). A **PREDICATE** cannot do this —
 it only hides/disables the button (returns a Boolean, shows nothing, aborts nothing). Guard-with-message is a
 load-bearing idiom: expect several per project, typically one on every action that posts, submits or activates
 a document.
@@ -453,41 +451,40 @@ shown **as typed** — write it user-facing. Full capability context:
 ## Bindings inside the script (what's available)
 
 The executor sets all of these as properties on the script-class instance before calling `execute()`
-(`AbstractGroovyExecutor.java`; `realm`/`client` are deliberately **not** passed).
+(`realm`/`client` are deliberately **not** passed).
 Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `contextDataMap`, `attrs`,
-`param` (EXECUTION only, `ExecutionRuleTemplate.groovy`); `validation` (VALIDATION only, `ValidationRuleTemplate.groovy`).
+`param` (EXECUTION only); `validation` (VALIDATION only).
 
 | Binding | Type | Available in | Notes |
 |---|---|---|---|
-| `context` | `RuleExecutor` (`= this`) | all | entry point into the context model; `propertyMissing` delegates to `DynamicRuleContext` |
-| `service` | `ServiceWrapper` | all | service facade (see below) |
+| `context` | the rule itself (`= this`) | all | entry point into the context model |
+| `service` | the capability object | all | service facade (see below) |
 | `attrs` | `Map<String,JsonNode>` | all | UI/component parameters; values are **JsonNode**, extract via `.asText()/.asInt([def])/.asLong()/.asDouble([def])/.asBoolean([def])/.isNull()`; `attrs.containsKey(k)` |
 | `param` | `Map` | **EXECUTION only** | parameters of a delegated CRUD method (see §"param") |
-| `validation` | `ValidationResultCollector` | **VALIDATION only** | + bare helpers `addError/addWarning/addFieldError/addFieldWarning` |
+| `validation` | message collector | **VALIDATION only** | + bare helpers `addError/addWarning/addFieldError/addFieldWarning` |
 | `userId` | String | all | id of the current user |
-| `currentData` | `CrudDataDto` \| `null` | all | the current item in a nested (List) form; `null` in the parent (see below) |
-| `realm` / `client` | — | — | **BLOCKED** as bare variables (`SecurityException`, `ExecutionRuleTemplate.groovy`); realm/client is injected by the system |
+| `currentData` | CRUD-data node \| `null` | all | the current item in a nested (List) form; `null` in the parent (see below) |
+| `realm` / `client` | — | — | **BLOCKED** as bare variables (`SecurityException`); realm/client is injected by the system |
 
 ### `context` — the context model
 
-`context` is the `RuleExecutor` itself, whose `propertyMissing` delegates to `DynamicRuleContext`
-(`ExecutionRuleTemplate.groovy`). Permitted accesses:
+`context` is the rule itself, which delegates property access to the context model. Permitted accesses:
 
-| Syntax | What it does | Backing |
-|---|---|---|
-| `context.<ctxAlias>` | context wrapper; `<ctxAlias>` must be among the attached `contextIdentifiers` | `DynamicContextWrapper` (`DynamicRuleContext.groovy`) |
-| `context.<ctxAlias>.<crudAlias>` | CRUD wrapper; `<crudAlias>` must be in `context.crudAliases` | |
-| `context.<ctxAlias>.<crudAlias>.data.get()` | **the current row** as a Map (JsonNode → object) — a detached COPY (an empty map, never `null`, when unset): changing the map changes nothing until you `put()` it back, or write single fields with `setField` | → `CrudDataWrapper` → `CrudDataDto.get()` |
-| `...data.getField('col', Type.class)` | one field of the row (dot-path: `'company.id'`) | `CrudDataDto.getField` |
-| `...data.getField('col', default)` | field with a default | `CrudDataDto.getField` |
-| `...data.put(obj)` | replace the entire current row | `CrudDataDto.put` |
-| `...data.setField('col', val)` | write one field (creates nested objects) | `CrudDataDto.setField` |
-| `...data.hasField('col')` | whether the field exists | `CrudDataDto.hasField` |
-| `context.<ctxAlias>.<crudAlias>.service.<method>(args)` | call a CRUD method (same path as `service.crud`) | `DynamicRuleContext.groovy` → inner `ServiceWrapper` → `executeCrudMethod` |
-| `context.<ctxAlias>.data.<attr>` (read) / `= v` (write) / `.getAttr(k)` / `.setAttr(k,v)` | attributes of **this context** (CONTEXT scope) | `ContextDataWrapper` (read, write) |
-| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** attributes (GLOBAL scope) — persisted with the case inside a process, otherwise living as long as the document. `setAttr('k', null)` REMOVES the key; a decimal comes back from `getAttr` as a `Double` — `as BigDecimal` before exact arithmetic | `GlobalDataWrapper` (read, write); method syntax → `ContextDataDto.getAttr`/`setAttr` |
-| `context.contextData` | raw `ContextDataDto` | |
-| `context.currentData` | the current item in a nested (List) form, or `null` in the parent | `ExecutionRuleTemplate.groovy` |
+| Syntax | What it does |
+|---|---|
+| `context.<ctxAlias>` | context wrapper; `<ctxAlias>` must be among the attached `contextIdentifiers` |
+| `context.<ctxAlias>.<crudAlias>` | CRUD wrapper; `<crudAlias>` must be in `context.crudAliases` |
+| `context.<ctxAlias>.<crudAlias>.data.get()` | **the current row** as a Map (JsonNode → object) — a detached COPY (an empty map, never `null`, when unset): changing the map changes nothing until you `put()` it back, or write single fields with `setField` |
+| `...data.getField('col', Type.class)` | one field of the row (dot-path: `'company.id'`) |
+| `...data.getField('col', default)` | field with a default |
+| `...data.put(obj)` | replace the entire current row |
+| `...data.setField('col', val)` | write one field (creates nested objects) |
+| `...data.hasField('col')` | whether the field exists |
+| `context.<ctxAlias>.<crudAlias>.service.<method>(args)` | call a CRUD method (same path as `service.crud`) |
+| `context.<ctxAlias>.data.<attr>` (read) / `= v` (write) / `.getAttr(k)` / `.setAttr(k,v)` | attributes of **this context** (CONTEXT scope) |
+| `context.data.<attr>` (read) / `= v` (write) / `.getAttr("k")` / `.setAttr("k",v)` | **global** attributes (GLOBAL scope) — persisted with the case inside a process, otherwise living as long as the document. `setAttr('k', null)` REMOVES the key; a decimal comes back from `getAttr` as a `Double` — `as BigDecimal` before exact arithmetic |
+| `context.contextData` | the raw context-data object |
+| `context.currentData` | the current item in a nested (List) form, or `null` in the parent |
 
 > **Three form scopes** (see [02-form-controls-reference.md](02-form-controls-reference.md)):
 > `scope:"GLOBAL"` ↔ `context.data.*` (`attrs`); `scope:"CONTEXT"` ↔ `context.<ctxAlias>.data.*`
@@ -544,47 +541,47 @@ Template fields: `dynamicContext`, `userId`, `service`, `contextIdentifiers`, `c
 
 `context.currentData.get()` returns the current list item **only** during validation/logic of that
 item; in the parent form `currentData` ITSELF is **`null`**, so `currentData.get()` throws a
-`NullPointerException` there — guard with `if (currentData != null)`. The backing is a synthetic context
-`__temp_list_item_context__.__temp_item__` (`ExecutionRuleTemplate.groovy`). Order: first the
+`NullPointerException` there — guard with `if (currentData != null)`. It is backed by a synthetic context
+`__temp_list_item_context__.__temp_item__`. Order: first the
 parent's validation (`currentData == null`), then each item is validated separately
 (`currentData == item`); field errors bind to that item's row.
 
-### `service` — the service facade (`ServiceWrapper`)
+### `service` — the service facade
 
 > 📚 **Full `service.*` capability surface** — what can actually be called in a script (crud/global/security/
 > rimm/report(PDF)/notification/quota/enums/access/store/`rule(name)`), with signatures and cross-flows (PDF→mail, notifications) —
 > [16-groovy-service-api.md](16-groovy-service-api.md). Below is a brief facade summary.
 
-The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
+The full surface:
 `access, rimm, security, notification, quota, global, crud, report, enums, workflow, store, actionName, actionId`
 + `rule(name)` + `redirectPage(path)`.
 
-| Syntax | What | Available in | Backing |
-|---|---|---|---|
-| `service.crud.<crudAlias>.<method>(args)` | call a dynamic CRUD method (context-agnostic) — **the main data API** | all | `ServiceWrapper.crud` ← `ServiceCrudLookup` |
-| `service.security.user()` | the current user (`.email`, `.id`, `.firstName`, …) | all | `SecurityHelper.user` |
-| `service.security.hasAnyRole("A","B")` | true if the user has **at least one** of the roles | all | `SecurityHelper.hasAnyRole` |
-| `service.security.hasAllRoles("A","B")` | true if the user has **all** the roles | all | `SecurityHelper.hasAllRoles` |
-| `service.security.hasAnyRoleGroup("Author")` | true if the user is in **at least one** of the role groups — **the one you will reach for almost every time** | all | `SecurityHelper.hasAnyRoleGroup` |
-| `service.security.hasAllRoleGroups("A","B")` | all role groups | all | `SecurityHelper.hasAllRoleGroups` |
-| `service.rimm.run([name:..., itemsPerPage:..., parameters:[:]])` | run a saved RIMM query by name | all | `ServiceWrapper.rimm` (`RimmServiceProxy`) |
-| `service.global.conversion.toSelectOptions(list,"id","label")` | list → dropdown options | all | `ServiceWrapper.global` (GlobalFunctions, YAML-defined) |
-| `service.global.conversion.toSelectOptionsLocalized(list,"id","label"[,localeKey,locField])` | localized options | all | `ServiceWrapper.global` |
-| `service.global.conversion.toAutoCompleteOptions(list,"label")` | list → autocomplete suggestions (single field) | all | `ServiceWrapper.global` |
-| `service.global.conversion.toAutoCompleteOptionsLocalized(list,"label"[,localeKey,locField])` | localized autocomplete suggestions | all | `ServiceWrapper.global` |
-| `service.enums['EnumName'].list()` | enum values | all | `ServiceWrapper.enums` (`@Setter`, snapshot per-invocation) |
-| `service.notification.push.*` / `service.notification.mail.<alias>(...)` | push/mail | **EXECUTION only** | `NotificationWrapper` — built only in `GroovyExecutionRule.java` |
-| `service.report.pdf.get.<alias>(...)` / `.download(...)` / `.email.<mail>(...)` / `.push.*` | PDF reports | **EXECUTION only** | `ReportWrapper`/`PdfReportProxy` — `setReport` only in `GroovyExecutionRule.java` |
-| `service.quota.*` | quotas | **EXECUTION only** | `QuotaProxy` — built only in `GroovyExecutionRule.java` |
-| `service.access.*` | the case's access rows: who SEES a case (`addRoleGroupAccess`, `removeOwnerAccess`, `hasUserAccess`, …) | all — but an edit is SAVED only from a service task's rule or a sequence-flow predicate; everywhere else it returns `true` and is discarded ([16](16-groovy-service-api.md) §2.7, [07](07-workflows-and-tasks.md) "Stage-wise case access") | `ServiceWrapper.access` (`AccessManager`) |
-| `service.workflow.start("<workflowIdentifier>", ctxMap[, opts])` | start a process; returns its identifier. First argument is the workflow **identifier** (autocompleted inside the quotes), and the workflow must be deployed | **EXECUTION only** (incl. CRUD GROOVY methods) | `WorkflowProxy` — `setWorkflow` refuses in predicate/validation |
-| `service.workflow.list / actions / startActions / contextData / complete` | work an EXISTING case: page through a worklist, ask what may be done to a process, read its context data, execute an action with new data. The first argument of most of them is a **process table's Settings ID**, which makes the rule inherit that table's workflow, filter and indexes — see [16](16-groovy-service-api.md) §2.13 | **EXECUTION only** (incl. CRUD GROOVY methods) | same gate as `start` |
-| `service.security.users.create / get / list / update / setEnabled / delete / addRoleGroup / removeRoleGroup / invite` and `service.security.roleGroups.list / get / create / update / delete / members` | manage the project's **people** and **role groups** from a rule: add a person (invited by e-mail, or with a password), re-group, disable, remove. Held to the RULE's own execution access, **not** to the Settings → Accesses grants of the User/Role Management screens — so set `rule access` to the role group that administers people; the default, any signed-in user, would let a clerk run it. Present in every rule type, but in a predicate / validation rule **every member throws** (`… is not available in predicates`; the same in an execution rule such a rule calls, `… in rules called from predicates`) — see [16](16-groovy-service-api.md) §2.3.1–2.3.3 | **EXECUTION only** (incl. CRUD GROOVY methods) | `SecurityHelper.users` / `.roleGroups` → `UserDirectoryProxy` / `RoleGroupDirectoryProxy` (`GroovyExecutorHelper.applySecurityDirectory`) |
-| `service.store.session.get/put/remove/containsKey/keys/all/clear` | key/value storage for the **browser session**, per project. Empty (put stores nothing, get answers `null`) wherever no browser session took part: a VALIDATION rule, a CRUD GROOVY method invoked directly from a page, anything a process table evaluates or runs against a case, scheduler / Kafka / MCP — see [16](16-groovy-service-api.md) §2.14 | all (but see the empty-list) | `RuleStoreProxy` → `SessionKeyValueStore` |
-| `service.store.user.get/put/remove/containsKey/keys/all/clear` | the same eight methods, stored in the database **per user** and outliving the session. Empty wherever there is no acting user | all | `RuleStoreProxy` → `UserKeyValueStore` |
-| `service.redirectPage("alias/page")` | send the BROWSER to another page of this project after the rule returns. Path WITHOUT the organisation, which is prepended for you; a full URL is refused. Nothing happens when no browser is waiting — see [16](16-groovy-service-api.md) §2.15 | **EXECUTION rules only** — a predicate, a validation rule and a CRUD GROOVY method all refuse it | `ServiceWrapper.redirectPage` |
-| `service.rule("Rule Name")` | run another rule **by name** (`findByName`), return its `returnValue`; same `contextData` | all | `ServiceWrapper.rule` |
-| `service.actionName` / `service.actionId` | name/id of the pressed action button (**`null`**, not `""`, if the rule was not invoked from a button — test `service.actionId != null`, never `!= ''`); **prefer `actionId`** (stable, locale-independent) | all | `ServiceWrapper.actionName/actionId` |
+| Syntax | What | Available in |
+|---|---|---|
+| `service.crud.<crudAlias>.<method>(args)` | call a dynamic CRUD method (context-agnostic) — **the main data API** | all |
+| `service.security.user()` | the current user (`.email`, `.id`, `.firstName`, …) | all |
+| `service.security.hasAnyRole("A","B")` | true if the user has **at least one** of the roles | all |
+| `service.security.hasAllRoles("A","B")` | true if the user has **all** the roles | all |
+| `service.security.hasAnyRoleGroup("Author")` | true if the user is in **at least one** of the role groups — **the one you will reach for almost every time** | all |
+| `service.security.hasAllRoleGroups("A","B")` | all role groups | all |
+| `service.rimm.run([name:..., itemsPerPage:..., parameters:[:]])` | run a saved RIMM query by name | all |
+| `service.global.conversion.toSelectOptions(list,"id","label")` | list → dropdown options | all |
+| `service.global.conversion.toSelectOptionsLocalized(list,"id","label"[,localeKey,locField])` | localized options | all |
+| `service.global.conversion.toAutoCompleteOptions(list,"label")` | list → autocomplete suggestions (single field) | all |
+| `service.global.conversion.toAutoCompleteOptionsLocalized(list,"label"[,localeKey,locField])` | localized autocomplete suggestions | all |
+| `service.enums['EnumName'].list()` | enum values | all |
+| `service.notification.push.*` / `service.notification.mail.<alias>(...)` | push/mail | **EXECUTION only** |
+| `service.report.pdf.get.<alias>(...)` / `.download(...)` / `.email.<mail>(...)` / `.push.*` | PDF reports | **EXECUTION only** |
+| `service.quota.*` | quotas | **EXECUTION only** |
+| `service.access.*` | the case's access rows: who SEES a case (`addRoleGroupAccess`, `removeOwnerAccess`, `hasUserAccess`, …) | all — but an edit is SAVED only from a service task's rule or a sequence-flow predicate; everywhere else it returns `true` and is discarded ([16](16-groovy-service-api.md) §2.7, [07](07-workflows-and-tasks.md) "Stage-wise case access") |
+| `service.workflow.start("<workflowIdentifier>", ctxMap[, opts])` | start a process; returns its identifier. First argument is the workflow **identifier** (autocompleted inside the quotes), and the workflow must be deployed | **EXECUTION only** (incl. CRUD GROOVY methods) |
+| `service.workflow.list / actions / startActions / contextData / complete` | work an EXISTING case: page through a worklist, ask what may be done to a process, read its context data, execute an action with new data. The first argument of most of them is a **process table's Settings ID**, which makes the rule inherit that table's workflow, filter and indexes — see [16](16-groovy-service-api.md) §2.13 | **EXECUTION only** (incl. CRUD GROOVY methods) |
+| `service.security.users.create / get / list / update / setEnabled / delete / addRoleGroup / removeRoleGroup / invite` and `service.security.roleGroups.list / get / create / update / delete / members` | manage the project's **people** and **role groups** from a rule: add a person (invited by e-mail, or with a password), re-group, disable, remove. Held to the RULE's own execution access, **not** to the Settings → Accesses grants of the User/Role Management screens — so set `rule access` to the role group that administers people; the default, any signed-in user, would let a clerk run it. Present in every rule type, but in a predicate / validation rule **every member throws** (`… is not available in predicates`; the same in an execution rule such a rule calls, `… in rules called from predicates`) — see [16](16-groovy-service-api.md) §2.3.1–2.3.3 | **EXECUTION only** (incl. CRUD GROOVY methods) |
+| `service.store.session.get/put/remove/containsKey/keys/all/clear` | key/value storage for the **browser session**, per project. Empty (put stores nothing, get answers `null`) wherever no browser session took part: a VALIDATION rule, a CRUD GROOVY method invoked directly from a page, anything a process table evaluates or runs against a case, scheduler / Kafka / MCP — see [16](16-groovy-service-api.md) §2.14 | all (but see the empty-list) |
+| `service.store.user.get/put/remove/containsKey/keys/all/clear` | the same eight methods, stored in the database **per user** and outliving the session. Empty wherever there is no acting user | all |
+| `service.redirectPage("alias/page")` | send the BROWSER to another page of this project after the rule returns. Path WITHOUT the organisation, which is prepended for you; a full URL is refused. Nothing happens when no browser is waiting — see [16](16-groovy-service-api.md) §2.15 | **EXECUTION rules only** — a predicate, a validation rule and a CRUD GROOVY method all refuse it |
+| `service.rule("Rule Name")` | run another rule **by name**, return its `returnValue`; same `contextData` | all |
+| `service.actionName` / `service.actionId` | name/id of the pressed action button (**`null`**, not `""`, if the rule was not invoked from a button — test `service.actionId != null`, never `!= ''`); **prefer `actionId`** (stable, locale-independent) | all |
 
 > ⚠️ **Choices-rule tail is mandatory.** Dropdown/tree pickers end their rule in `toSelectOptions*`, autocomplete
 > controls in `toAutoCompleteOptions*` (the `*Localized` variant when the display column is localized); a choices rule
@@ -594,23 +591,21 @@ The full surface (`@Getter` fields `ServiceWrapper.java` + the `rule()` method):
 > ⚠️ **Role checks always go through `service.security.*`.** The canonical form is
 > `service.security.hasAnyRoleGroup(...)` — e.g. a reusable `Is Approver` predicate whose whole body is
 > `return service.security.hasAnyRoleGroup("Approver")`. **The bare form `hasAnyRole(...)`
-> without `service.security.` does NOT work** in EXECUTION/PREDICATE scripts: the template class `RuleExecutor`
-> does not implement `IRuleExecutor`, and its `methodMissing` throws `MissingMethodException`
-> (`ExecutionRuleTemplate.groovy`). The `IRuleExecutor.groovy` interface is merely the contract of another
-> execution path, not a mixin on the template. (Bare `addError/addFieldError/...` in **validation**
-> scripts is the exception: they are explicitly defined on `ValidationRuleExecutor`,.)
+> without `service.security.` does NOT work** in EXECUTION/PREDICATE scripts: it throws
+> `MissingMethodException`. (Bare `addError/addFieldError/...` in **validation**
+> scripts is the exception: the validation template defines them.)
 
 > ⚠️ **`realm`/`client`** are available as `service.realm`/`service.client` getters, but **blocked**
-> as bare variables (`SecurityException`, `ExecutionRuleTemplate.groovy`).
+> as bare variables (`SecurityException`).
 
 > ⚠️ **There is NO `service.feign(...)` or `service.localization(...)`** — older platform documentation
-> uses them, but they do **not** exist in `ServiceWrapper`, and no working project calls them. For external services —
+> uses them, but they do **not** exist on `service`, and no working project calls them. For external services —
 > `inject('emailService')`/RIMM/global functions; for validation localization — the form's per-locale `*Messages` maps
 > or `service.global.locale.getKey()`.
 
-#### `inject("beanName")` — allow/block-list (`ExecutionRuleTemplate.groovy`)
+#### `inject("beanName")` — allow/block-list
 
-This is the **authoritative security boundary** for Spring beans:
+This is the **authoritative security boundary** for platform services:
 - `inject("rimmService")` → returns a **safe proxy** `service.rimm` (not the raw bean).
 - `inject("contextService"|"reactorService"|"ruleService"|"crudReactor"|"securityDirectory"|
   "securityRoleGroupDirectoryClient")` → **`SecurityException`** (blocked: they take a realm and a client as
@@ -624,28 +619,27 @@ This is the **authoritative security boundary** for Spring beans:
 
 When a dynamic CRUD method has `methodType: "GROOVY"`, its call goes over RSocket to the integration,
 which replies `{status:"delegated", ruleIdentifier}`, and the executor runs the attached rule,
-passing the method's arguments into the **`param`** binding (Map) (`ReactorServiceImpl.groovy` →
-`GroovyExecutionRule.java`, `contextDataMap.put("param", paramMap)`). This is how a `find` CRUD method
+passing the method's arguments into the **`param`** binding (Map). This is how a `find` CRUD method
 reads pagination: `def filter = param ?: [:]` → `filter.rowsInPage`/`filter.pageNumber`.
 
 ---
 
 ## How `service.crud.<alias>.<method>` resolves (dynamic)
 
-1. `service.crud.<crudAlias>` → `ServiceCrudLookup.propertyMissing` (`DynamicRuleContext.groovy`):
-   - **if the rule has NO contexts** (`contextMap.isEmpty()`) → resolve against the **full
-     CRUD registry** of the realm/client via `crudReactor.getRSocketRequester(...)`; if the alias is not
+1. `service.crud.<crudAlias>` is looked up:
+   - **if the rule has NO contexts** → resolve against the **full
+     CRUD registry** of the realm/client; if the alias is not
      registered — `MissingPropertyException`. **This is the path of all `RIMM_*` dropdown rules
      with `contextIdentifiers: []`.**
    - **if there are contexts** → the alias must be in the `crudAliases` of at least one, otherwise
      `MissingPropertyException("No CRUD found with alias: … in any attached context")`.
-2. `.method(args)` → `ServiceCrudInvoker.methodMissing` → `reactorService.executeCrudMethod(...)`.
-3. `executeCrudMethod` (`ReactorServiceImpl.groovy`) makes an RSocket request to the integration
+2. `.method(args)` is executed as a call of that CRUD method.
+3. The call is an RSocket request to the integration
    that owns the alias (`crud.<realm>.<client>.<token>.<crudAlias>.execute`).
 4. Response:
    - ordinary JSON → returned as a Groovy object;
-   - `{status:"delegated", ruleIdentifier}` → the corresponding Groovy method rule is executed
-     (`executeDelegatedRule`), parameters → `param`.
+   - `{status:"delegated", ruleIdentifier}` → the corresponding Groovy method rule is executed,
+     parameters → `param`.
 
 Example chain: the GROOVY `find` of a CRUD calls the SQL `count` and `findAll` of that same CRUD —
 this is the body of `invoices_cruid.find` in `dynamic-cruds.json`:
@@ -665,8 +659,8 @@ return [
 ]
 ```
 
-> `context.<ctx>.<crud>.service.<m>()` and `service.crud.<crud>.<m>()` are **the same path**
-> (`reactorService.executeCrudMethod`); the second is shorter and needs no attached context, and it is
+> `context.<ctx>.<crud>.service.<m>()` and `service.crud.<crud>.<m>()` are **the same path**;
+> the second is shorter and needs no attached context, and it is
 > **the form you should default to** — `context.<ctx>.<crud>.service.*` earns its keep only when the rule is
 > already reading `.data` from that same context.
 > The canonical `find` call: `service.crud.<alias>.find([rowsInPage, pageNumber:0])`. Mongo-style
@@ -685,19 +679,19 @@ nothing.
 
 Behavior by surface type:
 
-| Surface | What's placed into `data` | contextIdentifier | Source |
-|---|---|---|---|
-| **CRUD table** (row action / visibility predicate / fetch / before-start / before-complete) | **the full row entity** (loaded by id) | `model.getContextIdentifier()`, empty → `crudAlias` (`CrudTablePlugin.java`) | `executePredicateWithCrudContext` / `executeRuleWithCrudContext` |
-| **CRUD tree** | same as the table | as above | `CrudTreePlugin` (same service) — see [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md) |
-| **Process table** (`process.table.pluin`) | the current process row, analogous to the table | as above | the same `RuleExecutionService` |
-| **Form** (prohibited/hidden/required/choices/validation) | form field values (field-centric); in CREATE mode — an empty seed | the form's `settings.contextIdentifier`, `crudAlias` from settings | `FormPlugin`; in CREATE it seeds an empty `CrudDataDto` |
-| **Form "Run" in the rule editor** | **the entity by id** (the full row, including non-form fields like `status`) | as for the form | `FormPlugin.LIVE_FORM_CONTEXT_DATA_ATTRIBUTE` (published by `FormPlugin.java`) → `RuleEditPanel` reads it (`RuleEditPanel.java`) → `workflowExecutionService.execute(...)` |
-| **List item** (nested form) | the current item is available as `context.currentData` (the special `__temp_list_item_context__.__temp_item__`) — both in the item's VALIDATION rules and in the list action's **On Before Complete** EXECUTION rule, which runs after validation and before the line is merged into the parent list, so `context.currentData.setField('a.b', v)` there decides what the list actually stores | — | `ExecutionRuleTemplate.groovy`; `ListItemFormPlugin.handleSubmit` → `executeBeforeCompleteRule` |
-| **Workflow** (service-task / gateway / user-task) | ⛔ whatever the START put in the document, and nothing more: the process's own `attrs`, plus any `crudDataMap` the start seeded — a start form's own CRUD-scoped controls, or the document a rule passed to `service.workflow.start`. **Never a row the process fetched itself.** See below. | as configured | see [07-workflows-and-tasks.md](07-workflows-and-tasks.md) |
+| Surface | What's placed into `data` | contextIdentifier |
+|---|---|---|
+| **CRUD table** (row action / visibility predicate / fetch / before-start / before-complete) | **the full row entity** (loaded by id) | the table's configured `contextIdentifier`; empty → `crudAlias` |
+| **CRUD tree** | same as the table — see [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md) | as above |
+| **Process table** (`process.table.pluin`) | the current process row, analogous to the table | as above |
+| **Form** (prohibited/hidden/required/choices/validation) | form field values (field-centric); in CREATE mode — an empty seed | the form's `settings.contextIdentifier`, `crudAlias` from settings |
+| **Form "Run" in the rule editor** | **the entity by id** (the full row, including non-form fields like `status`) | as for the form |
+| **List item** (nested form) | the current item is available as `context.currentData` (the special `__temp_list_item_context__.__temp_item__`) — both in the item's VALIDATION rules and in the list action's **On Before Complete** EXECUTION rule, which runs after validation and before the line is merged into the parent list, so `context.currentData.setField('a.b', v)` there decides what the list actually stores | — |
+| **Workflow** (service-task / gateway / user-task) | ⛔ whatever the START put in the document, and nothing more: the process's own `attrs`, plus any `crudDataMap` the start seeded — a start form's own CRUD-scoped controls, or the document a rule passed to `service.workflow.start`. **Never a row the process fetched itself.** See below, and [07-workflows-and-tasks.md](07-workflows-and-tasks.md). | as configured |
 
 ⛔ **The workflow row is the one that catches people out, so read it twice.** A RUNNING process files no
 entity of its own into `crudDataMap`. There is no code path that does: a user-task action is not in a
-crud-table settings object, so `FormPlugin.initCrudMode()` never runs and no `crudId` is ever resolved; a
+crud-table settings object, so the form's CRUD mode never initialises and no `crudId` is ever resolved; a
 process-table global action has no row at all.
 
 That is not the same as "the document is empty". It holds exactly what the START wrote into it: a start form's
@@ -745,7 +739,7 @@ seed, so `data.get()?.status == 'DRAFT'` (with `?.`) is safer than direct field 
 
 ### Context merge on task completion (workflow)
 
-On `task-complete` the context is merged by `ContextDataMergeUtil.mergeContextData(target, source)`:
+On `task-complete` the context is merged:
 `access` = override; GLOBAL/CONTEXT `attrs` = source overrides target; CRUD = **field-level deep
 merge** (source fields are overlaid onto target; a primitive/array = full replacement). Important for
 before-complete rules that write a partial entity. (Verify against the running platform before relying on the
@@ -759,12 +753,12 @@ exact deep-merge semantics.)
 itself declaratively** via the "Validation Template" dropdown in its own field settings (stored in the control's
 `conditionalValidations[]`, each `{predicateIdentifier, severity ERROR|WARNING, localized message}` —
 [02-form-controls-reference.md](02-form-controls-reference.md)). It generates a **predicate** on the field; the
-contract is **predicate-true = INVALID** (`BuiltinTemplates.java`). This is the **opposite polarity** to
+contract is **predicate-true = INVALID**. This is the **opposite polarity** to
 the form's `validationPredicate`, where **true = valid** — be sure to distinguish them. The predicate can read
 **other** submitted fields, so **cross-field** checks live here too (validation runs on submit). Reach for a
 hand-written `VALIDATION_RULE` (below) **only** when the logic is genuinely complex **and** the error/warning
 text must be **computed at runtime** and depends on many things. The full set
-(`BuiltinTemplates.java` → `registerAll`; 51 registrations; in parentheses — the param-id):
+(51 registrations; in parentheses — the param-id):
 
 - **Cross-type**: `required`, `equalsConst`(`value`), `notEqualsConst`(`value`), `inList`(`values`), `notInList`(`values`).
 - **String**: `strLenBetween`, `strLenMin`, `strLenMax`, `strLenExact`, `strRegex`(`pattern`), `strRegexNot`(`pattern`), `strStartsWith`(`prefix`), `strEndsWith`(`suffix`), `strContains`(`needle`), `strNotContains`(`needle`), `strUppercase`, `strLowercase`, `strNoWhitespace`, `strTrimmed`.
@@ -774,7 +768,7 @@ text must be **computed at runtime** and depends on many things. The full set
 - **JSON**: `jsonHasKey`(`path`), `jsonMissingKey`(`path`).
 - **List**: `listNotEmpty`, `listSizeMin`, `listSizeMax`, `listSizeBetween`, `listAllUnique`, `listContains`(`value`).
 
-A template's compatibility with a field is filtered by `ValueType` (`ValidationTemplateRegistry.forType(type)`).
+A template's compatibility with a field is filtered by `ValueType`.
 `ValueType` (full enum): `JSON, OBJECT_NODE, ARRAY_NODE, STRING, INTEGER, LONG, DOUBLE, FLOAT, SHORT,
 BYTE, BIG_DECIMAL, BIG_INTEGER, BOOLEAN, ARRAY_LIST, INSTANT, LOCAL_DATE, LOCAL_DATE_TIME`. Sets:
 NUMERIC = {INTEGER,LONG,SHORT,BYTE,FLOAT,DOUBLE,BIG_DECIMAL,BIG_INTEGER}; DATE_ALL =
@@ -942,7 +936,7 @@ Key rules when generating the JSON by hand:
 - The script has an **explicit `return`** — otherwise the trailer `if(true){return null;}` returns `null` and the dropdown is empty. Two more empty-dropdown causes: (a) the rule returned the raw `find`/`findAll` list instead of piping it through `service.global.conversion.toSelectOptions*`/`toAutoCompleteOptions` → **"No results found"** + no Show-Nav; (b) for a **localized** CRUD, plain `toSelectOptions` was used instead of `toSelectOptionsLocalized`, so labels always show the base locale. See **02 §4a**.
 - In `ruleScriptStr`, line breaks = `\n`, quotes = `\"` (this is a single JSON string).
 - `contextIdentifiers: []` — a `service.crud`-only source needs no context (this is the pattern of every
-  `RIMM_*` rule; resolution goes against the full CRUD registry, `DynamicRuleContext.groovy`).
+  `RIMM_*` rule; resolution goes against the full CRUD registry).
 - `identifier` — a new unique **UUID** (not a slug); the dropdown control's `settings.stringValue.ruleIdentifier`
   will reference it (see [02-form-controls-reference.md](02-form-controls-reference.md) and
   [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md)).
@@ -971,7 +965,7 @@ Here the rule reads the **row** via `context.<ctx>.<crud>.data`, so a context is
 }
 ```
 `invoices_cruid` **must** be in `finance_context.crudAliases`. When executed from a CRUD table the
-executor places the full row into `data`, and `apply()` casts the result to `Boolean` → a `return` is required.
+executor places the full row into `data`, and the result is cast to `Boolean` → a `return` is required.
 `?.` — in case of CREATE mode (empty seed).
 
 ### Recipe: role-check predicate (no context needed)
@@ -1019,7 +1013,7 @@ script **reads** the column `productName` (`getField('productName', …)`) but *
 
 **First establish which kind of export you were handed.** Two exports of the same functional system can look
 identical at the rules level yet be **different projects**: one with **no `dynamic-cruds.json`** is the
-**STATIC** compiled-`@Crud` flavour (`service.crud.<alias>` resolves to a Java bean whose body is *not* in the
+**STATIC** compiled-CRUD flavour (`service.crud.<alias>` resolves to compiled Java code whose body is *not* in the
 export — gotcha #17); one **with** `dynamic-cruds.json` carries its CRUD methods in full and is the flavour you
 can actually modify end-to-end. The rules, the contexts and the rule **syntax/shape** are the same either way —
 only the crud backing differs, and that decides whether a change is doable in the export at all.
@@ -1037,8 +1031,7 @@ Before editing a filled export, **run `mrjun.py validate` FIRST** and treat thes
   Prepending `return` will **not** fix it; it should be an `EXECUTION_RULE` (action logic / on-before-complete),
   not a visibility predicate. The rest are usually genuine predicates (`status` comparisons,
   `service.actionId == …`) that only need `return`.
-- **`EXECUTOR_MISMATCH`** (`ruleType` ↔ `executor` inconsistent, `validate` **errors** it,
-  `validate_cmds.py`). Exports rarely ship these, but a hand edit introduces them easily — always
+- **`EXECUTOR_MISMATCH`** (`ruleType` ↔ `executor` inconsistent, `validate` **errors** it). Exports rarely ship these, but a hand edit introduces them easily — always
   re-`validate` after editing.
 
 ---
@@ -1053,12 +1046,11 @@ allocates.
 
 ### The reporting problem: a nested rule's failure arrives as the word "null"
 
-`service.rule("<name>")` executes the named rule through `java.lang.reflect.Method.invoke`
-(`ServiceWrapper.rule()`, `nct-executor-common`). When the nested rule throws, reflection wraps it in an
+`service.rule("<name>")` executes the named rule through `java.lang.reflect.Method.invoke`. When the nested rule throws, reflection wraps it in an
 `InvocationTargetException`. **A platform build that unwraps it** (the current one) reports the nested failure's own
 text — `…Failed to execute rule 'Inner': Failed to execute Groovy script: <the real message>`; **an older build**
 reports **`e.getMessage()`** of the wrapper, which is always `null` (and so does the current one for an exception that
-carries no message of its own, such as a `ServiceException` with only `errors[]`). Against an older build every
+carries no message of its own, such as one with only an `errors[]` list). Against an older build every
 failure inside a nested rule reaches the user as:
 
 ```
@@ -1158,7 +1150,7 @@ two or three rows will satisfy the identity by accident; a real catalogue will n
 
 ### The offline gate
 
-`mrjun.py validate` covers all four (`_check_groovy_numeric_traps`): trap 1 as an **ERROR**, traps 2 and 3
+`mrjun.py validate` covers all four: trap 1 as an **ERROR**, traps 2 and 3
 as **WARN**s, over every rule body *and* every dynamic-CRUD GROOVY method. Comments and string literals are
 stripped first, so a doc comment quoting the wrong form is never reported. What it cannot check is trap 4 —
 that one is arithmetic, and it belongs in the project's own offline verifier.
@@ -1168,57 +1160,55 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
 ## Gotchas
 
 1. **Always `return` in a PREDICATE.** The template trailer `if(true){return null;}` overrides a bare
-   final expression; `GroovyPredicate.apply()` will throw `"Predicate rule must return Boolean, but
+   final expression; the predicate will throw `"Predicate rule must return Boolean, but
    returned: null"`. The same for EXECUTION rules that must *return* a value (dropdown/fetch).
- (`ExecutionRuleTemplate.groovy`, `GroovyPredicate.java`.)
-2. **PREDICATE and EXECUTION use the same template file** (`ExecutionRuleTemplate.groovy`, class
-   `RuleExecutor`). The difference is only in `apply()` semantics (Boolean cast vs raw). There is no separate `PredicateTemplate`.
+2. **PREDICATE and EXECUTION use the same template.** The difference is only in how the result is treated
+   (Boolean cast vs raw). There is no separate predicate template.
 3. **`executor` must match `ruleType`.** `PREDICATE`↔`GroovyPredicate`,
-   `EXECUTION_RULE`↔`GroovyExecutionRule`, `VALIDATION_RULE`↔`GroovyValidationRule`
-   (`@ExecutorRule` in `GroovyPredicate.java`, `GroovyExecutionRule.java`, `GroovyValidationRule.java`).
+   `EXECUTION_RULE`↔`GroovyExecutionRule`, `VALIDATION_RULE`↔`GroovyValidationRule`.
 4. **`context.<alias>` requires an attachment.** The context alias must be in `rule.contextIdentifiers[]`,
-   otherwise `MissingPropertyException("Context '<alias>' not found...")` (`ExecutionRuleTemplate.groovy`).
+   otherwise `MissingPropertyException("Context '<alias>' not found...")`.
    But a rule using **only** `service.crud`/`service.security`/`service.global` needs no context —
    leave `contextIdentifiers: []` (this is the norm for `RIMM_*` dropdown sources).
 5. **`<crudAlias>` must be in `context.crudAliases`** (when a context is attached) — otherwise `MissingProperty`
-   on the CRUD wrapper (`DynamicRuleContext.groovy`) or on `service.crud` with a context.
+   on the CRUD wrapper or on `service.crud` with a context.
    Classic bug: an init rule writes `context.<ctx>.invoices` while the context lists `invoices_cruid` → fails.
 6. **`data.get()` is empty if the caller didn't fill `crudDataMap[crudAlias]`.** From a form
- in CREATE mode, you need to seed an empty `CrudDataDto`, otherwise
-   `RuntimeException("No CRUD data available for CRUD: <alias>")` (`DynamicRuleContext.groovy`).
+ in CREATE mode, you need to seed an empty CRUD-data node, otherwise
+   `RuntimeException("No CRUD data available for CRUD: <alias>")`.
    Write `data.get()?.field` in predicates that can be invoked in CREATE.
 7. **contextIdentifier vs crudAlias.** The UI places the row under the `contextIdentifier` key (empty →
-   under `crudAlias`) (`CrudTablePlugin.java`, `RuleExecutionServiceImpl.java`). If the control
+   under `crudAlias`). If the control
    settings' `contextIdentifier` is not set, and the rule writes `context.<ctxAlias>.<crud>...`,
    but the data was placed under the `<crudAlias>` key, the read returns empty. Keep `contextIdentifier`
    consistent between the form settings and the rule body.
-8. **`realm`/`client` are unavailable** as bare variables in a script — access throws `SecurityException`
-   (`ExecutionRuleTemplate.groovy`). Available as `service.realm`/`service.client`.
-9. **`service.rule("Name")` looks up by `name`, not by id** (`ServiceWrapper.java` → `findByName`).
+8. **`realm`/`client` are unavailable** as bare variables in a script — access throws `SecurityException`.
+   Available as `service.realm`/`service.client`.
+9. **`service.rule("Name")` looks up by `name`, not by id**.
    Keep rule names unique, otherwise the call may resolve to the wrong rule.
 10. **`service.crud.<alias>.find` is a Groovy method** that internally calls the SQL methods `count`/
     `findAll` of the same CRUD via delegation; parameters (`rowsInPage`/`pageNumber`) arrive as
-    `param` (`ReactorServiceImpl.groovy`, `GroovyExecutionRule.java`). Without `rowsInPage`
+    `param`. Without `rowsInPage`
     pagination won't work (on SQL filters, see [11](11-business-logic-dynamic-crud.md)). **TRAP (untyped-`$1`):** for a dropdown/fetch source call
     `find([rowsInPage,pageNumber:0])` or `findAll([:])` (ALL keys absent). NEVER call the default
     multi-optional-param `findAll` with a **partial** column-filter map (e.g. `findAll([active:"true", rowsInPage])`)
     — the first unbound optional param renders as `$1 IS NULL` with no type and Postgres errors
     `could not determine data type of parameter $1`. Correct optional-filter SQL uses `IS NOT DISTINCT FROM COALESCE(:p, col)`.
-11. **Compilation is cached by the SHA-256 of the body** (`AbstractGroovyExecutor.java`). Identical
+11. **Compilation is cached by the SHA-256 of the body.** Identical
     `ruleScriptStr` = one compiled class; to change behavior, change the rule text.
-12. **`RuleStatus` is `ACTIVE`/`UNUSED`/`DELETED`**, NOT `INACTIVE`/`DRAFT` (older platform docs are wrong).
-    `UNUSED` is a usage-scanner label, the rule remains executable (`RuleStatus.java`).
+12. **The rule `status` is `ACTIVE`/`UNUSED`/`DELETED`**, NOT `INACTIVE`/`DRAFT` (older platform docs are wrong).
+    `UNUSED` is a usage-scanner label, the rule remains executable.
 13. **Role checks — only `service.security.hasAny/AllRole(s)` and `hasAny/AllRoleGroup(s)`.** Bare
-    `hasAnyRole(...)` in EXECUTION/PREDICATE does not work (`RuleExecutor.methodMissing` throws,
-    `ExecutionRuleTemplate.groovy`). Bare `addError/addFieldError/...` work **only** in
-    VALIDATION (`ValidationRuleTemplate.groovy`).
+    `hasAnyRole(...)` in EXECUTION/PREDICATE does not work (it throws `MissingMethodException`).
+    Bare `addError/addFieldError/...` work **only** in
+    VALIDATION.
 14. **No `service.feign(...)` / `service.localization(...)`** — older platform docs invented them.
     Use `inject('emailService')` / RIMM / `service.global` / per-locale `*Messages` maps.
 15. **`param` is EXECUTION only**, `validation` is VALIDATION only. Predicates have neither.
-    The `notification`/`report`/`quota` facades are built **only** for EXECUTION
-    (`GroovyExecutionRule.java`); in a predicate/validation `service.notification`/`service.report`
+    The `notification`/`report`/`quota` facades are built **only** for EXECUTION;
+    in a predicate/validation `service.notification`/`service.report`
     `service.quota` = `null`. `service.store` is **not** in that list — both members are wired by all
-    three executors (`GroovyExecutorHelper.applyStore`), so they always EXIST and a store that cannot reach
+    three executors, so they always EXIST and a store that cannot reach
     anything answers empty rather than throwing. (A `put` past a limit — key over 255 chars, value over ~64 K
     characters, nesting over 32, the 201st session key, the 501st user key for one person, a number past 38
     digits, a value that is not JSON-shaped — IS refused, naming the key. A decimal reads back a `BigDecimal`
@@ -1238,7 +1228,7 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     `processInstanceId` attr — the process id is `attrs.processIdentifier`, the edited row's id is
     `attrs._crudEntityId`; the invented names read back `null` silently.
 17. **Static vs dynamic.** In a STATIC project `service.crud.<alias>.<m>()` resolves over RSocket to
-    the compiled `@Crud` bean of that microservice — the rule alone suffices, but the business method
+    the compiled Java CRUD of that microservice — the rule alone suffices, but the business method
     is not in the export (it's in the code). In a dynamic project the target method is described in `dynamic-cruds.json`
     (`methods[]`) and is **exported in full** — see [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md).
     The rule syntax is identical for both styles.
@@ -1246,7 +1236,7 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     identity is held by `identifier`, not by `id`.
 19. **Guard-with-message = `throw` from an EXECUTION rule.** `throw new RuntimeException("msg")` in an
     EXECUTION rule (action logic / `onBeforeStart` / `onBeforeComplete`) aborts the action and shows `msg` as an
-    error toast (`CrudTablePlugin.java`). A PREDICATE cannot show a message or abort — it only
+    error toast. A PREDICATE cannot show a message or abort — it only
     hides/disables the button. See §"Aborting an action with a message (`throw`)".
 20. **A rule a public page triggers must be `anyone`.** Absent `access` = signed-in users, so on a platform with
     execution access an anonymous visitor's predicate / validation / submit / choices / `ctx.callRule` is refused

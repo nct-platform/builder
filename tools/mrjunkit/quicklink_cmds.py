@@ -1,13 +1,13 @@
 """Left-nav quick-link commands: quicklink list/add/add-external/rm.
 
 The left navigation's menu is a JSON STRING in `properties.modelGroups.stringValue`
-(decoding to `{"pagesModel": [PageModel, ...]}`) on a `site.kicker.plugin` node.
+(decoding to `{"pagesModel": [<page node>, ...]}`) on a `site.kicker.plugin` node.
 
 ⚠️ THE NODE THAT ACTUALLY RENDERS IS THE SHARED COMMON ONE, NOT THE PER-PAGE ONES.
 The branch ships a common virtual plugin named "Nct left nav"
 (`branch.virtualPlugins[]` → its `content`, identifier `left-nav`); every page's
 per-page `site.kicker.plugin` node carries a `linkContentIdentifier` pointing at that
-shared node, so `PluginPanel.getContent()` resolves the render to the shared node and
+shared node, so the render resolves to the shared node and
 the per-page `modelGroups` are DEAD DATA — never read. These commands therefore edit the
 shared "Nct left nav" node (via `_target_nav_nodes`), falling back to per-page nodes only
 in older exports that lack the common plugin. See ../17-left-nav-quick-links.md.
@@ -46,7 +46,7 @@ def _shared_left_nav_node(project):
 
     ⚠️ Every per-page `site.kicker.plugin` node carries a `linkContentIdentifier`
     pointing at THIS shared node (`branch.virtualPlugins[] name="Nct left nav"` → its
-    `content`), so `PluginPanel.getContent()` resolves the render to it and the per-page
+    `content`), so the render resolves to it and the per-page
     `modelGroups` are DEAD DATA — never read at runtime. Quick links MUST be written here.
     Returns the shared content node dict, or None (older exports without the common plugin).
     """
@@ -135,7 +135,7 @@ def _resolve_page(root, key):
 
 
 # ---------------------------------------------------------------------------
-# PageModel construction (group / link)
+# Page-node construction (group / link)
 # ---------------------------------------------------------------------------
 
 
@@ -194,7 +194,7 @@ def _attach_group_localized_map(group, name, name_loc, locales, icon):
 
 
 def _find_group(pages_model, name):
-    """Return the top-level group PageModel with this name, or None. A group is
+    """Return the top-level group page node with this name, or None. A group is
     a node with children and no linkModel."""
     for item in pages_model:
         if not isinstance(item, dict):
@@ -234,8 +234,8 @@ def _build_link(locales, label, icon, order, parent_uuid,
         "icon": icon,
         "heading": False,
         # ⛔ THE LABEL THE SIDEBAR RENDERS COMES FROM THIS MAP, NOT FROM linkModel's.
-        # A nav item is a `PageModel extends LocalizedBean`, and the label is read with
-        # `getLocalized("name", locale)` — `localizedMap["name"][locale]`, falling back to the RAW
+        # A nav item is a localized node, and the label is read as
+        # `localizedMap["name"][locale]`, falling back to the RAW
         # `name` property when the map has no entry. Localizing only the inner `linkModel` therefore
         # leaves the item showing `name` — one language — under EVERY locale, which is exactly what a
         # three-locale project looks like when it renders entirely in the first one. The platform's
@@ -251,7 +251,7 @@ def _build_link(locales, label, icon, order, parent_uuid,
 
 
 def _link_target(item):
-    """Return (internal, identifier-or-url) for a link PageModel, or None if it
+    """Return (internal, identifier-or-url) for a link page node, or None if it
     is not a link."""
     lm = item.get("linkModel") if isinstance(item, dict) else None
     if not lm:
@@ -515,7 +515,7 @@ def _link_labels(item):
 
 
 def _prune_links(pages_model, label):
-    """Remove link PageModels the label names — by raw name or by ANY localized name — at every
+    """Remove link page nodes the label names — by raw name or by ANY localized name — at every
     depth. Returns the number removed. Groups are kept."""
     removed = 0
     kept = []

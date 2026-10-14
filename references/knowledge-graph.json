@@ -254,7 +254,7 @@
    "type": "pattern",
    "name": "NEGATIVE — Groovy capability flags without matching page/nav roleAccess",
    "rule": "The PRD carries a full 8-role permission matrix; the export gates 367 pages with the baseline `Author` group, 5 with role groups from a DIFFERENT project's starter template, and exactly ONE with a business role — so every persona sees all 171 nav links and can reach every page by URL, while all real gating lives in Groovy.",
-   "artefact": "siteMapPage.roleAccess.roleGroupAccessors + PageModel.roleAccess in the nav modelGroups",
+   "artefact": "siteMapPage.roleAccess.roleGroupAccessors + page node's roleAccess in the nav modelGroups",
    "seenIn": [
     "A"
    ],
@@ -1070,7 +1070,7 @@
    "type": "pattern",
    "name": "Cross-check every `roleGroupAccessors` key against the project's real role groups",
    "rule": "Three of four exports gate nav items to five role groups that exist in none of them — `Software Specialist`, `Front Office Employee`, `Diagnostic Technician`, `Diagnostic Head`, `Hardware Specialist` — inherited from a template and never rewritten; with `accessors: {}` alongside, the item is visible to nobody but `Author`.",
-   "artefact": "PageModel.roleAccess.roleGroupAccessors vs rep-objects.json.roleGroups[].name",
+   "artefact": "page node's roleAccess.roleGroupAccessors vs rep-objects.json.roleGroups[].name",
    "seenIn": [
     "A",
     "C",
@@ -1083,9 +1083,9 @@
   {
    "id": "p:two-level-nav-group-then-link",
    "type": "pattern",
-   "name": "Two levels only — a group is a `PageModel` with `children` and NO `linkModel`",
+   "name": "Two levels only — a group is a page node with `children` and NO `linkModel`",
    "rule": "B/C/D have zero links carrying children across 65/51/29 items; business groups hold 1–9 links each (median 4–6), ordered the way work flows through the business — cockpit → operational registers → queues → reports → configuration.",
-   "artefact": "pagesModel[] group PageModels (no linkModel) each holding leaf link PageModels",
+   "artefact": "pagesModel[] group page nodes (no linkModel) each holding leaf link page nodes",
    "seenIn": [
     "B",
     "C",
@@ -1115,7 +1115,7 @@
    "type": "pattern",
    "name": "`localizedMap.name` goes on the ITEM as well as on the `linkModel`",
    "rule": "C covers 51/51 items and A 173/173; B misses only the baseline `Pages` heading — but D's twelve business links carry a complete three-locale `linkModel.localizedMap` and NO item-level map, so its sidebar renders those twelve entries in the default locale under both of the others.",
-   "artefact": "PageModel.localizedMap.name AND PageModel.linkModel.localizedMap.name",
+   "artefact": "page node's localizedMap.name AND page node's linkModel.localizedMap.name",
    "seenIn": [
     "B",
     "C",
@@ -1130,7 +1130,7 @@
    "type": "pattern",
    "name": "`localizedMap.icon` must be the identical CSS class in every locale — and it silently overrides `icon`",
    "rule": "All four exports carry the SAME corrupted baseline icon translations (`pe-7s գործիքներ` for `pe-7s-tools`, `pe-7s-կրկնություն` for `pe-7s-repeat`, `pe-7s-խաղ` for `pe-7s-play`, `pe-7s-box1` vs `pe-7s-box2` for Contexts), so under `hy_AM` those console icons are simply absent — 6–7 items per project.",
-   "artefact": "PageModel.linkModel.localizedMap.icon",
+   "artefact": "page node's linkModel.localizedMap.icon",
    "seenIn": [
     "A",
     "B",
@@ -1207,7 +1207,7 @@
    "type": "pattern",
    "name": "Pick ONE school for granting build identities on nav items and apply it everywhere",
    "rule": "B puts `accessors: {admin:…true, nct_author:…true}` on all 56 gated items and keeps `roleGroupAccessors` purely business; C/D/A use `accessors: {}` and append `Author`/`Developer`/`System Administrator` as role groups (C: Author on 45/45).",
-   "artefact": "PageModel.roleAccess.accessors vs .roleGroupAccessors",
+   "artefact": "page node's roleAccess.accessors vs .roleGroupAccessors",
    "seenIn": [
     "B",
     "C",
@@ -1237,7 +1237,7 @@
    "type": "pattern",
    "name": "`parentUuid` must equal the uuid of the array the item sits in",
    "rule": "The render walks `children`, so a wrong `parentUuid` renders correctly and stays invisible — C's front-door link sits in `Cases.children` but carries `parentUuid: 62492f05-…` (the `Pages` group), the fingerprint of a tool-added link hand-spliced elsewhere; it is also one of two `order: 0` siblings in that group.",
-   "artefact": "PageModel.parentUuid / PageModel.order",
+   "artefact": "page node's parentUuid / page node's order",
    "seenIn": [
     "C"
    ],
@@ -1280,7 +1280,7 @@
    "type": "pattern",
    "name": "cssByTheme as a per-theme palette bridge",
    "rule": "Declare 19 colour tokens (--c1..--c8 qualitative, --c-good/warn/risk/crit/mute, --r1..--r4 sequential, --div-up/down) on the mount class in cssByTheme with a light '*' block and a lightened block per dark skin, then read them back in JS with getComputedStyle(el).getPropertyValue — the canvas gets a palette that re-tints per theme.",
-   "artefact": "ChartJsModel.cssByTheme + a V(name,fallback) helper at the top of every chart's js",
+   "artefact": "the chart config's cssByTheme + a V(name,fallback) helper at the top of every chart's js",
    "seenIn": [
     "B"
    ],
@@ -1353,7 +1353,7 @@
    "type": "pattern",
    "name": "Every chart's js opens with a theme prelude",
    "rule": "185/185 charts read live colours off the mounted element before constructing anything: Chart.defaults.color = getComputedStyle(host).color, Chart.defaults.borderColor from --bs-border-color, plus Intl.NumberFormat formatters and a shared base(legend) options factory.",
-   "artefact": "the first ~20 lines of ChartJsModel.js, pasted identically into every chart of a board",
+   "artefact": "the first ~20 lines of the chart's js, pasted identically into every chart of a board",
    "seenIn": [
     "A",
     "B",
@@ -1384,7 +1384,7 @@
    "type": "pattern",
    "name": "Two series from one query — SQL FILTER pivot vs JS pivot()",
    "rule": "Fixed, known series (on-time/late, critical/high) pivot in SQL with count(*) FILTER (WHERE …) and bind one $$() per series; data-driven series pivot in JS from a long (key, series, value) triple with an explicit ORDER array so the stack never reshuffles.",
-   "artefact": "chart SQL + the pivot()/mapof() helpers in ChartJsModel.js",
+   "artefact": "chart SQL + the pivot()/mapof() helpers in the chart's js",
    "seenIn": [
     "B",
     "C",
@@ -1414,7 +1414,7 @@
    "type": "pattern",
    "name": "Full arrives as a string or as column-metadata rows — normalise before reading",
    "rule": "A `Full` replacement can land as JSON text (so rows.length counts characters and rows[0] is '['), and each row is {cols:[{column:{name},<value>}]} not a plain map; asRows()+flattenRow() handle every observed shape and a COLS literal lets a positional row still be read by name.",
-   "artefact": "ChartJsModel.js helper pair, used with a <div> mount and C.find('.x').html(...) — the data-bound HTML tile",
+   "artefact": "the chart's js helper pair, used with a <div> mount and C.find('.x').html(...) — the data-bound HTML tile",
    "seenIn": [
     "A"
    ],
@@ -1427,7 +1427,7 @@
    "type": "pattern",
    "name": "Resolving the session locale inside the chart's own JS",
    "rule": "?lng= → ?lang= → `lang` cookie → <html lang> gives the chart the locale the user is reading, and L(en,hy) / W(dbValue) then localize the strings that must live inside the plot — dataset labels, axis units, tooltip prefixes, empty states.",
-   "artefact": "an IIFE at the top of ChartJsModel.js, plus a WORDS dictionary for enum values that arrive in one language",
+   "artefact": "an IIFE at the top of the chart's js, plus a WORDS dictionary for enum values that arrive in one language",
    "seenIn": [
     "A"
    ],
@@ -1440,7 +1440,7 @@
    "type": "pattern",
    "name": "Bar colour computed per row from sibling threshold series",
    "rule": "Bind the measure plus its two limits from the same query and colour each bar by comparing them (x <= reorder ? red : x <= warning ? amber : green), then draw the two limits as reference lines — one chart that says both 'how much' and 'is it a problem'.",
-   "artefact": "3 extra Double[] replacements + a backgroundColor map function in ChartJsModel.js",
+   "artefact": "3 extra Double[] replacements + a backgroundColor map function in the chart's js",
    "seenIn": [
     "D"
    ],
@@ -1832,7 +1832,7 @@
    "type": "pattern",
    "name": "A rule opens the case; the worklist never does",
    "rule": "All 15 start sites are EXECUTION_RULEs (10 register lifecycle actions, 4 scheduler sweeps, 1 user-task action of another case); userStartProcessActions is empty on 14 of 14 real worklists and no project built a start form.",
-   "artefact": "EXECUTION_RULE wired as a crud-table action's onBeforeCompleteRuleIdentifier / a ScheduleDto's actionRuleIdentifier / a userAction's onBeforeUserTaskCompleteRuleIdentifier",
+   "artefact": "EXECUTION_RULE wired as a crud-table action's onBeforeCompleteRuleIdentifier / a scheduler's actionRuleIdentifier / a userAction's onBeforeUserTaskCompleteRuleIdentifier",
    "seenIn": [
     "B",
     "C",
@@ -1917,7 +1917,7 @@
    "type": "pattern",
    "name": "Warn → register → open a case, at descending cadence",
    "rule": "Half-hourly warnings at policy-configured percentages of the SLA window (unique-index guarded), hourly breach records into an exception register (unique-index guarded), weekday-morning case opening from the register (claim guarded) — three schedules, three primitives, one clock family.",
-   "artefact": "3 ScheduleDto + 3 EXECUTION_RULEs + a deadline-policy CRUD (duration_value/unit/escalation_points) + a holiday table + a byte-identical copy-pasted policy prelude",
+   "artefact": "3 schedulers + 3 EXECUTION_RULEs + a deadline-policy CRUD (duration_value/unit/escalation_points) + a holiday table + a byte-identical copy-pasted policy prelude",
    "seenIn": [
     "C"
    ],
@@ -1930,7 +1930,7 @@
    "type": "pattern",
    "name": "The gate is the candidate query with LIMIT 1",
    "rule": "Ten of sixteen gated schedules gate on the same statement the action pages through, with rowsInPage:1 (or a dedicated count* method), ending in an explicit `return <Boolean>` — so the gate can never drift from the work.",
-   "artefact": "PREDICATE rule as ScheduleDto.predicateIdentifier",
+   "artefact": "PREDICATE rule as a scheduler's predicateIdentifier",
    "seenIn": [
     "B",
     "C",
@@ -1974,7 +1974,7 @@
    "type": "pattern",
    "name": "The five user-task action shapes, and the gate/decision separation",
    "rule": "Decide-with-a-form (36/47), direct advance (4), read-only viewer (completeUserTask:off + submitForm:false + formInModal, reusing the bind rule as its complete rule), reject-paired-with-approve on the same task and the same predicate, and create-a-child-record; the predicate always answers 'may this actor act now?', never 'what was decided'.",
-   "artefact": "flowable:userActions ActionDto on a bpmn:UserTask",
+   "artefact": "flowable:userActions action on a bpmn:UserTask",
    "seenIn": [
     "B",
     "C",
@@ -1989,7 +1989,7 @@
    "type": "pattern",
    "name": "A sweep must not write a field a running case's gateway routes on",
    "rule": "No rule can end a case (service.workflow exposes only start), so a sweep that changes the routing column steers a case a human is standing in; sweeps write annotation columns (escalated, attempts, last_chased_at) and the case writes state — and the postpone/park wait is a scheduler plus a terminal branch, because there is no timer event.",
-   "artefact": "EXECUTION_RULE behind a ScheduleDto + a `reopen`/`endCase` SQL method pair",
+   "artefact": "EXECUTION_RULE behind a scheduler + a `reopen`/`endCase` SQL method pair",
    "seenIn": [
     "D"
    ],
@@ -2031,7 +2031,7 @@
    "type": "pattern",
    "name": "The sanctioned exception: an onBeforeUserTaskStart loader for a CRUD-scoped task form",
    "rule": "To reuse a rich CRUD approval form inside a case, a never-throwing start rule reloads the document, PUTs it into the crud data map and RETURNS it (so whichever path the build honours, the card fills) — 10 of 10 form actions in one project.",
-   "artefact": "EXECUTION_RULE as ActionDto.onBeforeUserTaskStartRuleIdentifier",
+   "artefact": "EXECUTION_RULE as a user-task action's onBeforeUserTaskStartRuleIdentifier",
    "seenIn": [
     "B"
    ],
@@ -2238,7 +2238,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "Writing `direct: true/false` (boolean) on a List action — a List uses the UserTask-shaped ActionDto where `direct` is the STRING \"on\"/\"off\"; a boolean is ignored and the Delete opens a form.",
+   "antiPattern": "Writing `direct: true/false` (boolean) on a List action — a List uses the UserTask-shaped action where `direct` is the STRING \"on\"/\"off\"; a boolean is ignored and the Delete opens a form.",
    "kbDoc": "04-forms-actions-validation.md"
   },
   {
@@ -2267,7 +2267,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "The CRUD ActionDto has no `name` field — only localizedNames/localizedButtonNames maps — and there is no built-in create/update; both omissions are silent at import, at coverage and at crud verify.",
+   "antiPattern": "The CRUD action has no `name` field — only localizedNames/localizedButtonNames maps — and there is no built-in create/update; both omissions are silent at import, at coverage and at crud verify.",
    "kbDoc": "04-forms-actions-validation.md"
   },
   {
@@ -2982,7 +2982,7 @@
    "id": "p:blank-action-label-gate",
    "type": "pattern",
    "name": "Gate: no CRUD action may rely on a top-level name",
-   "rule": "CrudTableActionsDto$ActionDto has no `name` field, so an action authored with only `name` (or with nothing) renders an unlabelled button — assert zero such actions across both branches.json and the rep-objects.json mirror, and localizedButtonNames on every direct:false action.",
+   "rule": "a CRUD action record has no `name` field, so an action authored with only `name` (or with nothing) renders an unlabelled button — assert zero such actions across both branches.json and the rep-objects.json mirror, and localizedButtonNames on every direct:false action.",
    "artefact": "crud.table.plugin model → createActions.actions[] / editActions.actions[]",
    "seenIn": [
     "A",
@@ -3503,7 +3503,7 @@
   {
    "id": "gap:045",
    "type": "libraryGap",
-   "statement": "Neither doc states the depth rule (two levels: group → link, zero links carrying children in 3/3 good projects) nor the group-sizing range (1–9 links, median 4–6), nor that a group must be a `PageModel` with NO `linkModel` — the distinction A violated 12 times, 10 of them by pointing a 'folder' at its own first child.",
+   "statement": "Neither doc states the depth rule (two levels: group → link, zero links carrying children in 3/3 good projects) nor the group-sizing range (1–9 links, median 4–6), nor that a group must be a page node with NO `linkModel` — the distinction A violated 12 times, 10 of them by pointing a 'folder' at its own first child.",
    "kbDoc": "02-navigation-and-front-door.md"
   },
   {

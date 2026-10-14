@@ -87,9 +87,9 @@ def cmd_validate(args):
                       % (coll[:-1], o.get("name") or o.get("identifier"), o.get("id")))
 
     # -- settings[].content must be a JSON OBJECT, not a string -------------
-    # The importer deserializes SettingsDto.content as a Jackson ObjectNode. A
-    # JSON *string* there aborts the WHOLE import (MismatchedInputException
-    # Qss["settings"]->SettingsDto["content"]) — the REPORT-path never runs, so
+    # The importer reads a settings record's `content` as a JSON object node. A
+    # JSON *string* there aborts the WHOLE import (a type-mismatch error on
+    # settings[].content) — the REPORT-path never runs, so
     # sources aren't registered ("No source selected") and project-db.dump isn't
     # restored (data/dates appear lost). This is distinct from the node's
     # properties.model.stringValue, which IS a JSON string — do not confuse them.
@@ -97,16 +97,16 @@ def cmd_validate(args):
     for s in rep.get("settings", []) or []:
         if isinstance(s.get("content"), str):
             r.err("settings %r (type %s): content is a JSON string but "
-                  "SettingsDto.content must be a JSON object — a string here "
-                  "aborts the platform import (Jackson MismatchedInputException). "
+                  "a settings record's content must be a JSON object — a string here "
+                  "aborts the platform import (type-mismatch error). "
                   "Parse it to an object before packing (or use `node set-model`, "
                   "which syncs the mirror correctly)."
                   % (s.get("name"), s.get("type")))
 
     # -- generalized rep-object field type consistency (catch the whole class) --
     # validate does NOT deserialize into the platform DTOs, so ANY rep-object field
-    # that is a JSON *string* where the platform expects an object/array (a Jackson
-    # ObjectNode/POJO) aborts the ENTIRE rep-objects import (MismatchedInputException).
+    # that is a JSON *string* where the platform expects an object/array
+    # aborts the ENTIRE rep-objects import (a type-mismatch error).
     # Because one bad object skips the whole block, the symptoms are scattered and
     # data-shaped, NOT error-shaped: empty context + rules failing "No CRUD found with
     # alias X in context Y", "No source selected", project-db.dump not restored (data
@@ -114,7 +114,7 @@ def cmd_validate(args):
     # if a field is an object/array in SOME elements of a collection and a bare string
     # in another, the string one is almost certainly wrong-typed. (The settings.content
     # check above additionally covers the always-object case even when every element is
-    # a string.) Diagnose the real thing in the platform's log/ui.log Jackson trace.
+    # a string.) Diagnose the real thing in the platform's log/ui.log trace.
     for coll in core.REP_COLLECTIONS:
         items = [o for o in rep.get(coll, []) or [] if isinstance(o, dict)]
         if len(items) < 2:
@@ -130,7 +130,7 @@ def cmd_validate(args):
                 if isinstance(o.get(k), str):
                     r.err("%s %r: field %r is a JSON string but is a JSON object/array in "
                           "other %s elements — a wrong-typed rep-object field aborts the "
-                          "WHOLE rep-objects import (Jackson MismatchedInputException; "
+                          "WHOLE rep-objects import (type-mismatch error; "
                           "scattered symptoms: empty context, 'No source selected', missing "
                           "data). Fix the field's type before packing."
                           % (singular, o.get("name") or o.get("identifier"), k, coll))
@@ -257,7 +257,7 @@ def cmd_validate(args):
                 # A GROOVY method's ruleIdentifier is EXPECTED to be missing from
                 # rep-objects.rules[]: the backing rule is hidden, hidden rules are filtered
                 # out of the export, and the importer re-creates it from the method's own
-                # `script` (CmsProjectServiceImpl.ensureHiddenGroovyRule). So "not in rule_ids"
+                # `script`. So "not in rule_ids"
                 # is only a defect when there is no script either — and that case is reported
                 # by _check_groovy_method_rule_identifier, which knows why.
                 if m["ruleIdentifier"] not in rule_ids and not (m.get("script") or "").strip():
@@ -289,7 +289,7 @@ def cmd_validate(args):
     _check_groovy_numeric_traps(p, r)
     # -- `?:` over a payload key: every Jackson node is falsy, so the FK lands NULL --
     _check_groovy_jsonnode_truth(p, r)
-    # -- a pdfme template naming a font the renderer does not have → 422, no PDF at all --
+    # -- a pdfme template naming a font the renderer does not have: it prints in the default font, not as designed --
     _check_pdf_template_fonts(p, r)
     # -- a `--` comment in a saved query eats the paging wrapper the platform appends --
     _check_query_line_comments(p, r)
@@ -515,7 +515,7 @@ def cmd_validate(args):
     # -- workflow user-task action locale coverage (bpmnContent embedded JSON) --
     _check_workflow_locales(rep, locales, r)
 
-    # -- workflow element types must be BpmnTaskType enum values (import-abort guard) --
+    # -- workflow element types must be task-type enum values (import-abort guard) --
     _check_workflow_element_types(rep, r)
     _check_user_action_payloads(rep, r)
 
@@ -759,7 +759,7 @@ def _check_homepage_and_nav(p, root, r):
                    % (name, alias))
 
     # (4) NAV LOCALIZATION: on a multi-locale project the GROUP HEADINGS must be localized too, not just the
-    # links. A group node (PageModel extends LocalizedBean) renders its header from localizedMap.name; with none
+    # links. A group node (a page node) renders its header from localizedMap.name; with none
     # — or the same string in every locale — the section header shows ONE language under all locales (the #1 loc
     # bug, doc 20). That is exactly what `quicklink add --group <name>` alone produces; the fix is --group-loc.
     locales = p.locales()
@@ -774,7 +774,7 @@ def _check_homepage_and_nav(p, root, r):
                     continue
                 if it.get("linkModel"):
                     # ⛔ A LINK node is localized the same way its group heading is, and on the SAME
-                    # object: the sidebar renders `PageModel.getLocalized("name", locale)`, i.e.
+                    # object: the sidebar renders the item's localized "name" for the locale, i.e.
                     # `localizedMap["name"][locale]` on the ITEM, falling back to the raw `name`
                     # property. Localizing only the inner `linkModel.localizedMap` is invisible to
                     # that call — the item then shows its `name` (one language) under EVERY locale,
@@ -796,7 +796,7 @@ def _check_homepage_and_nav(p, root, r):
                                      if len([1 for l in locales if inner.get(l)]) == len(locales) else "")
                             r.err("left-nav link %r has no item-level localizedMap.name for all %d "
                                   "locales (got %s) — the sidebar reads localizedMap.name off the ITEM "
-                                  "(PageModel extends LocalizedBean) and falls back to the raw `name`, "
+                                  "(a page node) and falls back to the raw `name`, "
                                   "so this link shows ONE language under every locale.%s "
                                   "(17-left-nav-quick-links.md / doc 20)"
                                   % (lname, len(locales), nm or "{}", extra))
@@ -869,12 +869,12 @@ def _check_form_page_structure(p, root, r):
 def _check_form_group_page_aliases(p, root, r):
     """IMPORT-RUNS-BUT-LOOPS (ERROR). A form group's LANDING page (`contentPageIdentifier`) and each of its
     FORM pages (`forms[].contentIdentifier`) MUST carry a NON-EMPTY, UNIQUE **top-level** `alias`. The platform
-    routes a page by `content.getAlias()` = the **top-level** `alias` JSON field, NOT `properties.alias.stringValue`;
+    routes a page by the **top-level** `alias` JSON field, NOT `properties.alias.stringValue`;
     `page add` and the working reference (`doc/builder/erp/initial_erp.mrjun`) set the top-level one and leave
     `properties.alias.stringValue` null. A form/landing page with a MISSING top-level alias, or one that COLLIDES
     with another page (e.g. every per-group landing cloned from the system 'Landing' inherits `alias="landing"`),
-    makes `ContentServiceImpl.calculatePageUrl` build a broken/ambiguous URL that re-resolves to the landing →
-    `FormGroupLandingPlugin.navigateToFormIfNeed` re-fires → **ERR_TOO_MANY_REDIRECTS** on `/landing?group=…`.
+    makes the platform build a broken/ambiguous page URL that re-resolves to the landing →
+    the landing's redirect-to-form re-fires → **ERR_TOO_MANY_REDIRECTS** on `/landing?group=…`.
     `validate` cannot see this (it doesn't drive the URL router); this check makes it offline-catchable. (06)."""
     pages, alias_count = {}, {}
     for node, _pp, _pt in core.iter_nodes(root):
@@ -899,7 +899,7 @@ def _check_form_group_page_aliases(p, root, r):
         a = node.get("alias")
         if not a:
             r.err("form-group %s page %r (%r) has NO top-level `alias` — the platform routes by "
-                  "content.getAlias() (top-level, NOT properties.alias.stringValue); missing → a broken URL "
+                  "the top-level `alias` (NOT properties.alias.stringValue); missing → a broken URL "
                   "that re-resolves to the landing → 302 redirect-loop (ERR_TOO_MANY_REDIRECTS) on "
                   "/landing?group=. Set a UNIQUE top-level alias. (06-form-groups-and-mapping.md)"
                   % (role, node.get("name"), owner))
@@ -1193,8 +1193,8 @@ def _check_html_plugin_refs(p, root, r):
             for rid, rplugin in wanted.items():
                 if rid in kids:
                     # TYPE-SWAP TRAP: the tag binds BOTH id and type. On a mismatch mrjun rewrites the node
-                    # to the html's type and CLEARS its properties (PluginUtils.getOrCreateChildContent:
-                    # `child.getProperties().clear(); child.setPluginName(pluginName)`), so the authored
+                    # to the html's type and CLEARS its properties (the child's properties
+                    # are cleared and its plugin name reset), so the authored
                     # settings blob is gone at render time — a form control silently loses its
                     # scope/crudAlias/fieldExpression and stops mapping to anything.
                     if rplugin and kids[rid] != rplugin:
@@ -1510,22 +1510,21 @@ def _check_html_includes(p, root, r):
                                % (where, comp, _include_label(sn, "script"), _include_label(sn, "script")))
 
 
-# QueryDto fields safe to embed in a chart replacement (matches the working base charts; anything beyond this is
-# the query REP-OBJECT's metadata, which breaks ChartJsModel deserialization — see _check_chart_query_embeds).
+# Query fields safe to embed in a chart replacement (matches the working base charts; anything beyond this is
+# the query REP-OBJECT's metadata, which breaks chart-config deserialization — see _check_chart_query_embeds).
 _SAFE_CHART_QUERY_KEYS = {"id", "identifier", "realmName", "clientName", "name", "query", "sourceIdentifier",
                          "offset", "itemsPerPage", "parameters", "attributes", "aggregations"}
 
 
 def _check_chart_query_embeds(p, r):
-    """RENDERS-EMPTY ('Modify html') (ERROR). A `chart.js.plugin` embeds a QueryDto in each
-    `ChartJsModel.replacements[].query` (config in `properties.Javascript`). `ChartJsPlugin` reads it via
-    `getJsonProperty("Javascript", ChartJsModel.class, ()->emptyModel)`, which SWALLOWS a Jackson
-    deserialization failure and returns an EMPTY model — so the chart renders as a blank `nct.html.plugin`
+    """RENDERS-EMPTY ('Modify html') (ERROR). A `chart.js.plugin` embeds a query record in each
+    `replacements[].query` of the chart config (in `properties.Javascript`). The plugin reads that config
+    and SWALLOWS a deserialization failure, returning an EMPTY model — so the chart renders as a blank `nct.html.plugin`
     "Modify html" cell with an empty HTML/JS editor. Embedding the FULL query REP-OBJECT (its rep metadata:
     `creationTime`/`modificationTime` Instant strings, `errors`, `message`, `hidden`, `schedule`,
-    `lastScheduledTime`, `statementTimeoutSeconds`, `wrapInPaging`) breaks that nested-QueryDto deserialization.
-    The working base charts embed ONLY the 12 QueryDto fields. ERROR on any extra key OR unparseable Javascript.
-    validate can't catch this offline otherwise (it doesn't deserialize into the platform DTOs). (22)."""
+    `lastScheduledTime`, `statementTimeoutSeconds`, `wrapInPaging`) breaks that nested-query deserialization.
+    The working base charts embed ONLY the 12 query fields. ERROR on any extra key OR unparseable Javascript.
+    validate can't catch this offline otherwise (it doesn't deserialize into the platform's records). (22)."""
     for node, _pp, _pt in core.iter_nodes(p.root_content):
         if node.get("pluginName") != "chart.js.plugin":
             continue
@@ -1546,8 +1545,8 @@ def _check_chart_query_embeds(p, r):
             extra = sorted(set(q.keys()) - _SAFE_CHART_QUERY_KEYS)
             if extra:
                 r.err("chart.js.plugin %s replacement %r embeds a query carrying extra rep-object field(s) %s — "
-                      "these break ChartJsModel deserialization (ChartJsPlugin.getJsonProperty swallows it → "
-                      "EMPTY model → the chart renders a blank 'Modify html' cell). Embed ONLY the 12 QueryDto "
+                      "these break the chart config's deserialization (the plugin swallows the failure → "
+                      "EMPTY model → the chart renders a blank 'Modify html' cell). Embed ONLY the 12 query "
                       "fields (id/identifier/realmName/clientName/name/query/sourceIdentifier/offset/itemsPerPage/"
                       "parameters/attributes/aggregations). (22-charts-params-and-filters.md)"
                       % (node.get("identifier"), repl.get("name"), extra))
@@ -1557,8 +1556,8 @@ def _check_chart_query_embeds(p, r):
 def _check_content_node_field_types(root, r):
     """A content-node field that is a JSON *string* where it is an object/array on other nodes.
 
-    branches.json is deserialized by GSON into ContentDomain, field by field, with no leniency:
-    a string where the DTO declares an object throws
+    branches.json is deserialized field by field, with no leniency:
+    a string where an object is declared throws
         JsonSyntaxException: Expected BEGIN_OBJECT but was STRING at line 1 column N path $[0].rootContent...
     and the platform aborts the WHOLE project import (ui.log: "Project import orchestration failed",
     "Import FAILED for realm=..."). Nothing is written, so there is no partial-import symptom to
@@ -1627,11 +1626,10 @@ def _check_content_node_ids(root, r):
                        "drops it." % (node.get("pluginName"), [b[1] for b in bad][:3]))
 
 
-# plugin types whose authoring machinery (Settings-panel nav name + `getKey()` sync channel) is
+# plugin types whose authoring machinery (Settings-panel nav name + settings sync channel) is
 # TYPE-scoped and broadcast page-wide, so two instances of the SAME type on one page collide:
 # the 2nd Settings registration evicts the 1st (can't configure it) and any settings change syncs
-# into every instance's model (both collapse onto one CRUD). Verified in CrudTablePlugin.getKey()
-# ("CrudTableSynced") + showSettings() ("CRUD Table Settings"); same for CrudTree/ProcessTable.
+# into every instance's model (both collapse onto one CRUD). Same for crud.tree / process.table.
 # Different types together are fine (distinct keys). See 14-plugin-catalog-all.md §"one per type".
 _ONE_PER_PAGE_TYPES = ("crud.table.plugin", "crud.tree.plugin",
                        "process.table.pluin", "process.table.plugin")
@@ -1683,8 +1681,8 @@ def _tables_by_container(page):
 def _check_tab_size(root, r):
     """An authored `tabModel` should carry `"size": "SMALL"`.
 
-    BIG is what you get by ACCIDENT, never by choice: the field initialiser is `TabSize.BIG`
-    (`TabModel.java`) and getSize() coerces a null to BIG, so simply omitting the key renders
+    BIG is what you get by ACCIDENT, never by choice: the field's default is `TabSize.BIG`
+    and a null size is coerced to BIG, so simply omitting the key renders
     the chunky full-height bar that eats vertical space above every grid. SMALL is the compact
     `nav-tabs` strip the platform's own screens use — a hand-authored tab node should be SMALL almost every time.
 
@@ -1707,8 +1705,8 @@ def _check_tab_size(root, r):
             continue
         if size.upper() != "SMALL":
             r.warn("tab node %r on page %r has tabModel size %s — author \"size\": \"SMALL\". Omitting "
-                   "the key does NOT give you a neutral default: the field initialiser is TabSize.BIG "
-                   "(TabModel.java) and getSize() coerces a null to BIG, so you get the chunky bar "
+                   "the key does NOT give you a neutral default: the field's default is TabSize.BIG "
+                   "and a null size is coerced to BIG, so you get the chunky bar "
                    "that eats vertical space above every grid. Use BIG only for 2-3 top-level MODES, "
                    "never for section switching. (14-plugin-catalog-all.md §1.8)"
                    % (n.get("identifier"), alias or "-", ("%r" % size) if size else "ABSENT"))
@@ -2113,23 +2111,21 @@ def _check_choices_pair_keys(p, r):
 
     `toSelectOptions(list,"K","D")` does NOT emit one map per row. Per globalFunctions.yaml it emits a
     FLAT pairwise list — two entries per row: {key:"K", value:row[K]}, {key:"D", value:row[D]}. The
-    projector (nct-ui WorkflowValueMapUtils.convertToValueMap) walks that list matching the entry's
+    platform's value projector walks that list matching the entry's
     `key` against the control's settings.key / settings.displayName by LITERAL string equality, and
     emits an option only once BOTH sides are non-null. Three independent mistakes each silently yield
     an EMPTY picker — no exception, no log line, and a rule preview still looks populated:
 
       (1) FIELD-NAME CASE — K/D must be the DTO field expression (dtoFields[].fieldName, camelCase),
-          never the DB column (dtoFields[].displayName, snake_case). `row["full_name"]` on a DTO
+          never the DB column (dtoFields[].displayName, snake_case). `row["full_name"]` on a record
           exposing `fullName` is null, so every display value is null and all pairs are dropped.
       (2) SETTINGS DRIFT — settings.key/displayName must EXACTLY equal the emitted pair keys. The
           scaffold default is key="id", displayName="name"; the moment the rule keys on anything else
           (a business `code`, `businessKey`, `fullName`, `institution`…) nothing matches. The
-          platform's generator keeps both sides in lockstep — ChoicesFromCrudDialog.onCreated(ruleId,
-          idField, displayField) writes the SAME two strings into the rule body and the settings — so
-          any drift is hand-authoring.
-      (3) UNSET — a rule-bound picker with key/displayName absent. They have no defaults
-          (FormControlRimmDropDownFieldSettings), and Objects.equals(null, "id") is false for every
-          entry, so the map comes back empty exactly as in (2).
+          platform's choices generator keeps both sides in lockstep — it writes the SAME two strings into
+          the rule body and the settings — so any drift is hand-authoring.
+      (3) UNSET — a rule-bound picker with key/displayName absent. They have no defaults,
+          and a null key never equals "id" for any entry, so the map comes back empty exactly as in (2).
 
     All three shipped together in one 2026-08 export (a Customer dropdown rendered zero
     options while its rule happily returned 120 rows). See 02-form-controls-reference.md §4a.
@@ -2266,7 +2262,7 @@ def _check_query_line_comments(p, r):
 
         select pp.* from ( <the query> ) pp OFFSET 0 ROWS FETCH NEXT <itemsPerPage> ROWS ONLY
 
-    (`PostgreSqlDbService`, one `String.format`). A `--` on the query's LAST line therefore comments out
+    (one string-format call). A `--` on the query's LAST line therefore comments out
     the wrapper's own closing paren and OFFSET clause: Postgres answers `ERROR: syntax error at end of
     input`, the cell renders "Error occured in chart component <title>", and nothing offline sees it —
     the SQL reads perfectly in the generator source, where the comment sits on its own line.
@@ -2297,7 +2293,7 @@ def _check_rep_object_field_types(p, r):
     """A rep-object field that is a JSON OBJECT/ARRAY on its siblings but a serialized STRING here.
 
     This is the whole import-abort class in one shape. The platform reads `rep-objects.json` into its
-    DTOs with Jackson; a field typed as an object that arrives as a string is a MismatchedInputException
+    DTOs; a field typed as an object that arrives as a string is a type-mismatch error
     while the file is still being READ, so nothing in the archive is applied — not the sources, not the
     database dump. The user sees an import that "did nothing", with no object named anywhere.
 
@@ -2334,8 +2330,8 @@ def _check_rep_object_field_types(p, r):
                 lead = ("settings %r: content is a JSON string" % label
                         if (coll, field) == ("settings", "content")
                         else "%s %r: field %r is a JSON string" % (coll.rstrip("s"), label, field))
-                r.err("%s but is a JSON object/array on every other %s in this export. Jackson reads "
-                      "rep-objects.json into the platform DTOs before anything is applied, so this one "
+                r.err("%s but is a JSON object/array on every other %s in this export. The platform reads "
+                      "rep-objects.json into its DTOs before anything is applied, so this one "
                       "field aborts the ENTIRE import — no sources, no database restore, no objects, "
                       "and nothing named in the UI. Store the value itself, not a serialized copy of "
                       "it. (00-export-format-and-import.md)" % (lead, coll.rstrip("s")))
@@ -2344,10 +2340,10 @@ def _check_rep_object_field_types(p, r):
 def _check_dynamic_cruds_envelope(p, r):
     """The `dynamic-cruds.json` envelope — the one file whose type errors cost you the whole BL layer.
 
-    `importDynamicCruds` starts by parsing the file into `DynamicCrudsExport` (`exportVersion` + `cruds`).
-    Jackson reads `exportVersion` into an integer field, so a STRING there — `"1"` and especially `"1.0"`,
+    The dynamic-CRUD import starts by parsing the file into an envelope (`exportVersion` + `cruds`).
+    The platform reads `exportVersion` into an integer field, so a STRING there — `"1"` and especially `"1.0"`,
     which does not even coerce — throws while the file is still being read. The import continues: this is
-    the LAST step of `initAllObjects`, so pages, rules, queries, contexts, forms, workflows, templates and
+    the LAST step of the import, so pages, rules, queries, contexts, forms, workflows, templates and
     the database all arrive and only the business logic is missing. What the user sees is a complete
     project whose every register renders its headers over zero rows, whose Business Logic console is empty,
     and whose scoped-fetch rules die with `No RSocket connection found for CRUD alias: <alias>` — a symptom
@@ -2365,7 +2361,7 @@ def _check_dynamic_cruds_envelope(p, r):
     data = crud_file.data
     if not isinstance(data, dict):
         r.err("dynamic-cruds.json: top level is %s, not an object — the importer parses it into "
-              "DynamicCrudsExport {exportVersion, cruds}. (00-export-format-and-import.md §7)"
+              "an envelope {exportVersion, cruds}. (00-export-format-and-import.md §7)"
               % type(data).__name__)
         return
 
@@ -2373,8 +2369,8 @@ def _check_dynamic_cruds_envelope(p, r):
     if version is None:
         r.err("dynamic-cruds.json: no 'exportVersion'. It must be the integer 1.")
     elif isinstance(version, bool) or not isinstance(version, int):
-        r.err("dynamic-cruds.json: exportVersion is %r (%s) but must be the INTEGER 1. Jackson reads it "
-              "into an int field, so this throws while DynamicCrudsExport is being parsed and the "
+        r.err("dynamic-cruds.json: exportVersion is %r (%s) but must be the INTEGER 1. The platform reads it "
+              "into an int field, so this throws while the envelope is being parsed and the "
               "importer skips EVERY dynamic CRUD — silently, and last, so the rest of the project "
               "imports and only the business logic is missing. Registers then render headers over zero "
               "rows and scoped-fetch rules fail with \"No RSocket connection found for CRUD alias\"."
@@ -2382,7 +2378,7 @@ def _check_dynamic_cruds_envelope(p, r):
 
     cruds = data.get("cruds")
     if cruds is None:
-        r.err("dynamic-cruds.json: no 'cruds' array — DynamicCrudsExport expects {exportVersion, cruds}.")
+        r.err("dynamic-cruds.json: no 'cruds' array — the envelope expects {exportVersion, cruds}.")
     elif not isinstance(cruds, list):
         r.err("dynamic-cruds.json: 'cruds' is %s, not an array." % type(cruds).__name__)
     else:
@@ -3179,47 +3175,92 @@ def _check_single_slot_map_calls(p, r):
                           % (label, target[0], target[1], where, slot, ptype))
 
 
+# The `fontName` values the PDF renderer has: the selectable families of the platform's font set, each in four
+# styles ("" is the default, Roboto). A snapshot of the platform's font manifest -- when the platform adds a family,
+# add it here and in 15-pdf-and-mail.md.
+_PDF_FONT_FAMILIES = ("Roboto", "Noto Sans", "Noto Serif")
+_PDF_FONT_STYLES = ("", " Bold", " Italic", " Bold Italic")
+PDF_FONT_NAMES = frozenset(family + style for family in _PDF_FONT_FAMILIES for style in _PDF_FONT_STYLES)
+
+
+def _pdf_template_font_names(templateJson):
+    """Every font name a pdfme template asks for, the way the renderer reads a template: in each schema of every page and
+    in the static schemas of the base PDF, each `fontName` wherever it sits in the schema (a field, a `table`'s
+    headStyles / bodyStyles / columnStyles); and, in an inline-markdown field only, the faces of `fontVariants` -- the
+    bold and italic faces that `**bold**` draws with. A `fontName` anywhere else in the JSON is not read by the
+    renderer, and neither is `fontVariants` of a field that is not inline markdown. A name that is not text (a number,
+    an object) is no font either: it is returned as its JSON text. `null` is no name."""
+    try:
+        node = json.loads(templateJson) if isinstance(templateJson, str) else templateJson
+    except ValueError:
+        # not JSON at all: read the text the way the check always did
+        return set(re.findall(r'"fontName"\s*:\s*"([^"]*)"', templateJson))
+    if not isinstance(node, dict):
+        return set()
+    schemas = []
+    for page in node.get("schemas") or []:
+        schemas.extend(page if isinstance(page, list) else [page])
+    base = node.get("basePdf")
+    if isinstance(base, dict) and isinstance(base.get("staticSchema"), list):
+        schemas.extend(base["staticSchema"])
+
+    def text_of(value):
+        return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    names = set()
+    for schema in (s for s in schemas if isinstance(s, dict)):
+        pending = [schema]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key == "fontName" and child is not None:
+                        names.add(text_of(child))
+                    elif isinstance(child, (dict, list)):
+                        pending.append(child)
+            elif isinstance(value, list):
+                pending.extend(child for child in value if isinstance(child, (dict, list)))
+        variants = schema.get("fontVariants")
+        if schema.get("textFormat") == "inline-markdown" and isinstance(variants, dict):
+            # (a variant is named when it is truthy the way the renderer's JavaScript reads it: an empty list or object is a name that no font has)
+            names.update(text_of(variants[style]) for style in ("bold", "italic", "boldItalic") if style in variants and not (variants[style] in (None, "", False, 0) and not isinstance(variants[style], (list, dict))))
+    return names
+
+
 def _check_pdf_template_fonts(p, r):
-    """A pdfme template may only name a font the RENDERER actually has — and it has exactly one.
+    """A pdfme template should name a font the RENDERER has: one of PDF_FONT_NAMES, or "" for the default.
 
-    `nct-pdf` renders through an embedded Node sidecar that calls pdfme's `generate({template, inputs,
-    plugins, options})` and never passes `options.font`, so the font map is pdfme's built-in default: a
-    single entry, `Roboto`. `""` selects it. **Any other value fails the WHOLE render**, with a 422 whose
-    body is `[@pdfme/schemas] Font "<name>" is not found.` — not a missing glyph, not a fallback: no PDF at
-    all, and the action that produced it fails with it.
+    A name the renderer does not have used to fail the WHOLE render (422 `[@pdfme/schemas] Font "<name>" is not
+    found.`, no PDF at all). It no longer does: the field is drawn in the default font and the render log says
+    `UNKNOWN_FONT` with the alias, the field and the name. That is still a template that does not look the way its
+    author designed it, hence a WARN -- and the commonest cause is a template exported from pdfme's own online
+    playground, which writes `NotoSerifJP-Regular` / `NotoSerifJP-Bold` into every text field. (A deployment can
+    switch on a strict mode in which an unknown name fails the render again.)
 
-    This is a trap because the pdfme **Designer** writes `NotoSerifJP-Regular` / `NotoSerifJP-Bold` into
-    every template exported from it, and a template authored there looks perfect in the designer preview.
-    The library's own seeds in `pdftemplates/` are all `""` for exactly this reason — copy them, not a
-    designer export, or clear the font names after exporting.
-
-    Two consequences worth stating, because neither is obvious:
-      * there is **no bold** — pdfme has no synthetic bold and only the regular face is registered, so
-        emphasis in a PDF layout has to come from size, colour or a filled background;
-      * this also covers `headStyles` / `bodyStyles` / `columnStyles` inside a `table` schema, which carry
-        their own `fontName` and are the half people forget.
+    This also covers `headStyles` / `bodyStyles` / `columnStyles` inside a `table` schema, which carry their own
+    `fontName` and are the half people forget, and `fontVariants` (the faces inline markdown uses). It reads a template
+    the way the renderer does (see _pdf_template_font_names): what the renderer ignores is not warned about.
     """
     for tpl in p.rep.get("pdfTemplates", []) or []:
         raw = tpl.get("templateJson")
         if not raw:
             continue
-        if not isinstance(raw, str):
-            raw = json.dumps(raw)
-        names = {n for n in re.findall(r'"fontName"\s*:\s*"([^"]*)"', raw) if n and n != "Roboto"}
+        names = {n for n in _pdf_template_font_names(raw) if n and n not in PDF_FONT_NAMES}
         if names:
-            r.err("pdfTemplate %r names font(s) %s — the renderer registers no fonts, so only \"\" "
-                  "(pdfme's built-in Roboto) resolves; anything else fails the whole render with "
-                  "422 [@pdfme/schemas] Font \"…\" is not found. The pdfme Designer bakes "
-                  "NotoSerifJP-* into every export — clear them. (15)"
-                  % (tpl.get("alias") or tpl.get("name"), ", ".join(sorted(names))))
+            r.warn("pdfTemplate %r names font(s) %s -- not in the renderer's font set (%s). Each such field prints "
+                   "in the default font (Roboto) and the render logs UNKNOWN_FONT. Use one of those names, or "
+                   "\"\" for the default; a template exported from pdfme's own playground carries "
+                   "NotoSerifJP-* -- clear them. (15)"
+                   % (tpl.get("alias") or tpl.get("name"), ", ".join(sorted(names)), ", ".join(sorted(PDF_FONT_NAMES))))
+
 
 def _check_groovy_numeric_traps(p, r):
     """Four ways a Groovy rule that does arithmetic dies at runtime while every offline gate stays green.
 
     All four are invisible in review because the failing expression READS correctly, and three of them
     surface to the user as the literal text "null" on a platform build that predates the unwrapping fix —
-    `ServiceWrapper.rule()` invoked a nested rule through `java.lang.reflect.Method.invoke` and reported
-    `InvocationTargetException.getMessage()`, which is always null, so the message a user got for ANY failure inside
+    the nested-rule call went through a reflective invocation and reported the wrapper
+    exception's message, which is always null, so the message a user got for ANY failure inside
     a nested rule was `Failed to execute rule '<name>': null` (a current build says what the nested rule threw, except
     for an exception that carries no message of its own). There is nothing to grep for. Hence this check.
 
@@ -3437,19 +3478,13 @@ def _check_crud_method_refs(p, r):
 def _check_groovy_method_rule_identifier(p, r):
     """A GROOVY dynamic-CRUD method does NOT run the `script` sitting next to it. It runs a rule,
     looked up by `ruleIdentifier`, with the arguments bound as `param` —
-    `DynamicMethodExecutor.executeGroovyMethod` refuses before it looks at anything else::
+    the method executor refuses before it looks at anything else, with the error
+    "Groovy method '<name>' has no rule identifier. Apply the CRUD first."
 
-        if (method.getRuleIdentifier() == null || method.getRuleIdentifier().isBlank())
-            throw new IllegalStateException("Groovy method '" + name
-                    + "' has no rule identifier. Apply the CRUD first.");
-
-    In the UI that rule is written by the **Apply** button (`CrudEditorPanel.saveGroovyRule`,
-    `hidden(true)`). Hidden rules are filtered out of the export, so rep-objects.json legitimately
+    In the UI that rule is written by the **Apply** button (saved as a hidden rule).
+    Hidden rules are filtered out of the export, so rep-objects.json legitimately
     carries none of them — the IMPORTER re-creates each one from the method's own `script`
-    (`CmsProjectServiceImpl.ensureHiddenGroovyRule`). That re-creation is guarded::
-
-        if (isBlank(em.getRuleIdentifier()) || isBlank(em.getScript())) return;
-
+    (on import). That re-creation is guarded: it is skipped when the identifier OR the script is blank,
     so the identifier is the entire hinge, and BOTH halves have to be present:
 
     * **script, no identifier** ⇒ ERROR. The importer skips the method and every call to it dies.
@@ -3467,8 +3502,8 @@ def _check_groovy_method_rule_identifier(p, r):
     rep-objects.json — the importer owns that object, and a second copy drifts from the script.
 
     ⚠️ **`find` is exempt.** A GROOVY `find` with a BLANK ruleIdentifier is the documented **auto-find
-    sentinel**: `isAutoFindWrapper` catches it ahead of the delegation branch and
-    `executeAutoFindWrapper` runs the sibling `findAll` + `count` in-process. Its `script` is
+    sentinel**: the executor catches it ahead of the rule-delegation branch and
+    runs the sibling `findAll` + `count` in-process. Its `script` is
     documentation, not the thing that executes. Flagging it would be a false positive on the single
     most common method in every project (11 §Step 3, Variant A).
 
@@ -3504,15 +3539,14 @@ def _check_groovy_fk_param_shapes(p, r):
     """A GROOVY method that declares only `<ref>__id` gets NULL from a form dropdown.
 
     A business FK is written as `:<ref>__id` (11 §Document CRUD variant), and the executor fills that
-    parameter by WALKING the path — `walkParamPath` splits `purchaseOrder__id` into
-    `purchaseOrder` -> `id` and descends through the submitted map::
-
-        if (current == null || !current.isObject()) return null;      // DynamicMethodExecutor
+    parameter by WALKING the path — it splits `purchaseOrder__id` into
+    `purchaseOrder` -> `id` and descends through the submitted map, returning null as soon as a
+    segment is not a nested object.
 
     That requires the caller to have sent a nested OBJECT, which an engine rule passing
     `{purchaseOrder: {id: …}}` does. A FORM does not: a dropdown bound to the nested dtoField
     (`fieldExpression: "purchaseOrder"`, `dataClass: java.lang.String`) puts the bare id STRING there.
-    The walk hits `!isObject()`, returns null, the positional fallback finds neither
+    The walk finds a string instead of an object, returns null, the positional fallback finds neither
     `purchaseOrder__id` nor `purchaseOrderId` at the top level, the parameter is never set — and the
     INSERT writes NULL into the FK column. On a NOT NULL column that is
     `null value in column "po_id" … violates not-null constraint`, naming a column the author never
@@ -3771,8 +3805,8 @@ _MONEY_FORMATS = {"US", "EUROPEAN", "SPACE_COMMA", "SPACE_DOT", "SWISS", "INDIAN
 _COLUMN_TABLE_PLUGINS = ("crud.table.plugin", "crud.tree.plugin", "process.table.pluin")
 
 # ------------------------------------------------- dateFormat is MOMENT, not Java
-# `DateFormatAutoCompleteField` is an autocomplete over "the platform's curated moment.js
-# pattern catalogue" (DateFormatColumnUtils) and the runtime formatter "understands any
+# The dateFormat field is an autocomplete over "the platform's curated moment.js
+# pattern catalogue" and the runtime formatter "understands any
 # moment pattern" — so a pattern typed by hand is accepted verbatim, INCLUDING one that is
 # not moment at all. A Java/`SimpleDateFormat` pattern therefore never errors; it renders.
 _MOMENT_DATE_CATALOGUE = {
@@ -4104,7 +4138,7 @@ def _check_date_format_tokens(p, r):
     "January 1926" with NaN cells, and anything typed is appended to the junk. On a **table
     column** the cell just draws the same mess.
 
-    Valid patterns come from `DateFormatColumnUtils`; the defaults are `DD/MM/YYYY` for
+    Valid patterns come from the platform's curated moment.js catalogue; the defaults are `DD/MM/YYYY` for
     `LocalDate` and `DD/MM/YYYY HH:mm:ss` for `LocalDateTime`/`Instant`.
 
     See 02-form-controls-reference.md §5 and 04-crud-table-plugin.md."""
@@ -4128,7 +4162,7 @@ def _check_date_format_tokens(p, r):
                    "(02-form-controls-reference.md §5)" % (where, label, f))
         if f not in _MOMENT_CATALOGUE:
             r.warn("%s %s dateFormat %r is not in the platform's curated catalogue "
-                   "(DateFormatColumnUtils) — legal, but verify it renders. "
+                   "— legal, but verify it renders. "
                    "(02-form-controls-reference.md §5)" % (where, label, f))
         elif data_class in ("java.time.LocalDateTime", "java.time.Instant") \
                 and f in _MOMENT_DATE_CATALOGUE:
@@ -4283,7 +4317,7 @@ def _check_cron_expr(expr, label, r):
             return
 
 
-# ScheduleDto (nct-transfer) + AbstractSecuredDto/ErrorResponse. Anything else is dropped on import.
+# The scheduler record's fields plus the common base/error fields. Anything else is dropped on import.
 _ABSTRACT_DTO_KEYS = {"message", "errors", "id", "realmName", "clientName", "identifier",
                       "creationTime", "modificationTime"}
 _SCHEDULE_DTO_KEYS = _ABSTRACT_DTO_KEYS | {
@@ -4296,10 +4330,10 @@ def _check_schedulers(p, r):
     """A scheduler's predicateIdentifier must be a PREDICATE and actionRuleIdentifier an EXECUTION_RULE (wrong
     type = ERROR, dangling = WARN); its cron must be Spring-6-field (Quartz ?/L/W/# = ERROR); enabled:true with a
     cron auto-fires on import (WARN); scheduler `name` is unique per project (duplicate = ERROR).
-    **A missing/blank `job.expression` → ERROR** (CronServiceImpl skips registration: the schedule never fires);
+    **A missing/blank `job.expression` → ERROR** (the platform skips cron registration: the schedule never fires);
     **`actionType` missing or not RUN_RULE → ERROR** (the editor's dropdown is setNullValid(false), so it shows
-    empty and cannot be saved); **any key not on `ScheduleDto` → ERROR** — Jackson imports with
-    FAIL_ON_UNKNOWN_PROPERTIES=false, so an invented field name is dropped in complete silence."""
+    empty and cannot be saved); **any key that is not a field of a scheduler record → ERROR** — the import
+    ignores unknown properties, so an invented field name is dropped in complete silence."""
     from collections import Counter
     types = _rule_types(p)
     for nm_, c in Counter(s.get("name") for s in p.rep.get("schedulers", []) or [] if s.get("name")).items():
@@ -4325,14 +4359,14 @@ def _check_schedulers(p, r):
         # ⛔ ABSENCE, not just wrongness. Everything below used to be guarded by
         # `if isinstance(job, dict)`, so a scheduler with NO `job` at all passed every check in
         # silence — which is the exact shape a hand-authored scheduler takes when its author writes
-        # a top-level `cronExpression` (a field ScheduleDto does not have). Jackson drops the
-        # unknown key, `job` stays null, and `CronServiceImpl.registerSchedule` logs
+        # a top-level `cronExpression` (not a field of a scheduler record). The import drops the
+        # unknown key, `job` stays null, and the platform logs
         # "has no cron expression, skipping cron registration": the schedule imports, looks right
         # in the list, and never fires once.
         unknown = sorted(set(s.keys()) - _SCHEDULE_DTO_KEYS)
         if unknown:
-            r.err("scheduler %r carries %s, which %s not on ScheduleDto — the import runs with "
-                  "FAIL_ON_UNKNOWN_PROPERTIES=false, so %s DROPPED IN SILENCE and the field it was "
+            r.err("scheduler %r carries %s, which %s not a field of a scheduler record — the import ignores "
+                  "unknown properties, so %s DROPPED IN SILENCE and the field it was "
                   "meant to fill stays empty. The real names are %s. (12 §3.1)"
                   % (nm, ", ".join(repr(u) for u in unknown),
                      "are" if len(unknown) > 1 else "is",
@@ -4342,7 +4376,7 @@ def _check_schedulers(p, r):
         if not isinstance(job, dict) or not (job.get("expression") or "").strip():
             r.err("scheduler %r has no job.expression — the cron lives in the nested `job` object "
                   "({expression, explanation, cronType}), and without it "
-                  "CronServiceImpl.registerSchedule skips registration entirely: the schedule "
+                  "the platform skips cron registration entirely: the schedule "
                   "imports and NEVER FIRES. (12 §3.1)" % nm)
         at = s.get("actionType")
         if at != "RUN_RULE":
@@ -4455,7 +4489,7 @@ def _check_event_mappings(p, r):
                        % (st.get("fieldExpression") or st.get("name") or n.get("name"), ci))
 
 
-# The renderer's plugin map (nct-pdf/.../index.mjs), per 15-pdf-and-mail.md §"authoritative
+# The renderer's plugin map, per 15-pdf-and-mail.md §"authoritative
 # field-type set": the drawing/text/choice types AND the twelve barcode types. The barcodes
 # were missing here, so every qrcode/code128/ean13 field was reported as rendering blank.
 _PDFME_FIELD_TYPES = {"text", "multiVariableText", "image", "svg", "line", "rectangle", "ellipse", "table",
@@ -4637,7 +4671,7 @@ def _check_form_control_config(p, r):
             r.err("field %r (%s) dataClass %r is not a class this control renders (%s) — the control renders blank. (02-form-controls-reference.md)"
                   % (field, pn.split(".")[-3], st.get("dataClass"), sorted(x for x in wl if x)))
         if pn == "dynaform.form.text.field.plugin" and not (st.get("dataClass") or "").strip():
-            r.warn("text field %r has NO dataClass — the platform treats the value as a raw Jackson node, so the "
+            r.warn("text field %r has NO dataClass — the platform treats the value as a raw JSON node, so the "
                    "value renders JSON-QUOTED in the form (\"Value\" instead of Value, e.g. edit an existing row). "
                    "Every working export sets a concrete class: use java.lang.String for text, "
                    "java.lang.Integer/Long/Boolean for numeric/bool. (02-form-controls-reference.md / 03)" % field)
@@ -4727,14 +4761,13 @@ def _check_table_action_refs(p, r):
                            % (nm, a.get("id"), type(a.get("direct")).__name__))
             for g, a in _actions(md, "globalActions"):
                 if _blank(a.get("predicateIdentifier")):
-                    r.warn("process.table %r globalAction %r has a blank predicateIdentifier — it is NEVER shown and cannot execute (fail-closed: ProcessTablePlugin skips predicate-less globalActions in both fetchBulkActions and executeActionInternal). Give it a predicate; use a `return true` PREDICATE rule for always-visible. (05)"
+                    r.warn("process.table %r globalAction %r has a blank predicateIdentifier — it is NEVER shown and cannot execute (fail-closed: the plugin skips predicate-less globalActions both when listing and when executing them). Give it a predicate; use a `return true` PREDICATE rule for always-visible. (05)"
                            % (nm, a.get("id")))
 
 
 def _check_action_persist(p, r):
     """SUBMITS-BUT-SAVES-NOTHING (WARN). A crud.table/crud.tree **Create/Edit/Delete** action must carry an
     `onBeforeCompleteRuleIdentifier` that actually WRITES to the DB. The platform's "Create Default Actions"
-    (`CrudDefaultActionsService.buildCreate/Update/DeleteScript` + `CrudTableSettingsControlPanel.finalizeDefaultActions`)
     wires create -> a create rule, edit -> an update rule, delete(direct) -> a delete rule, each
     `context.<ctx>.<crud>.service.create/update/delete(...)`. **A create/edit form action with NO
     onBeforeCompleteRule opens, fills, submits — and saves NOTHING** (silent; import/validate/coverage/crud-verify
@@ -4793,10 +4826,10 @@ def _check_settings_mirror(p, r):
 def _check_process_table(p, r):
     """process.table.pluin traps (05):
     (a) a userStartProcessAction/globalAction with a flat `name` and no `localizedNames` renders a BLANK button
-        (the UserTask ActionDto @JsonIgnores `name`);
+        (the user-task action record ignores `name`);
     (b) the node model is OUT OF SYNC with its rep-objects.settings mirror — the runtime renders the model
-        (`ProcessTablePlugin.java`) but the author-side SETTINGS PANEL reads the mirror by uniqueIdentifier
-        (`ProcessTableSettingsControlPanel.java`), so a stale mirror shows baseline-placeholder junk in the editor."""
+        but the author-side SETTINGS PANEL reads the mirror by uniqueIdentifier,
+        so a stale mirror shows baseline-placeholder junk in the editor."""
     settings_by_name = {s.get("name"): s for s in p.rep.get("settings", []) or [] if s.get("type") == "ProcessTable"}
     for n, pn, md in _iter_table_models(p):
         if pn != "process.table.pluin":
@@ -4805,8 +4838,8 @@ def _check_process_table(p, r):
         for grp in ("userStartProcessActions", "globalActions"):
             for a in ((md.get(grp) or {}).get("actions") or []):
                 if isinstance(a, dict) and a.get("name") and not a.get("localizedNames"):
-                    r.warn("process.table %r %s action %r uses a flat `name` and no `localizedNames` — the UserTask "
-                           "ActionDto ignores `name`, so the button renders BLANK. Use `localizedNames` (a per-locale "
+                    r.warn("process.table %r %s action %r uses a flat `name` and no `localizedNames` — the user-task "
+                           "action record ignores `name`, so the button renders BLANK. Use `localizedNames` (a per-locale "
                            "Map). (05-crud-tree-and-process-table.md)" % (nm, grp, a.get("name")))
         mir = settings_by_name.get(n.get("uniqueIdentifier"))
         if mir is not None and isinstance(mir.get("content"), dict):
@@ -4843,7 +4876,7 @@ def _check_tree_config(p, r):
         # find()/findAll() is WHERE 1=1, can't filter by parent, AND gets an extra undeclared parentId param on
         # expand, so expanding a node re-renders the tree EMPTY. The rule must `return
         # service.crud.<alias>.findByParent(filter)` with an explicit parentId (null=roots). Mirrors the platform's
-        # CrudDataRuleServiceImpl.buildFindByParentScript (the rule CrudTreePlugin auto-creates). (05)
+        # the rule the platform auto-creates for a crud.tree. (05)
         frid = md.get("findRuleIdentifier")
         rule = rules_by_id.get(frid) if frid else None
         script = ((rule.get("rule") or {}).get("ruleScriptStr") or "") if rule else ""
@@ -5200,7 +5233,7 @@ def _check_crud_action_form_values(p, root, r):
 def _check_process_column_sources(p, r):
     """**Does anything ever put a value where this column reads from?**
 
-    `ProcessTablePlugin.extractColumnValue` switches on the column's `scope`, and each branch reads a
+    The process table switches on the column's `scope`, and each branch reads a
     DIFFERENT part of the process's stored context-data document:
 
     | scope | reads |
@@ -6154,7 +6187,7 @@ def _check_rule_manages_people(p, r):
 
 # `crudDataMap: [ <alias>: [ value: <row> ] ]` inside the document literal a rule hands to
 # `service.workflow.start(...)`. A rule-started case seeds the process's context data ITSELF, and every surface
-# that reads a process resolves against that document — ProcessTablePlugin.extractColumnValue reads
+# that reads a process resolves against that document — a scope=CRUD process-table column reads
 # contextDataMap[ctx].crudDataMap[alias] for a scope=CRUD column, and a form control at scope=CRUD reads the same
 # place. So an alias the starter seeded DOES render, and a project with no start form at all (27) must not be
 # warned about every one of them. (27-event-driven-process-start.md §4.2, §6)
@@ -6402,9 +6435,9 @@ def _check_process_context_binding(p, r):
     blank forms and "No X selected" exceptions on the first live case.
 
     Why nothing files it: a workflow user-task action is not in the process table's settings, so
-    `FormPlugin.resolveSettingsNavigation` finds it in neither `userStartProcessActions` nor `globalActions`,
-    leaves `crudTableNavData` null, and `initCrudMode()` returns immediately — no `crudId`, no
-    `loadCrudEntityData`. A process-table GLOBAL action has the same shape with no row at all. What a process
+    the form finds it in neither `userStartProcessActions` nor `globalActions`,
+    leaves the table-navigation data empty, and the form's CRUD mode returns immediately — no `crudId`, no
+    CRUD entity data is loaded. A process-table GLOBAL action has the same shape with no row at all. What a process
     DOES carry is `contextData.attrs`, persisted as a process variable and merged on every hop.
 
     Five findings, all mechanical:
@@ -6554,11 +6587,11 @@ def _check_process_context_binding(p, r):
     # and every reader (column, form control) resolves against that document.
     carried = (start_seeded & put_back) | rule_seeded
     # A process.table COLUMN needs no put-back at all: it renders the case's context data document, and both a
-    # start form's contextData and a rule's start document land there whole. (ProcessTablePlugin.
-    # extractColumnValue; the form's document is serialized into the process variable at start.)
+    # start form's contextData and a rule's start document land there whole.
+    # (The form's document is serialized into the process variable at start.)
     seeded_for_columns = start_seeded | rule_seeded
     # An INDEX is a different mechanism and diverges here. Indexed values are extracted only when the start
-    # carries indexSettings (FlowableProcessServiceImpl, and again after each action) - and the PROGRAMMATIC
+    # carries indexSettings (and again after each action) - and the PROGRAMMATIC
     # start builder never sets them. So a rule-seeded alias buys a column, but buys an index nothing: it stays
     # unfilterable until a user task submits and backfills it.
     seeded_for_indexes = start_seeded
@@ -6591,18 +6624,18 @@ def _check_process_context_binding(p, r):
                         and c.get("crudAlias") not in seeded_here):
                     continue
                 if not c.get("crudAlias"):
-                    # extractColumnValue takes the CRUD branch only when contextIdentifier, crudAlias AND
+                    # the process table takes the CRUD branch only when contextIdentifier, crudAlias AND
                     # fieldExpression are all non-blank, so this one is blank whatever the case carries.
-                    r.warn("process.table %r %s %r is scope=CRUD but names no crudAlias — ProcessTable"
-                           "Plugin.extractColumnValue fills a CRUD column only when contextIdentifier, "
+                    r.warn("process.table %r %s %r is scope=CRUD but names no crudAlias — the process "
+                           "table fills a CRUD column only when contextIdentifier, "
                            "crudAlias and fieldExpression are all set, so this %s carries nothing whatever "
                            "the case's context data holds. Set the alias, or use scope=GLOBAL over an "
                            "attribute a serviceTask publishes. (05-crud-tree-and-process-table.md)"
                            % (n.get("name"), key, c.get("fieldExpression"), noun))
                     continue
                 if key == "columnSettings":
-                    r.warn("process.table %r %s %r is scope=CRUD over alias %r — ProcessTablePlugin."
-                           "extractColumnValue renders it from contextDataMap[<ctx>].crudDataMap[<alias>] of "
+                    r.warn("process.table %r %s %r is scope=CRUD over alias %r — the process table "
+                           "renders it from contextDataMap[<ctx>].crudDataMap[<alias>] of "
                            "the case's OWN context data document, and nothing in this export puts that alias "
                            "there: no start form seeds it, no rule starts a case seeded with it, and a running "
                            "process files no row of its own. So the column is blank in every row. Seeding it "
@@ -6711,10 +6744,10 @@ def _check_form_linkage(p, r):
 
 
 def _check_workflow_refs(p, r):
-    """Workflow (bpmnContent + FlowableWorkflowDto) reference integrity — a dangling / wrong-ruleType ref means
+    """Workflow (bpmnContent + workflow record) reference integrity — a dangling / wrong-ruleType ref means
     that step silently does nothing (a serviceTask that never runs its rule, a gateway that can't route, a
     userTask that opens no form). All WARN (consistent with the existing dangling-ref tolerance):
-      * FlowableWorkflowDto.contextIdentifiers → contexts[];
+      * the workflow's contextIdentifiers → contexts[];
       * serviceTask flowable:rule (CSV) → an EXECUTION_RULE/VALIDATION_RULE (a PREDICATE is wrong);
       * gateway sequenceFlow `predicateSequence.execute(execution,'<uuid>')` → a PREDICATE;
       * userTask userActions formGroupIdentifier → formGroups[]; predicate/onBeforeUserTaskStart|Complete/validation refs → rules[] of the right type."""
@@ -6915,8 +6948,8 @@ def _check_chart_mount_matches_engine(p, r):
 
 
 def _check_chart_group_in_js(p, r):
-    """EMPTY-CHART (WARN). A `chart.js.plugin` renders by `js.replace(replacement.group, fetchedValue)`
-    (`ChartJsServiceImpl.replaceJs`); `mergeReplacements` re-syncs only `name`/`type`, **never `group`**. So each
+    """EMPTY-CHART (WARN). A `chart.js.plugin` renders by `js.replace(replacement.group, fetchedValue)`;
+    the replacements merge re-syncs only `name`/`type`, **never `group`**. So each
     replacement's `group` — its exact `$$(name, default, type)` placeholder text — MUST be a **byte-for-byte
     substring of `js`**. A single stray space or quote-style diff (stored group `$$('Labels', [], 'String[]')` vs
     js `$$('Labels',[],'String[]')`) makes the replace a no-op: the placeholder survives to the browser, where
@@ -6989,7 +7022,7 @@ def _js_unbalanced(src):
 
 def _check_chart_js_parses(p, r):
     """RENDER-FATAL (ERROR). The panel runs a chart through `new Function(js)` AFTER textually replacing
-    every `$$(...)` group with the fetched value (`ChartJsServiceImpl.replaceJs` → `ChartJsPanel.renderChartConfig`).
+    every `$$(...)` group with the fetched value (done by the chart renderer).
     So the thing that must be valid JavaScript is the SUBSTITUTED text, not the authored one — and nothing else
     in this file looks at it: `_check_chart_group_in_js` only proves the group is a substring.
 
@@ -7131,8 +7164,8 @@ def _check_plotly_explicit_height(p, r):
 def _check_workflow_xml(p, r):
     """IMPORT-ABORTING (ERROR). A workflow whose `bpmnContent` is not well-formed XML — a malformed tag, an
     unescaped `&`/`<`, or an UNDECLARED namespace prefix (e.g. hand-authored `flowable:...` without the
-    `xmlns:flowable`) — is rejected by Flowable `saveWorkflowBackend` at import: *"Workflow validation failed …
-    invalid XML"*, which **ABORTS the ENTIRE rep-objects import** (`CmsProjectServiceImpl.initAllObjects`), so
+    `xmlns:flowable`) — is rejected by Flowable when the workflow is saved at import: *"Workflow validation failed …
+    invalid XML"*, which **ABORTS the ENTIRE rep-objects import**, so
     settings/rules/context/db all silently fail to import. The other workflow checks read `bpmnContent` as a
     STRING (regex); this one PARSES it. Also flags a `<process>`-less model and dangling `sequenceFlow` refs
     (Flowable rejects both). Empty `bpmnContent` is skipped (a draft workflow — imports as a no-op)."""
@@ -7167,10 +7200,10 @@ def _check_workflow_xml(p, r):
                 if ref and ref not in ids:
                     r.err("workflow %r sequenceFlow %r %s=%r points to no element id — Flowable rejects the "
                           "model (aborts import). (07)" % (nm, fid, kind, ref))
-        # SINGLE START EVENT per process. nct-workflow BpmnValidationService.validateProcess counts every
-        # <startEvent> in a <process> and REJECTS >1 (MULTIPLE_START_EVENTS: "only one start event is allowed"),
-        # which Flowable saveWorkflowBackend surfaces as a ServiceException that ABORTS the whole rep-objects
-        # import (everything after the workflow in initAllObjects — rules/contexts/forms/settings/mail+pdf
+        # SINGLE START EVENT per process. The platform's BPMN validation counts every
+        # <startEvent> in a <process> and REJECTS >1 ("only one start event is allowed"),
+        # which the workflow save surfaces as a service error that ABORTS the whole rep-objects
+        # import (everything after the workflow in the import order — rules/contexts/forms/settings/mail+pdf
         # templates — is silently skipped). A message/timer start still counts. Model an alternate trigger
         # (mail intake, deadline timer) as a SCHEDULER, not a second startEvent. (07-workflows-and-tasks.md)
         for proc in root.iter():
@@ -7180,7 +7213,7 @@ def _check_workflow_xml(p, r):
             if len(starts) > 1:
                 names = ", ".join((s.get("name") or s.get("id") or "?") for s in starts)
                 r.err("workflow %r process %r has %d start events (%s) — the platform allows only ONE "
-                      "(BpmnValidationService MULTIPLE_START_EVENTS); Flowable rejects it, ABORTING the whole "
+                      "(multiple start events); Flowable rejects it, ABORTING the whole "
                       "rep-objects import (rules/contexts/forms/templates after the workflow are skipped). Keep a "
                       "single <startEvent>; realise any alternate trigger as a scheduler. (07-workflows-and-tasks.md)"
                       % (nm, proc.get("id"), len(starts), names))
@@ -7188,7 +7221,7 @@ def _check_workflow_xml(p, r):
         # (extensionElements?, incoming*, outgoing*, dataIn/Out*, eventDefinition*) — an <*EventDefinition>
         # placed BEFORE an <incoming>/<outgoing> is WELL-FORMED (ET accepts it) but SCHEMA-INVALID:
         # Flowable's XSD validateModel throws cvc-complex-type.2.4.a and rejects the workflow, ABORTING the
-        # whole rep-objects import (everything after the workflow in initAllObjects — rules/contexts/forms/
+        # whole rep-objects import (everything after the workflow in the import order — rules/contexts/forms/
         # settings/mail+pdf templates — is silently skipped). This is exactly what a plain ET-parse misses.
         _EVENT_TAGS = {"startEvent", "endEvent", "intermediateCatchEvent",
                        "intermediateThrowEvent", "boundaryEvent"}
@@ -7457,9 +7490,9 @@ def _check_groovy_method_params(cruds, r):
     """⛔⛔ A GROOVY crud method whose script reads `param` MUST declare parameters[].
 
     `param` inside the delegated rule is built ONLY from methods[].parameters:
-    DynamicMethodExecutor.executeGroovyMethod fills its result map by iterating paramDefs
-    (both the DTO-unpack branch and the positional fallback), so with `parameters: []`
-    it stays empty, ReactorServiceImpl never even sends the `__methodParams` marker
+    the method executor fills its result map by iterating the declared parameters
+    (both the record-unpack branch and the positional fallback), so with `parameters: []`
+    it stays empty, the platform never even sends the `__methodParams` marker
     (`if (parameters)` is false for an empty map) and GroovyExecutionRule binds an EMPTY
     HashMap. The whole form payload is dropped and the INSERT writes NULLs —
     "null value in column ... violates not-null constraint" on the very first save.
@@ -7493,8 +7526,8 @@ def _check_list_field_subforms(p, r):
     (= `formIdByActionId[actionId]` or, absent a mapping, the action id itself) exists.
 
     ERROR shapes:
-      * `subforms` serialized as a JSON OBJECT (`{}`) — it is a `List<SubformSettings>`, so
-        Gson fails the whole settings blob and the control falls back to defaults: no columns,
+      * `subforms` serialized as a JSON OBJECT (`{}`) — it is a list of subform records, so
+        the settings parser fails the whole settings blob and the control falls back to defaults: no columns,
         no actions, no line can ever be added.
       * a `formIdByActionId` value that is not a child identifier (e.g. the literal "create") —
         `getRenderFormId` returns it verbatim and the action opens a blank auto-created form.
@@ -7514,7 +7547,7 @@ def _check_list_field_subforms(p, r):
         subs = st.get("subforms")
         if subs is not None and not isinstance(subs, list):
             r.err("list field %r: `subforms` must be a JSON ARRAY of {id, localizedNames} — "
-                  "with %r Gson fails the whole settings blob and the control falls back to "
+                  "with %r the parser fails the whole settings blob and the control falls back to "
                   "defaults: the sub-grid renders with NO columns and NO action buttons. "
                   "(02-form-controls-reference.md)" % (label, type(subs).__name__))
         kids = {c.get("identifier") for c in (node.get("children") or [])
@@ -7552,21 +7585,19 @@ def _check_list_field_subforms(p, r):
 
 
 def _check_list_action_rules(p, r):
-    """⛔/! A List control's actions carry the SAME `UserTaskActionsDto.ActionDto` payload as a user
+    """⛔/! A List control's actions carry the SAME action-record payload as a user
     task, and the same two traps apply — but they live in a content settings JSON, so the user-task
     check (`_check_user_action_payloads`) never sees them.
 
-    1. **TYPES.** Every one of these fields is declared **String** in the DTO
-       (`UserTaskActionsDto`). A JSON array or boolean makes Jackson
+    1. **TYPES.** Every one of these fields is declared **String**. A JSON array or boolean makes the parser
        fail the payload, and the List then renders with no action buttons at all.
-    2. **DANGLING RULE REFS.** The settings panel resolves a stored rule id with
-       `ruleService.findByIdentifier` (`RuleIdentifierSelectorField.java`) — no type filter, but
+    2. **DANGLING RULE REFS.** The settings panel resolves a stored rule id by identifier — no type filter, but
        no fallback either: an id that does not exist in the target tenant shows the field **EMPTY**, and
        nothing runs at submit. LIVE-FOUND 2026-08-07: a rule wired in the file but never imported looks
        exactly like "the setting was never saved". Warn (not error), because an author may legitimately
        point at a rule that already lives in the tenant and is not part of this export.
 
-    The picker itself lists only rules of the slot's own type (`ProcessTableUserActionsPanel.java`),
+    The picker itself lists only rules of the slot's own type,
     so a type mismatch still displays but can never be re-picked in the UI — warned separately.
     """
     STRING_FIELDS = ("validationRuleIdentifiers", "direct", "predicateIdentifier",
@@ -7600,9 +7631,9 @@ def _check_list_action_rules(p, r):
         for bucket in ("createNewActions", "userActions"):
             holder = st.get(bucket)
             if holder is not None and not isinstance(holder, dict):
-                # Jackson expects a UserTaskActionsDto object here; anything else fails the parse of
-                # the WHOLE ListFormControlSettings, so the control loses columns and actions at once.
-                r.err("list field %r: `%s` is %s, but it must be a UserTaskActionsDto object "
+                # The parser expects an action-list object here; anything else fails the parse of
+                # the WHOLE list-control settings, so the control loses columns and actions at once.
+                r.err("list field %r: `%s` is %s, but it must be an action-list object "
                       "{\"actions\": [...], \"errors\": []} — the settings JSON fails to parse and the "
                       "control renders with nothing configured. (02-form-controls-reference.md)"
                       % (label, bucket, type(holder).__name__))
@@ -7616,8 +7647,8 @@ def _check_list_action_rules(p, r):
                     v = a.get(f)
                     if v is None or isinstance(v, str):
                         continue
-                    r.err("list field %r action %r: `%s` is %s, but ActionDto declares it String — "
-                          "Jackson fails the whole payload and the List renders with NO action buttons. "
+                    r.err("list field %r action %r: `%s` is %s, but an action record declares it String — "
+                          "the parser fails the whole payload and the List renders with NO action buttons. "
                           "(02-form-controls-reference.md)" % (label, name, f, type(v).__name__))
                 for f, want in EXPECTED_TYPE.items():
                     v = a.get(f)
@@ -7758,8 +7789,8 @@ def _check_method_rule_delegates(p, r):
                 # ⛔ A GROOVY method that carries its own `script` and a `ruleIdentifier` is the
                 # HIDDEN-DELEGATE shape this very toolkit writes — see `crud_cmds.cmd_crud_apply`:
                 # "Hidden rules are filtered out of the export, so rep-objects.json carries none of
-                # them — and the importer knows this: `CmsProjectServiceImpl` re-creates each one
-                # from the method's own `script` (`ensureHiddenGroovyRule`) … there is deliberately
+                # them — and the importer knows this: the import re-creates each one
+                # from the method's own `script` … there is deliberately
                 # no rule in rep-objects.json."
                 #
                 # So the reference is not dangling: the platform creates the rule on import from the
@@ -8009,9 +8040,8 @@ def _check_localized_names(obj, node, locales, r):
             _check_localized_names(item, node, locales, r)
 
 
-# The platform's BpmnTaskType enum (workflow-common/dto/BpmnTaskType.java @JsonProperty
-# values). workflows[].elements[].settings.type MUST be one of these — anything else
-# (notably bpmn:BoundaryEvent and bpmn:EndEvent) makes Jackson abort the ENTIRE
+# The platform's task-type enum values. workflows[].elements[].settings.type MUST be one of these — anything else
+# (notably bpmn:BoundaryEvent and bpmn:EndEvent) makes the import abort the ENTIRE
 # rep-objects import. End events must be authored as "bpmn:Task"; boundary/timer events
 # are NOT modellable at all.
 _BPMN_TASK_TYPES = {
@@ -8035,9 +8065,8 @@ def _has_form_field_descendant(node):
 
 def _check_form_parsis_anchor(p, r):
     """A dynaform.form.plugin renders its fields ONLY into a DIRECT child
-    nct.parsis.plugin whose identifier is EXACTLY 'form.parsis'
-    (FormPlugin.java `getOrCreateChild(..., "form.parsis")`). A
-    dynaform.filter.form.plugin needs 'filter.parsis' (FilterFormPlugin.java).
+    nct.parsis.plugin whose identifier is EXACTLY 'form.parsis'. A
+    dynaform.filter.form.plugin needs 'filter.parsis'.
     If the field controls are placed under a randomly-uuid'd parsis instead, the
     plugin creates a FRESH EMPTY anchor and the form/filter renders with NO fields
     — a silent, data-shaped bug that `validate` otherwise misses. -> ERROR."""
@@ -8205,12 +8234,12 @@ def _check_workflow_diagram(rep, r):
 
 
 def _check_user_action_payloads(rep, r):
-    """⛔ Every ActionDto inside a `flowable:userActions` payload must match the DTO's TYPES.
+    """⛔ Every action record inside a `flowable:userActions` payload must match the declared TYPES.
 
-    `UserTaskActionsDto.ActionDto` (`UserTaskActionsDto`) declares
+    An action record declares
     `validationRuleIdentifiers`, `direct`, `predicateIdentifier`, `formGroupIdentifier`,
     `onBeforeUserTask*RuleIdentifier`, `completeUserTask`, `icon` ALL as **String**. A JSON array
-    (e.g. `"validationRuleIdentifiers": ["uuid"]`) or a boolean `direct` makes Jackson fail the WHOLE
+    (e.g. `"validationRuleIdentifiers": ["uuid"]`) or a boolean `direct` makes the parser fail the WHOLE
     payload, and the user task then renders **with no action buttons at all** — the task is unusable and
     nothing in the log points at the cause. LIVE-FOUND 2026-08-07.
     """
@@ -8234,20 +8263,20 @@ def _check_user_action_payloads(rep, r):
                         v = a.get(f)
                         if v is None or isinstance(v, str):
                             continue
-                        r.err("workflow %r element %r action %r: `%s` is %s, but ActionDto declares it "
-                              "as String — Jackson fails the WHOLE userActions payload and the user task "
+                        r.err("workflow %r element %r action %r: `%s` is %s, but an action record declares it "
+                              "as String — the parser fails the WHOLE userActions payload and the user task "
                               "renders WITHOUT ANY ACTIONS. Use a comma-separated string (%s). "
-                              "(07-workflows-and-tasks.md, ActionDto)"
+                              "(07-workflows-and-tasks.md)"
                               % (wf.get("name"), el.get("id"), a.get("name"), f,
                                  type(v).__name__,
                                  '"a,b"' if f.endswith("Identifiers") else '"on"/"off"'))
 
 
 def _check_workflow_element_types(rep, r):
-    """workflows[].elements[].settings.type must be a BpmnTaskType enum value. An
+    """workflows[].elements[].settings.type must be a task-type enum value. An
     unknown type (bpmn:BoundaryEvent, bpmn:EndEvent, bpmn:IntermediateCatchEvent, …)
-    makes the platform importer throw a Jackson InvalidFormatException while
-    deserializing FlowableWorkflowDto.elements[].settings.type, which aborts the
+    makes the platform importer throw an invalid-format error while
+    deserializing elements[].settings.type, which aborts the
     ENTIRE rep-objects import: the whole REPORT-path never runs, so sources aren't
     saved ("No source selected"), project-db.dump isn't restored (data/dates "gone"),
     and the context imports empty. Symptom is data-shaped and SCATTERED, not
@@ -8258,9 +8287,9 @@ def _check_workflow_element_types(rep, r):
                 continue
             t = (el.get("settings") or {}).get("type")
             if t is not None and t not in _BPMN_TASK_TYPES:
-                r.err("workflow %r element %r: settings.type %r is NOT a BpmnTaskType "
-                      "enum value — it ABORTS the entire rep-objects import (Jackson "
-                      "InvalidFormatException) so sources/DB/context all fail to import. "
+                r.err("workflow %r element %r: settings.type %r is NOT a valid task-type "
+                      "enum value — it ABORTS the entire rep-objects import (invalid-format "
+                      "error) so sources/DB/context all fail to import. "
                       "Author end events as 'bpmn:Task'; boundary/timer events are "
                       "unsupported. Allowed: %s"
                       % (wf.get("name"), el.get("id"), t, ", ".join(sorted(_BPMN_TASK_TYPES))))

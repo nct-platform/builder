@@ -784,7 +784,7 @@ A **form** (`rep-objects.forms[]`) is a wrapper; its fields live in the content 
   between/range, and **Info/help text** (`showInfo`+`infoText` → an optional `help_*` `nct.help.plugin` node beside
   the label rendering a click/hover **"?" tooltip** — author it when the PRD wants inline field guidance, and cover
   all locales). Columns → [03](03-generate-fields-from-crud.md); settings shapes → [02](02-form-controls-reference.md).
-- **Form-level settings (on the `FormDto`, not the control)** — decide per form: **Hidden Content Configuration**
+- **Form-level settings (on the form, not the control)** — decide per form: **Hidden Content Configuration**
   (`hiddenConfigs[]` — a predicate **hides** whole content nodes by their `uniqueIdentifier`, predicate-true =
   HIDDEN; the form-level analogue of per-field prohibited — "hide the approval block until submitted"); **Global
   Validation Rules** (`validators[]` — form-level `VALIDATION_RULE`s that run on submit and can
@@ -901,26 +901,24 @@ carries the CRUD quartet on every control, and its `onBeforeComplete` rule reads
   `mrjun.py validate` ERRORs on both cases. ([14 §2.3](14-plugin-catalog-all.md))
 - **Multiple tables in tabs (one page).** Use `nct.tab.plugin`: its `properties.tabModel` =
   `{"items":[{"id":"<uuid>","name":"Tab Title","order":N}], "size":"SMALL"}`. **Always author
-  `"size":"SMALL"`** — omit it and you get `BIG` twice over (field initialiser `TabSize.BIG`,
-  `TabModel.java` — omit the key and the bar renders BIG twice over: the field's own default is BIG **and** the
-  getter coerces a null back to BIG, so there is no way to get SMALL except by writing it), which is a chunky bar
+  `"size":"SMALL"`** — omit it and you get `BIG` twice over (the field's own default is BIG **and** a null is
+  coerced back to BIG, so there is no way to get SMALL except by writing it), which is a chunky bar
   eating vertical space above every grid. Use `BIG` only for 2-3 top-level *modes*, never for section switching.
   **For each item, create a child `nct.parsis.plugin` whose `identifier` EQUALS the item's `id`** — that
   **identity**, not child order, decides which content renders in which tab (`item.order` only sorts the tab
-  headers; `TabPlugin.java`). Each such parsis holds exactly ONE table (with its own `model` + settings
+  headers). Each such parsis holds exactly ONE table (with its own `model` + settings
   mirror). One tab per table. (Mechanism, code refs, `localizedMap.name` caption storage:
   [01](01-content-model-and-pages.md) "Tabs".)
 - **Layout / access** — `nct.html.plugin` Bootstrap grid + `nct.parsis.plugin` content slots; page `roleAccess`
   from Phase 6; charts via `chart.js.plugin` (config in `properties.Javascript`) — full data-binding + query
   params + filter bar + click-to-cross-filter recipe → [22](22-charts-params-and-filters.md).
 - **⛔ A dashboard is never a wall of static charts.** Every dashboard/KPI page ships **(a)** a filter bar — a
-  `global.replacement.plugin` node over the params its charts declare (`GlobalReplacementPlugin`; **not**
+  `global.replacement.plugin` node over the params its charts declare (**not**
   a `dynaform.filter.form`, which drives tables, not charts — [21](21-homepage-and-redirect.md)); choose the
   filter SET the way you choose table filters, from the real data distribution (2-4 axes: status / type / owner /
   period) → [22](22-charts-params-and-filters.md) "### 4.6 Designing the filter SET for a
   dashboard"; **(b)** at least one **click-to-cross-filter** chart, so clicking a category narrows the rest of
-  the page (`GlobalReplacementPlugin` → `ParamsPanel.applyFilterFromChart`,
-  [22](22-charts-params-and-filters.md) §5) — and when a click should leave this page for a detail screen
+  the page ([22](22-charts-params-and-filters.md) §5) — and when a click should leave this page for a detail screen
   instead, [22](22-charts-params-and-filters.md) "### 5.3 Click to drill to another PAGE (when cross-filter is
   not enough)"; **(c)** a **palette chosen from
   what the axis MEANS** — one fixed hue per category reused by every chart on the page, a ramp for ordered
@@ -1008,12 +1006,12 @@ tables of ANY kind outside separate tabs** — count
   `{basePdf, schemas:[[{name,type,position,width,height,content}…]]}` with `text`/`multiVariableText`/`image`/`table`
   fields. **For a printout that lists line items, pick a seed that HAS a `table` field** (invoice/quotation/
   packing-slip/delivery-note). Give it a stable `alias` and ship it with `mrjun.py pdftemplate add --alias <a>
-  --name <s> --template @file.json` — it rides in `rep-objects.pdfTemplates[]` and is created in nct-pdf on
+  --name <s> --template @file.json` — it rides in `rep-objects.pdfTemplates[]` and is created in the PDF template store on
   import (the Groovy rule references the same alias). ⚠️ For a `multiVariableText` field the render-time `params` keys
   are the field's **inner `variables` names** (e.g. `invoiceNumber`, `customerName`), **not** the field `name`
   (`info`/`billTo`); for a `table` field pass a nested list of rows.
 - **The flow** — an EXECUTION rule reads the row (`context.<ctx>.<alias>.data.get()`), calls
-  `service.report.pdf.get.<alias>(fileName, params)` → `PdfReferenceDto`, then `service.notification.mail.*` to
+  `service.report.pdf.get.<alias>(fileName, params)` → a PDF reference, then `service.notification.mail.*` to
   send it. **Decide the trigger:** a CRUD table/tree action-rule ([04](04-crud-table-plugin.md)), a workflow
   user/service-task rule ([07](07-workflows-and-tasks.md)), or a scheduler ([12](12-queries-sources-schedulers-and-rest.md)
   — headless: no `userId`, so `pdf.download` is skipped, use `get`+mail).
@@ -1021,7 +1019,7 @@ tables of ANY kind outside separate tabs** — count
 **Author:** `mailtemplate add --name … --subject … --html @body.html`; **PDF templates ARE portable in the
 `.mrjun`** — `pdftemplate scaffold <alias> --out file.json --field …` writes a skeleton pdfme JSON to fill in, then
 `pdftemplate add --alias <a> --name <s> --template @file.json` appends it to `rep-objects.pdfTemplates[]` (created
-in nct-pdf automatically on import; a browser/REST load is only a one-off, non-portable path — [15](15-pdf-and-mail.md)).
+in the PDF template store automatically on import; a browser/REST load is only a one-off, non-portable path — [15](15-pdf-and-mail.md)).
 Wire the trigger as a Phase-5 EXECUTION rule.
 
 **Done when:** every PRD notification has an exported mail template with the right placeholders; every printout
@@ -1157,10 +1155,10 @@ a start RULE seeds still warns, correctly — re-scope that index to `GLOBAL` ov
 publishes rather than trying to silence it.)
 Each finding is one blank screen or one step that throws on the first live run — and nothing else in the
 build will tell you, because the artefact imports and every page renders.
-⛔ **Every `elements[].settings.type` is a real `BpmnTaskType`** (`bpmn:StartEvent|Task|
+⛔ **Every `elements[].settings.type` is one of the allowed task types** (`bpmn:StartEvent|Task|
 UserTask|ServiceTask|…Gateway|CallActivity|SequenceFlow|SubProcess` — [07](07-workflows-and-tasks.md)): **end
 events are `bpmn:Task`, and there is NO `bpmn:BoundaryEvent`/`bpmn:EndEvent`** — a boundary/timer event (or any
-non-enum type) in `elements[]` aborts the WHOLE rep-objects import (Jackson `InvalidFormatException` → "No source
+non-enum type) in `elements[]` aborts the WHOLE rep-objects import (a deserialization error → "No source
 selected", DB not restored, empty context). `validate` ERRORs on it; **also do a live import + read `log/ui.log`**,
 because a green `validate` is not import-proof (validate does not deserialize into the platform DTOs — Phase 14).
 
@@ -1179,9 +1177,9 @@ because a green `validate` is not import-proof (validate does not deserialize in
   `service.crud.<alias>.find(...)`, e.g. find-expiring → send mail). ⚠️ the field is **`actionRuleIdentifier`**,
   not `ruleIdentifier` (which the platform's own obsolete doc used and does not deserialize — a scheduler with
   `ruleIdentifier` fires but runs nothing).
-- **`job.expression` is a Spring 6-field cron** (`sec min hour dom mon dow`), parsed by Spring `CronTrigger` —
+- **`job.expression` is a Spring 6-field cron** (`sec min hour dom mon dow`), parsed by Spring —
   use `*` and named days (`MON-FRI`), **not** Quartz `?`/`L` (they fail — and Quartz-style examples circulate, so
-  double-check any cron you copy). Prefer a full literal `job.expression` with `cronType=null` over a `CronType` preset
+  double-check any cron you copy). Prefer a full literal `job.expression` with `cronType=null` over a `cronType` preset
   (presets are a wildcarded UI convenience).
 - **A blank `predicateIdentifier` defaults to TRUE** — the action then fires on **every** tick (gated only by
   `cooldownJob`). Set a predicate to gate it. `cooldownJob.expression` is itself a cron: after a fire, the next
@@ -1192,7 +1190,7 @@ because a green `validate` is not import-proof (validate does not deserialize in
 - **Per-recipient digest?** For "email *each* X their own list" the single action rule must **fan out**:
   `service.crud.<recipient>.findAll(...).each { r -> def rows = service.crud.<entity>.find([ownerId:r.id, ...]);
   if (rows) service.notification.mail.<tmpl>([r.email as String], [...]) }` — one scheduler, one rule, N
-  personalized mails. ⚠️ **the first argument is a LIST, even for one person.** `MailNotificationProxy` does
+  personalized mails. ⚠️ **the first argument is a LIST, even for one person.** The platform does
   `args[0] as List<String>`, and Groovy coerces a bare `String` to a list of its CHARACTERS
   (`"a@b.com" as List<String>` → `[a, @, b, ., c, o, m]`), so `mail.<tmpl>(r.email, …)` addresses seven junk
   recipients instead of one person — the coercion itself never complains, and neither does `validate`
@@ -1208,7 +1206,7 @@ because a green `validate` is not import-proof (validate does not deserialize in
   Nothing offline sees any of the three. The whole chain, the rule to copy and its live acceptance run →
   [27](27-event-driven-process-start.md).
 
-**Author:** shape per [12](12-queries-sources-schedulers-and-rest.md) §3 (`ScheduleDto`: `job{expression,
+**Author:** shape per [12](12-queries-sources-schedulers-and-rest.md) §3 (`job{expression,
 explanation,cronType}`, `predicateIdentifier`, `actionType:RUN_RULE`, `actionRuleIdentifier`, `cooldownJob`,
 `enabled`). ⛔ **Ship it `enabled:false`** unless the trigger is meant to be live the instant the project is
 imported: an imported `enabled:true` scheduler with a non-blank `job.expression` registers a live cron trigger
@@ -1318,13 +1316,13 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    > returning ones — fetch/choices/`find`/`count`).
    >
    > ⚠️ **validate ≠ import-safe.** validate does not deserialize into the platform DTOs, so a rep-object with the
-   > wrong JSON *type* (e.g. `settings[].content` as a string instead of an `ObjectNode` object — see
+   > wrong JSON *type* (e.g. `settings[].content` as a string instead of a JSON object — see
    > [00](00-export-format-and-import.md)/[04](04-crud-table-plugin.md)) can pass validate yet **abort the entire
-   > REPORT-path import** with a Jackson `MismatchedInputException`. The symptom is data-shaped, not error-shaped,
+   > REPORT-path import** with a JSON deserialization error. The symptom is data-shaped, not error-shaped,
    > and SCATTERED (one abort skips the whole block, so several things break at once): sources unsaved ("No source
    > selected"), the **context imported empty → rules fail `No CRUD found with alias X in context Y`**,
    > `project-db.dump` not restored (data/dates "gone"), while the dynamic-CRUD replay still runs. All at once ⇒
-   > one abort, not three bugs — find the Jackson stack in `log/ui.log`. validate now ERRORs on `settings[].content`
+   > one abort, not three bugs — find the deserialization stack trace in `log/ui.log`. validate now ERRORs on `settings[].content`
    > as a string AND on any rep-object field that is a string where that field is an object/array elsewhere, but it
    > does not deserialize into the DTOs. If you hand-edited `rep-objects.json`, do a **live import smoke-test and
    > read `log/ui.log`** — or edit via `mrjun.py node set-model`/`patch-model`, which keep the mirror correct (object).
@@ -1373,7 +1371,7 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    rule-started case grants the `admin` and `nct_author` roles unconditionally, so testing as one of those proves
    nothing; and a case filed under no group is excluded from a group-scoped worklist for everyone, silently)
    ([27](27-event-driven-process-start.md) §8.3);
-   and **`log/ui.log` is clean** of Jackson `MismatchedInputException`/`InvalidFormatException` (the scattered,
+   and **`log/ui.log` is clean** of `MismatchedInputException`/`InvalidFormatException` deserialization errors (the scattered,
    data-shaped import-aborts). What you CAN do offline for that last class is make it impossible to ship: `validate`
    ERRORs on a blank mandatory field and on a rep-object field serialized as a string, which is where those aborts
    come from.

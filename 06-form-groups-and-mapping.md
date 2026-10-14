@@ -77,37 +77,37 @@ Use a form group when:
 > standard; see the ⭐ canonical recipe under "How to construct").
 >
 > ⛔ **THE #1 hand-authoring trap — the ROUTABLE alias is the page's TOP-LEVEL `alias` field, NOT
-> `properties.alias.stringValue`.** The platform routes a page by `ContentDomain.getAlias()` = the top-level
-> `"alias"` JSON key (`ContentServiceImpl.calculatePageUrl` walks alias+ancestor path); `page add` sets that
+> `properties.alias.stringValue`.** The platform routes a page by the top-level
+> `"alias"` JSON key (the URL is the alias path through the ancestors); `page add` sets that
 > top-level field and leaves `properties.alias.stringValue` null. If you hand-build a form/landing page (e.g. via a
 > generator's `mknode`) and set only `properties.alias.stringValue`, or clone the system `Landing` (which carries
 > top-level `alias="landing"`) without overriding it, the page ends up with **NO / a COLLIDING top-level alias** →
-> `calculatePageUrl` yields a broken URL that re-resolves to the landing → `FormGroupLandingPlugin.navigateToFormIfNeed`
+> the page URL comes out broken and re-resolves to the landing → the landing's form navigation
 > re-fires → **ERR_TOO_MANY_REDIRECTS** on `/…/landing?group=…` (import succeeds; the loop only shows when a clerk
 > clicks Create/Edit). Every form page + landing page needs a **present, UNIQUE, top-level** `alias` (e.g.
 > `<entity>-form`, `<entity>-form-landing`). `validate` now **ERRORs** on a form/landing page with a missing or
 > colliding top-level alias, WARNs on a `dynaform.form.plugin` page parented at root, and WARNs on a group still
 > pointing at the shared system `Landing`.
 
-> ⚠️ **Where FormGroup/Form actually live.** The `formGroup`/`form` objects themselves are rep-objects (persisted in
-> the nct-dynaform DB, exported to `rep-objects.json`). `branches.json` holds ONLY CMS nodes:
+> ⚠️ **Where FormGroup/Form actually live.** The `formGroup`/`form` objects themselves are rep-objects (exported to
+> `rep-objects.json`). `branches.json` holds ONLY CMS nodes:
 > the landing plugin, the form plugin, the controls. Do not look for the group/form JSON inside `branches.json` — there are only
 > `pluginName` nodes there, bound to rep-objects via `?group=` (landing) and the `formModeIdentifier`
 > property (form plugin).
 
 ### Static vs dynamic — does not affect these objects
 
-The form group mechanism is **identical** for a static (compiled-bean) and a dynamic (definition-driven)
+The form group mechanism is **identical** for a static (compiled) and a dynamic (definition-driven)
 project: `formGroup`, `form`, landing node, mapping — all the same. The only difference is that
 `service.crud.<alias>...` inside predicates
-resolves either to a compiled `@Crud` bean (static) or to a definition from `dynamic-cruds.json`
+resolves either to a compiled (static) CRUD or to a definition from `dynamic-cruds.json`
 (dynamic; see [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md)).
 
 ### Two naming models — auto-gen vs manual (important for dynamic)
 
 The **Create Default Actions** button in the CRUD-table/-tree settings generates a group `"<CrudName> Forms"`,
 a form `"<CrudName> Form"` and a single mapping pair `True → form`, with `placeFormsNextToLanding=true` and
-`formGroupsPageIdentifier=null` (`CrudDefaultActionsService`, see below). Hand-built projects routinely differ
+`formGroupsPageIdentifier=null` (see below). Hand-built projects routinely differ
 on every one of those points — and both shapes import and run:
 
 | | Auto-gen (Create Default Actions) | Style 1 — hand-built, shared landing | Style 2 — hand-built, landing per group |
@@ -139,13 +139,13 @@ list page are content-tree nodes in `branches.json[].rootContent` (see
 
 ```
 {
-  "message": null, "errors": null, "id": null,       // AbstractSecuredDto housekeeping — always null in the export
+  "message": null, "errors": null, "id": null,       // housekeeping — always null in the export
   "realmName": "<realm>", "clientName": "<client>",  // multi-tenant keys
-  "identifier": "<uuid>",                            // stable group id (referenced from FormDto.formGroup, mapping, from the URL ?group=)
+  "identifier": "<uuid>",                            // stable group id (referenced from forms[].formGroup, mapping, from the URL ?group=)
   "creationTime": "<iso>", "modificationTime": "<iso>",
   "name": "<string>",                                // display name; auto-gen convention "<CrudName> Forms", hand-built often "<X> Form Group"
   "contextIdentifiers": ["<contextUuid>", ...],      // group contexts (see 08-groovy-rules-and-context.md)
-  "contentPageIdentifier": "<pageIdentifier>|null",  // ContentDomain.identifier of the landing page (dynaform.form.groups.landingplugin)
+  "contentPageIdentifier": "<pageIdentifier>|null",  // identifier of the landing page (dynaform.form.groups.landingplugin)
   "formGroupsPageIdentifier": "<pageIdentifier>|null",// group-LIST page (dynaform.form.groups.plugin) — usually the shared admin "Form Groups"
   "placeFormsNextToLanding": true|false,             // where form pages are created: child of landing (false, default) / sibling of landing (true)
   "predicateFormMapping": {
@@ -157,11 +157,10 @@ list page are content-tree nodes in `branches.json[].rootContent` (see
 }
 ```
 
-> **No `order` and `forms` fields.** `PredicateFormPair` contains ONLY `predicateIdentifier` +
-> `formIdentifier` (`PredicateFormMappingDto.java`) — ordering follows the position in the array, not
-> a numeric `order`. `FormGroupDto` has NO `forms` field: forms reference the group via
-> `FormDto.formGroup`, and on the list page they resolve by `FormFilter.formGroupIdentifier`
-> (`FormGroupLandingPlugin.java`).
+> **No `order` and `forms` fields.** Each `mapping[]` pair contains ONLY `predicateIdentifier` +
+> `formIdentifier` — ordering follows the position in the array, not
+> a numeric `order`. A form-group record has NO `forms` field: forms reference the group via
+> `forms[].formGroup`, and on the list page they resolve by a form filter on `formGroupIdentifier`.
 
 ### Worked example — auto-gen (`formGroups[0]` of a manufacturing project)
 
@@ -248,13 +247,13 @@ field layout, not that UUID.
   "realmName": "<realm>", "clientName": "<client>",
   "identifier": "<uuid>",                            // stable form id (referenced from mapping.formIdentifier)
   "creationTime": "<iso>", "modificationTime": "<iso>",
-  "formGroup": { <embedded FormGroupDto — a FULL copy of the group, WITH all housekeeping fields> },
-  "contentIdentifier": "<pageIdentifier>",           // ContentDomain.identifier of the form page (siteMapPage with dynaform.form.plugin)
+  "formGroup": { <embedded form group — a FULL copy of the group, WITH all housekeeping fields> },
+  "contentIdentifier": "<pageIdentifier>",           // identifier of the form page (siteMapPage with dynaform.form.plugin)
   "name": "<string>",                                // auto-gen "<CrudName> Form"
   "contextIdentifiers": ["<contextUuid>", ...],
   "validators": ["<ruleUuid>", ...],                 // form-level VALIDATION_RULE identifiers (usually [])
   "actionValidators": [ <FormActionValidator>, ... ],// validators bound to a specific action (usually [])
-  "hiddenConfigs": [ <HiddenContentConfig>, ... ],   // predicate-based hiding/validation of content (usually [])
+  "hiddenConfigs": [ <hidden-content config>, ... ],   // predicate-based hiding/validation of content (usually [])
   "multiLanguage": true|false|null,                  // Boolean; null → false; in dynamic usually true
   "allowDrafts": true|false|null                     // Boolean; null → false; "Drafts" button in breadcrumbs
 }
@@ -262,7 +261,7 @@ field layout, not that UUID.
 
 ### Worked example (`forms[0]`) — the embedded `formGroup` shown IN FULL
 
-> ⚠️ The embedded `formGroup` inside `FormDto` is a **full copy** of the group DTO, including housekeeping fields
+> ⚠️ The embedded `formGroup` inside the form record is a **full copy** of the group DTO, including housekeeping fields
 > `message/errors/id/realmName/clientName/creationTime/modificationTime` — the key set is
 > identical to the object in `formGroups[]`. Do not trim them when building manually.
 
@@ -312,7 +311,7 @@ These three are empty on most forms: `multiLanguage:true` on every form of a loc
 and `validators` on the handful of forms that actually need them. Populated shapes:
 
 ```json
-// hiddenConfigs (a "Stock Transfer Form" that hides a block by predicate) — HiddenContentConfig[]:
+// hiddenConfigs (a "Stock Transfer Form" that hides a block by predicate) — hidden-content config[]:
 "hiddenConfigs": [
   { "predicateIdentifier": "0a09acad-8b77-4f7e-a4f7-050e3afd45a1",
     "contentIdentifiers": ["7efad281-bae1-40f5-b8f8-eaca40b67052"] }
@@ -324,8 +323,7 @@ and `validators` on the handful of forms that actually need them. Populated shap
 "validators": []
 ```
 
-`HiddenContentConfig` = `{predicateIdentifier: String, contentIdentifiers: List<String>}`
-(`HiddenContentConfig.java`). When the predicate `predicateIdentifier` returns `true`, the bound
+Each `hiddenConfigs[]` entry = `{predicateIdentifier: String, contentIdentifiers: List<String>}`. When the predicate `predicateIdentifier` returns `true`, the bound
 `contentIdentifiers` are hidden/validated on the form (this is the form-level analogue of per-control-hidden from
 [02-form-controls-reference.md](02-form-controls-reference.md)).
 
@@ -405,7 +403,7 @@ see [01-content-model-and-pages.md](01-content-model-and-pages.md) for the exact
 > `landing`) and its own parsis subtree carries **only** `dynaform.form.groups.landingplugin`
 > (plus site chrome: header/footer/breadcrumb/kicker/image/html); there is **no** `dynaform.form.plugin`
 > and no controls on the landing page itself. Every `dynaform.form.plugin` under that landing lives in a
-> **child form page** (`siteMapPage`), not on the landing. The `FormDto` objects themselves also do **NOT** point
+> **child form page** (`siteMapPage`), not on the landing. The form record objects themselves also do **NOT** point
 > at the landing page: `form.contentIdentifier != formGroup.contentPageIdentifier` on every form. Each form
 > references a **separate child form page** (`placeFormsNextToLanding=false` → the form page is a child of the
 > landing). Example: the form "1.1 Declarations Form" (`461c3f09-...`) has `contentIdentifier=029533b4-...` — a
@@ -418,8 +416,7 @@ see [01-content-model-and-pages.md](01-content-model-and-pages.md) for the exact
 
 `form.contentIdentifier` points at a `siteMapPage` (layout `"Main"` in current practice; `"Form"` in
 older projects — both render, emit `Main`) that has the **property `formModeIdentifier` = the form's identifier** set —
-this is what links the page to the `FormDto` (set at
-`FormGroupLandingPlugin.java` and `CrudDefaultActionsService.java`). Example ("Bill of Materials
+this is what links the page to the form record (set by the landing page and by Create Default Actions). Example ("Bill of Materials
 Form", `identifier` = `15b6ffd4-...`, form `2c18b1c2-...`; the full set of property keys —
 `Redirect, additionalCss, formModeIdentifier, group, isParsis, layout, metaTags, pageDescription, pageTitle`):
 
@@ -438,66 +435,62 @@ Form", `identifier` = `15b6ffd4-...`, form `2c18b1c2-...`; the full set of prope
 ```
 
 Inside the page (in `parsis`) sits a `dynaform.form.plugin` node (its `properties` are generic slots +
-`formModeIdentifier` + `isParsis`/`reuseItems`; the form configuration is set via `FormDto` + controls).
+`formModeIdentifier` + `isParsis`/`reuseItems`; the form configuration is set via the form record + controls).
 
 ## Per-variant reference
 
-### `FormGroupDto` — field by field
+### Form-group record — field by field
 
-| name | type | meaning | required? | default | backing (`FormGroupDto.java`) |
-|---|---|---|---|---|---|
-| `identifier` | String (uuid) | stable group id | yes | server-generated | `AbstractSecuredDto.identifier` |
-| `name` | String | display name (auto-gen `"<CrudName> Forms"`, usually manual) | yes (`RequiredTextField`) | — | |
-| `contextIdentifiers` | List\<String\> | contexts; the first is the default context for predicates | no | `null`/empty | |
-| `contentPageIdentifier` | String | `ContentDomain.identifier` of the landing page | no* | `null` | |
-| `formGroupsPageIdentifier` | String | the group list page (`dynaform.form.groups.plugin`) — usually the shared admin "Form Groups" | no | `null` | |
-| `placeFormsNextToLanding` | boolean | `false` (default) → form pages = **children** of landing; `true` → **siblings** of landing | no | `false` | |
-| `predicateFormMapping` | `PredicateFormMappingDto` | predicate→form routing table | no | `{mapping:[]}` (lazy) | |
+| name | type | meaning | required? | default |
+|---|---|---|---|---|
+| `identifier` | String (uuid) | stable group id | yes | server-generated |
+| `name` | String | display name (auto-gen `"<CrudName> Forms"`, usually manual) | yes | — |
+| `contextIdentifiers` | List\<String\> | contexts; the first is the default context for predicates | no | `null`/empty |
+| `contentPageIdentifier` | String | `identifier` of the landing page | no* | `null` |
+| `formGroupsPageIdentifier` | String | the group list page (`dynaform.form.groups.plugin`) — usually the shared admin "Form Groups" | no | `null` |
+| `placeFormsNextToLanding` | boolean | `false` (default) → form pages = **children** of landing; `true` → **siblings** of landing | no | `false` |
+| `predicateFormMapping` | object | predicate→form routing table | no | `{mapping:[]}` (lazy) |
 
-\* The "No landing page found" error (`FormGroupLandingPlugin.goLandingPage`) fires when
-`FormDto.contentIdentifier` (the FORM's own page) is empty, and **not** when
-`FormGroupDto.contentPageIdentifier` is empty. Still, for a working group specify both the group's landing page and
-each form's page. `@EqualsAndHashCode` excludes `contextIdentifiers`
-and `predicateFormMapping` — do not rely on equals to compare groups by mapping.
+\* The "No landing page found" error fires when
+`forms[].contentIdentifier` (the FORM's own page) is empty, and **not** when
+`formGroups[].contentPageIdentifier` is empty. Still, for a working group specify both the group's landing page and
+each form's page.
 
-`predicateFormMapping.mapping[]` — `PredicateFormPair`:
+`predicateFormMapping.mapping[]` — a pair object:
 
-| name | type | meaning | required? | default | backing |
-|---|---|---|---|---|---|
-| `predicateIdentifier` | String (uuid) | id of the PREDICATE rule; blank → the pair is treated as **fallback** | no | — | `PredicateFormMappingDto.PredicateFormPair.predicateIdentifier` |
-| `formIdentifier` | String (uuid) | id of the form to go to; blank → the pair is skipped | yes | — | |
+| name | type | meaning | required? | default |
+|---|---|---|---|---|
+| `predicateIdentifier` | String (uuid) | id of the PREDICATE rule; blank → the pair is treated as **fallback** | no | — |
+| `formIdentifier` | String (uuid) | id of the form to go to; blank → the pair is skipped | yes | — |
 
 > **Order = position in the array.** The landing iterates `mapping[]` top to bottom and opens the **first**
 > form whose predicate returned `true`. Pairs with a blank `predicateIdentifier` do NOT stop iteration — they
-> are remembered as the `fallbackForm` (the **first** such one), and used ONLY if no predicate
-> returned `true`, regardless of where the blank pair sits in the list (`FormGroupLandingPlugin.java`
->; likewise in the other three nav methods). Pairs with a blank `formIdentifier` are skipped
+> are remembered as the fallback form (the **first** such one), and used ONLY if no predicate
+> returned `true`, regardless of where the blank pair sits in the list (the same in all four dispatch branches). Pairs with a blank `formIdentifier` are skipped
 > entirely.
 
-### `FormDto` — field by field
+### Form record — field by field
 
-| name | type | meaning | required? | default | backing (`FormDto.java`) |
-|---|---|---|---|---|---|
-| `identifier` | String (uuid) | form id; referenced by `mapping.formIdentifier` | yes | server-generated | `AbstractSecuredDto.identifier` |
-| `formGroup` | `FormGroupDto` | embedded **full** copy of the group (back-reference) | yes for forms in a group | — | |
-| `contentIdentifier` | String | `ContentDomain.identifier` of the form page (`siteMapPage`, `layout:"Form"` + `formModeIdentifier`) | yes | — | |
-| `name` | String | auto-gen `"<CrudName> Form"` | yes | — | |
-| `contextIdentifiers` | List\<String\> | form contexts | no | empty (lazy) | |
-| `validators` | List\<String\> | form-level VALIDATION_RULE identifiers | no | empty | |
-| `actionValidators` | List\<FormActionValidator\> | validators bound to a specific action | no | empty | |
-| `hiddenConfigs` | List\<HiddenContentConfig\> | predicate-based hiding/validation of form content | no | empty | |
-| `multiLanguage` | Boolean | localized field values; `isMultiLanguage()` null-safe | no | `null`→`false` | |
-| `allowDrafts` | Boolean | "Drafts" dropdown in breadcrumbs (save/resume a draft); `isAllowDrafts()` | no | `null`→`false` | |
+| name | type | meaning | required? | default |
+|---|---|---|---|---|
+| `identifier` | String (uuid) | form id; referenced by `mapping.formIdentifier` | yes | server-generated |
+| `formGroup` | object (form-group record) | embedded **full** copy of the group (back-reference) | yes for forms in a group | — |
+| `contentIdentifier` | String | `identifier` of the form page (`siteMapPage`, `layout:"Form"` + `formModeIdentifier`) | yes | — |
+| `name` | String | auto-gen `"<CrudName> Form"` | yes | — |
+| `contextIdentifiers` | List\<String\> | form contexts | no | empty (lazy) |
+| `validators` | List\<String\> | form-level VALIDATION_RULE identifiers | no | empty |
+| `actionValidators` | List\<object\> | validators bound to a specific action | no | empty |
+| `hiddenConfigs` | List\<object\> | predicate-based hiding/validation of form content | no | empty |
+| `multiLanguage` | Boolean | localized field values; null-safe | no | `null`→`false` |
+| `allowDrafts` | Boolean | "Drafts" dropdown in breadcrumbs (save/resume a draft) | no | `null`→`false` |
 
-`HiddenContentConfig` = `{predicateIdentifier: String, contentIdentifiers: List<String>}`
-(`HiddenContentConfig.java`).
-`FormActionValidator` = `{workflowIdentifier, workflowTaskId, actionId, validator}` — all String
-(`FormActionValidator.java`). `actionValidators` is normally empty, but the field belongs to `FormDto`
+Each `hiddenConfigs[]` entry = `{predicateIdentifier: String, contentIdentifiers: List<String>}`.
+Each `actionValidators[]` entry = `{workflowIdentifier, workflowTaskId, actionId, validator}` — all String. `actionValidators` is normally empty, but the field belongs to the form record
 and should be present (at least `[]`).
 
 > **Runtime + decision guidance for these form-level settings → [25-form-settings-validation-and-events.md](25-form-settings-validation-and-events.md) §4.**
 > Hidden Content (predicate-true = **HIDDEN**; `contentIdentifiers` are node **`uniqueIdentifier`**s; a CREATE-mode
-> predicate reading `…data.get()` works via a seeded empty `CrudDataDto`); **Global** (`validators`) vs
+> predicate reading `…data.get()` works via a seeded empty CRUD record); **Global** (`validators`) vs
 > **Action-Based** (`actionValidators`) validation — the `validation.*` API and, critically,
 > `addFieldError(field, msg)` where **`field` is the control's `name`** (`settings.name`), **not** its
 > `fieldExpression`; ⚠️ **`actionValidators` is authored/persisted but does NOT run at CRUD-form submit** (only
@@ -505,14 +498,14 @@ and should be present (at least `[]`).
 > ([07](07-workflows-and-tasks.md)); and **`allowDrafts`** (when to enable it — multi-session / data-fetched-later
 > forms). "Create Validation from Template" (the field-level `conditionalValidations` predicates) is [25 §2](25-form-settings-validation-and-events.md).
 
-### ACTION — two DIFFERENT `ActionDto`s (CRUD vs UserTask)
+### ACTION — two DIFFERENT action shapes (CRUD vs UserTask)
 
 The action bound to a form group lives in the table/tree/process settings (`properties.model.stringValue`
 of the table plugins — see [04-crud-table-plugin.md](04-crud-table-plugin.md),
-[05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)), not in `FormDto`. There are **two
-different `ActionDto` classes** with different field names — don't confuse them when building JSON manually:
+[05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)), not in the form record. There are **two
+different action shapes** with different field names — don't confuse them when building JSON manually:
 
-| field | CRUD `ActionDto` (`CrudTableActionsDto.ActionDto`) | UserTask `ActionDto` (`UserTaskActionsDto.ActionDto`) |
+| field | CRUD action | UserTask action |
 |---|---|---|
 | `id` | String | String |
 | `localizedNames` | `Map<String,String>` (`en_US`→name) | `Map<String,String>` |
@@ -520,24 +513,23 @@ different `ActionDto` classes** with different field names — don't confuse the
 | `icon` | String (Pe-icon class) | String |
 | `formGroupIdentifier` | String (non-direct → this group) | String |
 | `predicateIdentifier` | String (visibility predicate) | String |
-| `direct` | **boolean** (`isDirect()` — just the value) | **String** (`isDirect()` = equals `"on"`) |
+| `direct` | **boolean** (just the value) | **String** (direct = equals `"on"`) |
 | `onBeforeStartRuleIdentifier` | String | — |
 | `onBeforeCompleteRuleIdentifier` | String | — |
 | `onBeforeUserTaskStartRuleIdentifier` | — | String |
 | `onBeforeUserTaskCompleteRuleIdentifier` | — | String |
 | `validationRuleIdentifiers` | — (none) | String (comma-separated) |
 | `taskId` | — (none) | String |
-| `completeUserTask` | — (none) | String (`shouldCompleteUserTask()` = NOT `"off"` → default true) |
-| `submitForm` | `Boolean` (`shouldSubmitForm()` null→true) | `Boolean` (`shouldSubmitForm()` null→true) |
+| `completeUserTask` | — (none) | String (anything but `"off"` completes the task → default true) |
+| `submitForm` | `Boolean` (null→true) | `Boolean` (null→true) |
 
 Key differences and semantics:
-- **`direct`**: CRUD — Java `boolean` (in JSON `true`/`false`); UserTask — String `"on"`/`"off"`
-  (`isDirect()`=equals `"on"`). A direct action runs **without opening a form**.
+- **`direct`**: CRUD — boolean (in JSON `true`/`false`); UserTask — String `"on"`/`"off"`
+  (direct = equals `"on"`). A direct action runs **without opening a form**.
 - **hook names differ**: CRUD `onBeforeStartRuleIdentifier`/`onBeforeCompleteRuleIdentifier` vs UserTask
   `onBeforeUserTaskStartRuleIdentifier`/`onBeforeUserTaskCompleteRuleIdentifier`.
 - **`localizedNames`/`localizedButtonNames`** — a Map keyed by locale (`en_US`, `hy_AM`), NOT a flat
-  `name` (a legacy `name` string is tolerated and ignored via `@JsonIgnoreProperties`,
-  `UserTaskActionsDto.java`). Fallback lookup: full locale → language → first non-empty; an empty
+  `name` (a legacy `name` string is tolerated and ignored). Fallback lookup: full locale → language → first non-empty; an empty
   button name → `localizedNames` is used.
 - **`submitForm`** (both versions, null→true): for a non-direct action controls whether the in-form button submits
   (persist + complete-rule) or only runs the rules.
@@ -549,9 +541,9 @@ Key differences and semantics:
   [04-crud-table-plugin.md](04-crud-table-plugin.md) (the ⛔⛔ persist callout); `validate` WARNs via
   `_check_action_persist`.
 - **UserTask-only**: `completeUserTask` `"off"` = save as draft (do not complete the task); `taskId`;
-  `validationRuleIdentifiers`. The literal string `"null"` is cleaned to real null in the getters
-  (`onBefore*`, `validationRuleIdentifiers`, `predicateIdentifier`). `UserTaskActionsDto` wraps
-  `List<ActionDto> actions` + `List<ActionError> errors`.
+  `validationRuleIdentifiers`. The literal string `"null"` is cleaned to real null
+  (`onBefore*, `validationRuleIdentifiers`, `predicateIdentifier`). The user-task action list is an object
+  `{actions:[…],errors:[]}`.
 
 Example action → form group (CRUD, from table settings; `direct:false` → opens `formGroupIdentifier`):
 ```json
@@ -567,47 +559,43 @@ Example action → form group (CRUD, from table settings; `direct:false` → ope
 
 ### How the form is chosen (landing plugin dispatch)
 
-`FormGroupLandingPlugin.initPluginContent` resolves the group by `?group=`, then
-`navigateToFormIfNeed` reads the URL params and, if `settingsName`+`actionId` are set, loads
-the `SettingsDto` by name and branches on `settings.getType()`:
+The landing plugin resolves the group by `?group=`, then reads the URL params and, if
+`settingsName`+`actionId` are set, loads the settings by name and branches on the settings type:
 
-**Directly-read URL params** (via `ParameterUtils.getStringParam`):
+**Directly-read URL params:**
 `group` (required), `settingsName`, `actionId`, `processIdentifier`, `crudId`. For the **dispatch path**
 (navigation to a form by predicate) `crudAlias`/`workflowIdentifier`/context are NOT read as direct
 URL params — they come from settings-derived navigation data
-(`CrudTableNavigationData.getCrudAlias()/.getContextIdentifier()`,
-`ProcessTableNavigationData.getWorkflowIdentifier()`). However `context` (and `crud`) **are read**
+(the CRUD alias and context of the table action, the workflow identifier of the process table). However `context` (and `crud`) **are read**
 as direct URL params on other paths of the same plugin: for context registration
-(`ensureContextRegisteredOnGroup`) and for carrying over to the form page (`goLandingPage`). When navigating to a form, params starting with
-`path` are dropped (`navigateToForm`).
+and for carrying over to the form page. When navigating to a form, params starting with
+`path` are dropped.
 
-**Settings-type constants**: `SETTINGS_TYPE_PROCESS_TABLE = "ProcessTable"`
-`SETTINGS_TYPE_CRUD_TABLE = "CrudTable"`, `SETTINGS_TYPE_CRUD_TREE = "CrudTree"`.
+**Settings types**: `"ProcessTable"`, `"CrudTable"`, `"CrudTree"`.
 
-**Action lookup order + predicate execution method:**
+**Action lookup order + predicate context:**
 
-| settingsType | action lookup order | nav method | executor (predicate method) | context |
-|---|---|---|---|---|
-| `ProcessTable` | `userStartProcessActions` (isStartForm=true) → | `navigateWithWorkflowStartPredicate` | `flowableTaskService.executePredicateForWorkflow(realm,client,workflowIdentifier,predicateId,actionId)` | user, no entity |
-| | `globalActions` (isStartForm=false, needs `processIdentifier`) → otherwise Flowable task | `navigateWithWorkflowPredicate` | `flowableTaskService.executePredicate(realm,client,processIdentifier,predicateId,actionId)` | full process context |
-| `CrudTable`/`CrudTree` | `createActions` (isCreateAction=true) → | `navigateWithCrudCreatePredicate` | `ruleExecutionService.executePredicateWithEmptyContext(realm,client,crudAlias,ctx,predicateId,userId,userEmail,actionId)` | user, **no CRUD row**; `service.actionId` available |
-| | `editActions` (isCreateAction=false, needs `crudId`) | `navigateWithCrudPredicate` | `ruleExecutionService.executePredicateWithCrudContext(realm,client,crudAlias,crudId,ctx,predicateId,userId,userEmail,actionId)` | **loads the whole row** into `context.<ctx>.<alias>.data`; `service.actionId` |
+| settingsType | action lookup order | context |
+|---|---|---|
+| `ProcessTable` | `userStartProcessActions` (isStartForm=true) → | user, no entity |
+| | `globalActions` (isStartForm=false, needs `processIdentifier`) → otherwise Flowable task | full process context |
+| `CrudTable`/`CrudTree` | `createActions` (isCreateAction=true) → | user, **no CRUD row**; `service.actionId` available |
+| | `editActions` (isCreateAction=false, needs `crudId`) | **loads the whole row** into `context.<ctx>.<alias>.data`; `service.actionId` |
 
 > ### ⛔ `service.actionId` is **NOT** available in the two workflow branches — read `attrs.get('actionId')`
 >
 > All four branches pass `actionId` to the executor, but **not through the same channel**, and the Groovy
-> handle differs. `service.actionId` is bound ONLY from the `__actionId` **attr**
-> (`GroovyExecutorHelper.applyActionMeta` → `serviceWrapper.setActionId`); the workflow branches never set
-> that attr — they put the id into `executionVariables` under the plain key `actionId`
-> (`FlowableTaskServiceImpl.executePredicate`, `.executePredicateForWorkflow`), and
-> `executionVariables` are merged into `contextData.attrs` (`RuleExecutorReactor`).
+> handle differs. `service.actionId` is bound ONLY from the `__actionId` **attr**;
+> the workflow branches never set
+> that attr — they put the id into `executionVariables` under the plain key `actionId`, and
+> `executionVariables` are merged into `contextData.attrs`.
 >
 > | branch | how actionId travels | read it in Groovy as |
 > |---|---|---|
-> | ProcessTable → start action (`navigateWithWorkflowStartPredicate`) | `executionVariables["actionId"]` → `attrs` | **`attrs.get('actionId')?.asText()`** |
-> | ProcessTable → global action / Flowable task (`navigateWithWorkflowPredicate`) | `executionVariables["actionId"]` → `attrs` | **`attrs.get('actionId')?.asText()`** |
-> | CrudTable/CrudTree → create (`navigateWithCrudCreatePredicate`) | `contextData.attrs["__actionId"]` | `service.actionId` |
-> | CrudTable/CrudTree → edit (`navigateWithCrudPredicate`) | `contextData.attrs["__actionId"]` | `service.actionId` |
+> | ProcessTable → start action | `executionVariables["actionId"]` → `attrs` | **`attrs.get('actionId')?.asText()`** |
+> | ProcessTable → global action / Flowable task | `executionVariables["actionId"]` → `attrs` | **`attrs.get('actionId')?.asText()`** |
+> | CrudTable/CrudTree → create | `contextData.attrs["__actionId"]` | `service.actionId` |
+> | CrudTable/CrudTree → edit | `contextData.attrs["__actionId"]` | `service.actionId` |
 >
 > A mapping predicate written as `return service.actionId == '<start-action-uuid>'` therefore evaluates
 > **false on the process-start path** — the loop falls through to the pair whose predicate is the
@@ -621,23 +609,17 @@ as direct URL params on other paths of the same plugin: for context registration
 > return a == '<action-uuid>'
 > ```
 >
-> Two more traps in the same loop (`navigateWithWorkflowStartPredicate`): pairs are tried **in array
+> Two more traps in the same loop (process-start branch): pairs are tried **in array
 > order** and the FIRST true one wins — so a specific pair must be listed **before** the always-true pair —
 > and a pair with a BLANK predicate is not evaluated at all, it is only the fallback used when nothing matched.
 
 `userId`
-(`page.user().getId()`) and `userEmail` (`page.user().getEmail()`) are added in the CRUD branches via
-`getCurrentUserId()`/`getCurrentUserEmail()`. Without `settingsName`/`actionId`
+and `userEmail` (of the current user) are added in the CRUD branches. Without `settingsName`/`actionId`
 the landing stays put (just shows the group's form list).
 
-**Context for the CRUD predicate** (`navigateWithCrud*Predicate`): `settingsContextIdentifier`
-from the navigation data (settings action) **takes priority**; if empty → `getContextIdentifier(formGroup,
-crudAlias)` = the first of `formGroup.contextIdentifiers`; if that too is empty → the `crudAlias` itself. So in
+**Context for the CRUD predicate:** `settingsContextIdentifier`
+from the navigation data (settings action) **takes priority**; if empty → the first of `formGroup.contextIdentifiers`; if that too is empty → the `crudAlias` itself. So in
 practice the context is usually taken from the action's own settings, not from the group.
-
-> ⚠️ Signatures are illustrative: the method names `executePredicateWith{Crud,Empty}Context` /
-> `executePredicateForWorkflow` / `executePredicate` and their argument order are verbatim from
-> `FormGroupLandingPlugin`; this is NOT a generic `predicateService.execute(...)`.
 
 ## How to construct from scratch
 
@@ -752,13 +734,13 @@ stage them, then `page mv --to-parent <CRUD-table page>` so **neither is left at
 Two recipes: **(A)** sibling landing (`placeFormsNextToLanding=true` — this is what the canonical recipe above
 uses) and **(B)** child landing + admin group list (the shared-landing style, `placeFormsNextToLanding=false`). Both
 import and run; **the canonical recipe above (variant A, per-group landing, layout Main) is what to build.**
-Assume the CRUD table's parent page has `ContentDomain.identifier = PARENT_PAGE`.
+Assume the CRUD table's parent page has `identifier = PARENT_PAGE`.
 
 ### Common step 0 — the `True` predicate
 
 If not already present, add to `rep-objects.json.rules[]` (see
 [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)); the body **must** be `"return true"`
-(a bare `true` is discarded by the GroovyPredicate template — `CrudDefaultActionsService.java`; see
+(a bare `true` is discarded by the GroovyPredicate template; see
 [08](08-groovy-rules-and-context.md) §"the template trailer"):
 
 ```json
@@ -775,8 +757,8 @@ If not already present, add to `rep-objects.json.rules[]` (see
 ### Recipe A — sibling landing (auto-gen style, `placeFormsNextToLanding=true`)
 
 **A1. Landing page** — a new `siteMapPage` under `PARENT_PAGE`, layout `"Main"`, authenticated-only access
-(`CrudDefaultActionsService.applyAuthenticatedUsersAccess`; a fresh `RoleAccess` is public by default —
-set both flags explicitly), alias via `AliasUtils.uniqueChildAlias` (a slug of the name, unique among siblings).
+(a fresh `RoleAccess` is public by default —
+set both flags explicitly), alias a slug of the name, unique among siblings.
 Inside `parsis` — a `dynaform.form.groups.landingplugin` node (empty generic properties). Remember the
 `identifier` as `LANDING_PAGE`.
 
@@ -848,7 +830,7 @@ put `dynaform.form.plugin` + `formModeIdentifier` right on the landing page (the
 > ⛔ **Do NOT reuse the baseline `Landing` page (`ec99a5a0-3605-4843-94ad-cf7fb4deb5a5`) as a group's
 > `contentPageIdentifier`.** The empty baseline does ship that "Landing" `siteMapPage` (alias `landing`, parsis
 > carrying `dynaform.form.groups.landingplugin`), and the baseline `dynaform.form.groups.plugin` console even
-> defaults to it (`ContentChooserPanelModel {"editorPageContentIdentifier":"ec99a5a0-…"}`, so groups created in
+> defaults to it (`{"editorPageContentIdentifier":"ec99a5a0-…"}`, so groups created in
 > the admin Form Groups list inherit it) — but that is the **author-console default, not the shape for end-user
 > Create/Edit**. It is a child of the admin `Form Groups` page and role-gated
 > (`publicReadAccess:false`, `authenticatedUserAccess:false`, `accessors` = admin/author/user_* roles only), so a
@@ -932,7 +914,7 @@ chrome — see the ⛔ callout under A2), but since `placeFormsNextToLanding=fal
 ```
 
 **B5. Bind the action to the group.** In the CRUD-table/-tree settings (`properties.model.stringValue`) each
-Create/Edit action specifies `formGroupIdentifier = GROUP_UUID` (CRUD `ActionDto` — see the table above and
+Create/Edit action specifies `formGroupIdentifier = GROUP_UUID` (CRUD action — see the table above and
 [04-crud-table-plugin.md](04-crud-table-plugin.md)). On click, the table navigates to the landing with
 `?group=GROUP_UUID&settingsName=<...>&actionId=<uuid>&crudId=<id>` — the landing picks a form by predicate.
 
@@ -940,7 +922,7 @@ Create/Edit action specifies `formGroupIdentifier = GROUP_UUID` (CRUD `ActionDto
 
 A group with multiple pairs in `mapping` (e.g. "Material Reservation Forms" / "Production Order Forms"). Add a
 second PREDICATE of the form `return service.actionId == '<VIEW_ACTION_UUID>'` (name by convention
-`"<Crud> <FormGroup> → <Action> [Mapping Predicate]"`, `PredicateFormMappingField.java`), put its
+`"<Crud> <FormGroup> → <Action> [Mapping Predicate]"`), put its
 pair **above** the `True` pair (array order = priority) and point it at the second form:
 
 ```json
@@ -962,20 +944,16 @@ manually the names are technically free-form — but for a **consistent, collisi
 canonical convention (group `<entity>-forms`, landing `<Entity> Forms`/alias `<entity>-forms`, form page
 `Form: <slug>`/alias `form-<slug>`) under "How to construct" rather than inventing per-entity names.
 
-- **Group:** `"<CrudName> Forms"` — `CrudDefaultActionsService.formGroupNameFor`
-  (`crudName + " Forms"`); the same method is reused by the "Create Form Group" dialog
-  (`FormGroupCreatePanel.suggestGroupName`). `<CrudName>` — the CRUD display name, otherwise the alias.
-- **Form:** `"<CrudName> Form"` (`CrudDefaultActionsService.java`). The "Create new form" dialog on the
+- **Group:** `"<CrudName> Forms"` (`crudName + " Forms"`); the same name is suggested by the "Create Form Group" dialog. `<CrudName>` — the CRUD display name, otherwise the alias.
+- **Form:** `"<CrudName> Form"`. The "Create new form" dialog on the
   landing suggests the same: it strips `" Forms"` from the group name, appends `" Form"`, de-dups with `" 2"`,
-  `" 3"`… (`FormGroupLandingPlugin.suggestFormName`).
-- **`True` predicate:** exactly `"True"`, body `"return true"` (`CrudDefaultActionsService.java`; duplicate logic in `FormEditorPanel.ensureTruePredicateId`).
+  `" 3"`…
+- **`True` predicate:** exactly `"True"`, body `"return true"`.
 - **Action-based mapping predicate:** `"<Crud> <FormGroup> → <Action> [Mapping Predicate]"`, body
-  `"return service.actionId == '<uuid>'"` (`PredicateFormMappingField.java`
-  `withActionRuleCreator`). From the form's create dialog the predicate defaults to the shared `True`, and the new one's name is
-  `"<FormName> Mapping Predicate"` (`FormEditorPanel.java`
-  `RuleNameSuggestion.join(form.getName(), "Mapping Predicate")`).
+  `"return service.actionId == '<uuid>'"`. From the form's create dialog the predicate defaults to the shared `True`, and the new one's name is
+  `"<FormName> Mapping Predicate"`.
 - **Page alias:** a slug of the name (`lowercase`, space→`-`, everything except `[a-z0-9-]` stripped), unique
-  among siblings with a `-2`, `-3`… suffix (`AliasUtils.slug` / `uniqueChildAlias`). A non-ASCII
+  among siblings with a `-2`, `-3`… suffix (a `-2`, `-3`… counter). A non-ASCII
   name (Armenian/Russian) collapses to `""` → a fallback is used (`"form"` / `"form-group"`).
 
 ## Gotchas
@@ -993,57 +971,52 @@ canonical convention (group `<entity>-forms`, landing `<Entity> Forms`/alias `<e
 
 - **`predicateFormMapping.mapping` is ordered by position.** The first matching predicate wins; pairs with
   an empty `predicateIdentifier` are only a fallback (the first blank, applied after a full scan with no match).
-  Put narrow predicates above `True` (`FormGroupLandingPlugin.java`). **There is no numeric
+  Put narrow predicates above `True`. **There is no numeric
   `order` field** — order is set solely by position in the array.
 - **A bare `true` in a predicate does not work.** The GroovyPredicate template ends with `if(true){return null;}`,
   so a `true` body is discarded → the predicate returns `null` ("must return Boolean"). Always use
-  `"return true"` / `"return <expr>"` (`CrudDefaultActionsService.java`; see
+  `"return true"` / `"return <expr>"` (see
   [08](08-groovy-rules-and-context.md)).
 - **`service.actionId` is empty in the CRUD-create branch if not threaded.** `service.actionId == '<uuid>'`
   will return false if the landing didn't pass `actionId`. On a correctly wired page it works because the table puts
-  `actionId` in the URL, and `navigateWithCrud{Create,}Predicate` thread it into
-  `executePredicateWith{Empty,Crud}Context(... actionId)`. When building manually make sure the
-  action in the table settings has the same `id` as the `<uuid>` in the predicate
-  (see `project_formgroup_predicate_actionid`).
+  `actionId` in the URL, and the landing passes it on to the predicate. When building manually make sure the
+  action in the table settings has the same `id` as the `<uuid>` in the predicate.
 - **Form-page alias collision.** Two form pages under the same parent with the same `(parentId, alias)`
-  shadow each other in the CMS URL index (`BranchContentIndex` — a HashMap, last one wins): the first form
-  will start opening the second (empty) one. Always use `AliasUtils.uniqueChildAlias`, not a bare slug
-  (`AliasUtils.java`; see `project_formpage_alias_collision`).
+  shadow each other in the CMS URL index (the last one wins): the first form
+  will start opening the second (empty) one. Always make the alias unique among siblings, not a bare slug.
 - **`placeFormsNextToLanding` determines the form page's PARENT, not the layout.** `false` (default) → the form is a
   child of the landing; `true` → the form is a sibling of the landing (under the landing's parent). **Flipping the flag on an existing
-  group moves the already-created pages:** this is done by `FormPagePlacementUtil.relocateFormPages`
-  via the **4-arg** `contentService.save(branchId, parent, child, index)` — it is this call that actually
-  moves the node (mutates the parent's children, then `removeDuplicateChildren` detaches the node from the old
-  parent, `FormPagePlacementUtil.java`). A naive `formPage.setParentId(newId)` + flat
-  `save(branchId, formPage)` does **NOT move** the node (replaceContentInTree swaps it in place under the old
+  group moves the already-created pages:** the platform re-parents the node
+  (it is detached from the old parent and attached to the new one). A naive `parentId` change
+  on the form page alone does **NOT move** the node (it is swapped in place under the old
   parent). When building manually just place the form page under the correct parent right away.
 - **The landing node does not store `?group`.** A single landing plugin serves any group — which one exactly is decided by the
   URL parameter `?group=<identifier>`. Without it the landing shows "Please navigate this page from form group
-  list" (`FormGroupLandingPlugin.java`). The table buttons / `FormsPanel.goLandingPage` add `group`
+  list". The table buttons add `group`
   automatically.
-- **`formGroup` inside `FormDto` is a FULL duplicated copy** (with housekeeping fields). Keep it
+- **`formGroup` inside the form record is a FULL duplicated copy** (with housekeeping fields). Keep it
   synchronized with the record in `formGroups[]` (especially `predicateFormMapping`). A divergence →
-  `FormPagePlacementUtil.findFormsInGroup` tries to recover the forms from both sources (filter +
+  the platform tries to recover the forms from both sources (filter +
   mapping), but do not create the desync.
 - **`formModeIdentifier` on the form page is mandatory.** Without the property `formModeIdentifier = <formId>` on the
-  `siteMapPage` (or on the landing page itself in the dynamic layout) the form plugin does not know which `FormDto`
+  `siteMapPage` (or on the landing page itself in the dynamic layout) the form plugin does not know which form record
   to render. Both the landing and default-actions set it.
 - **The empty project already contains the infrastructure.** Its `branches.json` has an admin "Form Groups" page
   (`alias:"form"`, `identifier:"e714bbd4-c6c4-49d6-a698-5608e3113317"`), which hosts
   `dynaform.form.groups.plugin` **and** `dynaform.form.groups.landingplugin`; its `rep-objects.json` has
   `formGroups:[]`, `forms:[]`. In Step 2 don't build the admin list page — just add
   `formGroups[]`/`forms[]` (with `formGroupsPageIdentifier = e714bbd4-...`) and the business landing/form pages.
-  The `dynaform.form.groups.plugin` (group-list) node itself carries a `ContentChooserPanelModel` JSON property
+  The `dynaform.form.groups.plugin` (group-list) node itself carries a JSON property
   `{editorPageContentIdentifier}` — the **default landing page** copied into a group created/edited from this list
-  page (`FormGroupsPlugin.java`); the baseline sets it, so keep it verbatim if you clone the node. (Same slot as
+  page; the baseline sets it, so keep it verbatim if you clone the node. (Same slot as
   `workflows.plugin`/`executor.rule.list.plugin` — see [07](07-workflows-and-tasks.md), [14](14-plugin-catalog-all.md).)
-- **Two `ActionDto`s.** The CRUD and UserTask `ActionDto`s are DIFFERENT classes with different hook-field names and a different
+- **Two action shapes.** The CRUD and UserTask action shapes are DIFFERENT shapes with different hook-field names and a different
   `direct` type (boolean vs `"on"/"off"` String). When editing settings by hand cross-check with the table above,
   otherwise the field is silently ignored.
 - **`process.table.pluin`** — a real typo in the `pluginName` of the process-table plugin; use the string
   exactly like this (see [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md)).
 - **Static vs dynamic does not affect these objects.** `formGroup`, `form`, the landing node, mapping — identical in
-  a static (compiled-bean) and a dynamic (definition-driven) project. Only the resolution of
+  a static (compiled) and a dynamic (definition-driven) project. Only the resolution of
   `service.crud.<alias>` inside predicates differs
   (see [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md)).
 
@@ -1060,22 +1033,21 @@ A **List** form control (`dynaform.form.list.field.plugin` — see
 [02-form-controls-reference.md](02-form-controls-reference.md) §7) renders a nested table with its own
 Create/Edit actions. Those actions do **not** go through a form group / landing / `predicateFormMapping` — the
 List embeds each editable form **inline**, as a `dynaform.list.item.plugin` child node of the List node. It is a
-form container in its own right (`ListItemFormPlugin`, `group="Forms"`, `hideInKicker=true`) — hence covered here
+form container in its own right (`group="Forms"`, `hideInKicker=true`) — hence covered here
 too — but wired by id-linkage, not by a mapping table.
 
 > 🛑 **Load-bearing invariant — without the matching list-item node, a List's Create/Edit button opens no form.**
-> On click, `ListFormControlPlugin` resolves `formIdentifier = getRenderFormId(actionId)`
-> (= `formIdByActionId[actionId] ?? actionId`, `ListFormControlSettings.java`
-> `ListFormControlPlugin.java` create edit) and renders the `dynaform.list.item.plugin` **child of
+> On click, the List control resolves `formIdentifier`
+> (= `formIdByActionId[actionId] ?? actionId`) and renders the `dynaform.list.item.plugin` **child of
 > the List node whose `identifier` equals that `formIdentifier`**. So for every create/edit action
-> there MUST be a child list-item node with `identifier == getRenderFormId(actionId)`, and that node must hold a
+> there MUST be a child list-item node with `identifier == formIdByActionId[actionId] ?? actionId`, and that node must hold a
 > `nct.parsis.plugin id="form.parsis"` grid whose fields bind to the temp context
 > `__temp_list_item_context__` / `__temp_item__`. A hand-built List missing this renders a table whose
 > Create/Edit buttons open an empty form (or nothing).
 
 The list-item node has **no `settings` slot** — its `properties` keys are
-`className`/`isParsis`/`styleName`/`tagProperties`. When an action is mapped through a `SubformSettings`, the id
-== `SubformSettings.id`; an unmapped (legacy) action falls back to its own id. Two shapes you will meet in the
+`className`/`isParsis`/`styleName`/`tagProperties`. When an action is mapped through a `subforms[]` entry, the id
+== that entry's `id`; an unmapped (legacy) action falls back to its own id. Two shapes you will meet in the
 wild:
 
 - **Legacy (no subforms):** List `e3d63a5b-…` — `subforms:null`, `formIdByActionId:null`,

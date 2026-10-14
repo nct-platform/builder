@@ -20,11 +20,10 @@ MODEL_SLOT_PLUGINS = {
 # A crud.table/tree/process node's config is ALSO mirrored into a rep-objects
 # settings[] entry (join key setting.name == node.uniqueIdentifier). The runtime
 # renders from properties.model (doc 04), but the platform IMPORTER still
-# deserializes the mirror: SettingsDto.content is a Jackson **ObjectNode** (a JSON
-# OBJECT), NOT a string. Storing a JSON *string* there aborts the entire import
-# (MismatchedInputException Qss["settings"]->SettingsDto["content"]) — the
-# REPORT-path never runs, so sources aren't saved and project-db.dump isn't
-# restored. set-model/patch-model keep this mirror in sync (content = parsed
+# deserializes the mirror: a settings entry's `content` must be a JSON OBJECT,
+# NOT a string. Storing a JSON *string* there aborts the entire import
+# (a "cannot deserialize … settings[].content" error) — the REPORT-path never
+# runs, so sources aren't saved and project-db.dump isn't restored. set-model/patch-model keep this mirror in sync (content = parsed
 # OBJECT) so no one has to hand-roll it and get the type wrong.
 MIRROR_SETTING_TYPE = {
     "crud.table.plugin": "CrudTable",
@@ -61,20 +60,18 @@ def sync_crud_mirror(project, node):
     return True
 
 # Plugins whose config lives in properties.Javascript.stringValue.
-# ChartJsPlugin writes its model via ReportServiceUtils.JS_MODEL_NAME = "Javascript"
-# (NOT "model"): a chart authored into `model` renders empty. Verified: real erp
+# chart.js.plugin keeps its model in the "Javascript" property (NOT "model"):
+# a chart authored into `model` renders empty. Verified: real erp
 # chart.js.plugin node carries properties.Javascript (~12KB) and no `model`.
-# NOTE: global.replacement.plugin is NOT here — GlobalReplacementPlugin.java only
-# injects a ChartJsService field, it never reads/writes JS_MODEL_NAME. Every
-# global.replacement.plugin node in the exports carries ONLY the baseline
+# NOTE: global.replacement.plugin is NOT here — it never reads/writes the
+# "Javascript" property. Every global.replacement.plugin node in the exports carries ONLY the baseline
 # className/styleName/tagProperties (no Javascript/model/settings blob).
 JAVASCRIPT_SLOT_PLUGINS = {
     "chart.js.plugin",
 }
 
 # Plugins whose config lives in properties.filterFormModel.stringValue (inner
-# JSON = a serialized FilterFormDto). FilterFormPlugin.java reads/writes it via
-# getContent().getJsonProperty("filterFormModel", FilterFormDto.class, ...).
+# JSON = a serialized filter-form record), read and written by the filter form plugin.
 # Verified: real filter.form nodes carry properties.filterFormModel (STRING slot
 # holding a JSON object), never settings/model.
 FILTERFORMMODEL_SLOT_PLUGINS = {
@@ -283,8 +280,8 @@ def _child_pages(node):
 
 
 def resolve_alias_path(root, alias_path):
-    """Walk root -> child by alias segment, mirroring the platform's
-    ContentDbServiceImpl.getContentDomain (matching is by `alias`, case-sensitive).
+    """Walk root -> child by alias segment, mirroring the platform's own
+    lookup (matching is by `alias`, case-sensitive).
     Returns the target siteMapPage node, or None if any segment doesn't resolve.
     """
     node = root
@@ -356,7 +353,7 @@ def cmd_node_add(args):
     node = {
         "id": None,
         # A caller-supplied SYMBOLIC identifier (e.g. "filter.parsis", "form.parsis")
-        # is how the platform anchors layout children; FilterFormPlugin only renders
+        # is how the platform anchors layout children; the filter form only renders
         # fields into a direct child nct.parsis.plugin whose identifier == "filter.parsis".
         # Default to a fresh uuid when not given.
         "identifier": getattr(args, "identifier", None) or core.new_uuid(),
@@ -403,8 +400,8 @@ def cmd_node_add(args):
                 % plugin)
     elif config is not None:
         obj = core.read_json_arg(config)
-        # Builder default: tabs are created SMALL (compact `nav-tabs`). The platform's TabModel
-        # defaults size to BIG, which is visually heavy; author small unless a size is given.
+        # Builder default: tabs are created SMALL (compact `nav-tabs`). The platform
+        # defaults a tab's size to BIG, which is visually heavy; author small unless a size is given.
         if slot == "tabModel" and isinstance(obj, dict) and not obj.get("size"):
             obj["size"] = "SMALL"
         core.set_inner_json(node, slot, obj)
@@ -499,7 +496,7 @@ def cmd_node_set_studio(args):
 
 
 # ---------------------------------------------------------------------------
-# asset — tenant-files (round-trip into nct-file-storage under t/<tenantId>/)
+# asset — tenant-files (round-trip into the platform's file storage under t/<tenantId>/)
 # ---------------------------------------------------------------------------
 
 
@@ -509,8 +506,8 @@ def _tenant_files_dir(project):
 
 def cmd_asset_add(args):
     """Copy a local file into the bundle's tenant-files/<relpath>. On import the platform
-    re-uploads everything under tenant-files/ into nct-file-storage at t/<newTenantId>/<relpath>
-    (CmsProjectServiceImpl.importFilesRecursively). For an HTML Component Studio library use
+    re-uploads everything under tenant-files/ into its file storage at t/<newTenantId>/<relpath>.
+    For an HTML Component Studio library use
     relpath studio/<lib>/<file>, then reference {"kind":..,"path":"studio/<lib>/<file>"} in the
     plugin's studioModel — the path is stored RELATIVE to the tenant root, so it stays valid
     after import re-homes the file under the new tenant id (see 24-html-component-studio.md)."""
@@ -529,7 +526,7 @@ def cmd_asset_add(args):
 
 
 def cmd_asset_ls(args):
-    """List the files under the bundle's tenant-files/ (what will round-trip to nct-file-storage)."""
+    """List the files under the bundle's tenant-files/ (what will round-trip into the file storage)."""
     p = core.Project(args.project)
     base = _tenant_files_dir(p)
     if not os.path.isdir(base):

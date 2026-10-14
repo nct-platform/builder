@@ -6,8 +6,7 @@
 > `studioModel.css.byTheme`, a `chart.js.plugin`'s `cssByTheme` (its **Css** tab), an inline `<style>`
 > inside any `html` property, and every `style="…"` attribute on a hand-written `<div>`. Read it **before** you type the
 > first `background:` of a build.
-> **The one fact that decides everything:** a project ships **five skins and four of them are dark**
-> (`Skin.java`). A hex literal you type is correct on **at most one** of them. So the default
+> **The one fact that decides everything:** a project ships **five skins and four of them are dark**. A hex literal you type is correct on **at most one** of them. So the default
 > outcome of "just write nice CSS" is a component that is broken for 80 % of the theme matrix.
 > **Not in this doc:** the `studioModel` schema and the JS runtime → [24](24-html-component-studio.md);
 > chart-specific theming (Plotly `paper_bgcolor`, semantic chart palettes) → [22](22-charts-params-and-filters.md) §6;
@@ -18,10 +17,10 @@
 
 | | |
 |---|---|
-| The skin enum | `Skin.java` — `Standard`, `Dracula`, `Forest`, `Dark`, `Dark Blue` |
-| How a skin is applied | whole-stylesheet swap in `PluginBasePage.java` (`base.css` → `theme-common.css` → `<skin>.css`). **No body class, no data-attribute** |
-| Which skin is active | `PluginBasePage.resolveSkin()` (user state → tenant state → `DARK`, the platform default); a **chart** asks that same method through the shared `NctThemeCss` helper, a **studio component** resolves it itself from the **user** value only (else `Dark`) |
-| Where authored CSS goes | `properties.studioModel.stringValue` → `css.byTheme` (`HtmlStudioModel`), a chart's `properties.Javascript.stringValue` → `cssByTheme` (+ the legacy `css` field, folded in as `"*"`), or an inline `<style>` in `properties.html.stringValue` (rendered **raw** by the mrjun module's `AbstractHtmlPlugin`, not nct-ui) |
+| The skins | `Standard`, `Dracula`, `Forest`, `Dark`, `Dark Blue` |
+| How a skin is applied | whole-stylesheet swap (`base.css` → `theme-common.css` → `<skin>.css`). **No body class, no data-attribute** |
+| Which skin is active | user state → tenant state → `DARK` (the platform default); a **chart** resolves it the same way, a **studio component** resolves it itself from the **user** value only (else `Dark`) |
+| Where authored CSS goes | `properties.studioModel.stringValue` → `css.byTheme`, a chart's `properties.Javascript.stringValue` → `cssByTheme` (+ the legacy `css` field, folded in as `"*"`), or an inline `<style>` in `properties.html.stringValue` (rendered **raw** by the HTML plugin) |
 | Scoping | every rule you author is prefixed with the instance's id — `#dokie-plug-<markupId>` for a studio component, `#<markupId>` for a chart. An inline `<style>` in an `html` property is **not** scoped |
 | `mrjun.py validate` coverage | **three WARNINGS, zero errors:** colour literals inside a studio `studioModel` → `css.byTheme["*"]` block (`_check_theme_safe_css` in `validate_cmds.py`), an inline `<style>` in an `nct.html.plugin`'s `properties.html`, and Plotly-without-`paper_bgcolor` on charts. Everything else in this doc — a colour in `style=`, a dead `html.dark …` selector, `badge-light`, `h-100`, unbalanced braces, a misspelled `byTheme` key, and **every line of a chart's per-theme CSS** — ships silently green. Exact gap list: §9. |
 
@@ -65,7 +64,7 @@ same columns):
 | `prefers-color-scheme` blocks | **none** |
 | hex literals per node (`html` + `css`) | dozens each |
 | nodes that *also* carry an inline `<style>` in `properties.html` | several — and that CSS is **global**, not scoped |
-| a component whose `studioModel` is `{"libs":[],"docs":[],"scripts":[],"css":{"byTheme":{}}}` | `isEmpty()` → the studio never activates, so there is **no wrapper and no scoping**, and its inline `<style>` leaks page-wide |
+| a component whose `studioModel` is `{"libs":[],"docs":[],"scripts":[],"css":{"byTheme":{}}}` | the studio never activates, so there is **no wrapper and no scoping**, and its inline `<style>` leaks page-wide |
 
 Result: on **Standard** (the one light skin) the screens looked designed. On **Dracula, Forest, Dark
 and Dark Blue** — one of which is what the default user sees, because a dark skin is the fallback everywhere
@@ -86,10 +85,10 @@ less to write than the hardcoded version.
 
 ### 1.1 The enum
 
-`Skin.java` — the `getName()` string is the canonical id **everywhere** (the stored user
+The skin name string is the canonical id **everywhere** (the stored user
 setting, the org allow-list, and the `css.byTheme` key). Spaces matter.
 
-| constant | `getName()` | `getBackgroundColor()` | stylesheet (`getCsses()`) | light/dark |
+| constant | skin name | body background | stylesheet | light/dark |
 |---|---|---|---|---|
 | `STANDARD` | `Standard` | `#f8f9fa` | `/architectui-html-pro/themes/standard.css` | **light** |
 | `DRACULA` | `Dracula` | `#282a33` | `themes/dracula.css` | dark |
@@ -97,9 +96,9 @@ setting, the org allow-list, and the `css.byTheme` key). Spaces matter.
 | `DARK` | `Dark` | `#080e19` | `themes/dark.css` | dark ← **the platform default and the fallback** |
 | `DARK_BLUE` | `Dark Blue` | `#13181b` | `themes/dark-blue.css` | dark |
 
-`Skin.byName()` (`Skin.java`) returns `DARK` for *any* unknown string — a typo in a stored
-value never errors, it silently becomes Dark. `Skin.allNames()` is what the studio's
-CSS tab lists (`HtmlStudioPanel.java`), so those five strings plus `"*"` are the **only**
+An unknown skin string resolves to `DARK` — *any* unknown string — a typo in a stored
+value never errors, it silently becomes Dark. The five skin names are what the studio's
+CSS tab lists, so those five strings plus `"*"` are the **only**
 legal `css.byTheme` keys.
 
 ### 1.2 Load order — three stylesheets, in this order, always
@@ -121,9 +120,9 @@ else is injected between them, so the last one always wins on equal specificity.
 
 > ⛔ **YOUR HEAD CSS IS EMITTED *BEFORE* ALL THREE, NOT AFTER.**
 > **Mechanism:** Wicket 9.11 renders header contributions **child-first**
-> (Wicket's default is `ChildFirstHeaderRenderStrategy`: application headers → **child** headers →
+> (Wicket's default order: application headers → **child** headers →
 > *then* the root component). The three
-> stylesheets come from `PluginBasePage.renderHead` — the **page**, i.e. the root — so they are written
+> stylesheets come from the **page**, i.e. the root — so they are written
 > last; your `CssHeaderItem.forCSS(...)` from a studio component is written
 > **first**.
 > **Consequence:** at *equal* specificity the theme wins over your head CSS. What actually saves you is
@@ -137,14 +136,14 @@ else is injected between them, so the last one always wins on equal specificity.
 ### 1.3 ⛔ A skin is a whole-stylesheet swap — there is **no** theme class on `<html>` or `<body>`
 
 > ⛔ **YOU CANNOT WRITE `body.dark-theme .x`, `html[data-theme="dark"] .x`, OR ANY ANCESTOR-THEME SELECTOR.**
-> **Mechanism:** `addCss` (`PluginBasePage.java`) renders a plain
+> **Mechanism:** the page renders a plain
 > `<link href="/architectui-html-pro/themes/dark-blue.css?v=…">`. The *only* per-skin DOM write in the
 > whole page is an inline background colour on `<body>`:
-> `document.body.style.backgroundColor='#13181b'` (`PluginBasePage.java`). The `bodyClassScript`
-> next to it comes from the page's own **"Body Class"** content property, not from the skin
-> (`PluginBasePage.java`); `app-theme-white` on `.app-container` is a static legacy ArchitectUI
-> class, not a skin hook — it is hardcoded in 9 static page markups (e.g. `NctInternalErrorPage.html`),
-> styled at `base.css`, and **no Java anywhere writes it**.
+> `document.body.style.backgroundColor='#13181b'`. The body-class script
+> next to it comes from the page's own **"Body Class"** content property, not from the skin;
+> `app-theme-white` on `.app-container` is a static legacy ArchitectUI
+> class, not a skin hook — it is hardcoded in 9 static page markups,
+> styled at `base.css`, and **nothing writes it dynamically**.
 > **Symptom you see:** the selector simply never matches. Your dark-mode block is dead CSS; the
 > component renders in whatever the un-prefixed rules said — i.e. light.
 > **Caught by `validate`?** **No.** Authored CSS is *scanned* for colour literals (§9) but never **parsed** —
@@ -168,24 +167,23 @@ anonymous visitor always lands on `Dark`.
     Forest, Dark Blue) renders the switch in its *dark* state, and one click moves the user to
     Standard; the click after that lands on Dark, not back on the third skin. It is hidden for an
     anonymous visitor, who has no per-user row to write.
-  - **Project Settings → Appearance** — a `DropDownChoice("skins")` bound to
-    `stateService.getUserValue/setUserValue(userId, "skin", …)` (`AppearanceSection.java`),
-    followed by `refreshPage()`. This is the only place the other three skins can be reached.
-  Both end in `refreshPage()`: **switching a skin is a full page reload**, never an AJAX restyle,
+  - **Project Settings → Appearance** — a skin dropdown that stores the user's `"skin"` value,
+    followed by a page refresh. This is the only place the other three skins can be reached.
+  Both end in a page refresh: **switching a skin is a full page reload**, never an AJAX restyle,
   because the skin is one `<link>` chosen in `renderHead` and an AJAX header contribution can only
   add a second stylesheet, not replace the first.
 - Consequence for a studio component: its per-theme CSS is emitted in `renderHead`
   so it is decided *at page render*. There is no client-side theme event
   to react to, and nothing in `ctx` tells author JS which skin is active
   (the mount payload carries no skin — see [24](24-html-component-studio.md)).
-- The two authored-CSS surfaces do **not** resolve the skin identically. A studio component's
-  `activeSkinName()` reads the **user** value only and returns `Dark` when there is no page user; a
-  chart goes through the shared helper, which calls the page's `resolveSkin()` (user → tenant → `Dark`).
+- The two authored-CSS surfaces do **not** resolve the skin identically. A studio component
+  reads the **user** value only and returns `Dark` when there is no page user; a
+  chart resolves it the page's way (user → tenant → `Dark`).
   ⚠️ **A public / anonymous page therefore renders your studio component's CSS as `Dark` no matter
   what.** If you author a public landing screen and only ever preview it signed-in on `Standard`, you have
   never seen what your visitors see.
-- ⚠️ The tenant branch of `resolveSkin()` is inert in practice: the platform's own Appearance screen writes
-  only the per-**user** value, and nothing in the codebase writes a tenant `skin` state value. Do not design
+- ⚠️ The tenant step of the skin resolution is inert in practice: the platform's own Appearance screen writes
+  only the per-**user** value, and nothing writes a tenant `skin` state value. Do not design
   around a "project default theme" — there is none you can set from a `.mrjun`.
 
 **Business judgement.** Because the skin is a per-viewer preference you cannot pin, *"we will only
@@ -360,7 +358,7 @@ Read from the five theme files. Use it to sanity-check a design, **not** to copy
 |---|---|---|---|---|---|
 | page bg (`--bs-body-bg`) | `#eef2f7` | `#282a33` | `#161817` | `#080e19` | `#13181b` |
 | body gradient (actual paint) | `#e6ebf2→#eef2f7→#dee4ec` (`standard.css`) | from `--background` | idem | **flat `#080e19` + two fixed radial washes** (`dark.css` rich section) | from `--background` |
-| `Skin.getBackgroundColor()` (inline on `<body>`) | `#f8f9fa` | `#282a33` | `#161817` | `#080e19` | `#13181b` |
+| skin body background (inline on `<body>`) | `#f8f9fa` | `#282a33` | `#161817` | `#080e19` | `#13181b` |
 | raised surface (`--current-line`) | *(undefined)* → `--bs-light` `#f4f7fb` | `#44475a` | `#2c302e` | `#101b2c` | `#262f36` |
 | effective `.card` bg (winning block) | `#ffffff→#fbfcfe` `!important` (`standard.css`) | `rgba(68,71,90,.6→.4)` (`dracula.css`) | `rgba(42,46,44,.6→.4)` (`forest.css`) | **flat `#101b2c`** + 1px hairline + inset top highlight (`dark.css` rich section) | `rgba(36,45,52,.6→.4)` (`dark-blue.css`) |
 | border (`--bs-border-color`) | `#c4cdd9` | `#6272a4` (`=--comment`) | `#4a6852` | `#22385a` (literal) | `#5f7188` (`=--comment`) |
@@ -405,9 +403,9 @@ the same scoper — §5.6. What is rendered **raw and unscoped** is markup: an i
 ```jsonc
 "css": {
   "byTheme": {
-    "*":         "…",   // ALWAYS emitted   (HtmlStudioModel.StudioCss.ALL_THEMES = "*", HtmlStudioModel.java)
+    "*":         "…",   // ALWAYS emitted
     "Standard":  "…",   // emitted ONLY when the viewer's skin is Standard
-    "Dark Blue": "…"    // exact Skin.getName() — space included
+    "Dark Blue": "…"    // exact skin name — space included
   }
 }
 ```
@@ -531,13 +529,12 @@ does. What you **cannot** do is publish a custom property to the rest of the pag
 ### 5.6 The same contract on a `chart.js.plugin`
 
 A chart has its own per-theme slot: `properties.Javascript.stringValue` → `cssByTheme` (keys `"*"` + the exact
-`Skin.getName()` strings), authored on the editor's **Css** tab. It is emitted the same way — `"*"` plus the
-ACTIVE skin only, each scoped to `#<chart markupId>` (`ChartJsPlugin.renderAuthorCss` → `NctThemeCss.forActiveTheme`,
-the helper the HTML studio also uses). The legacy single `css` field is still honoured: `effectiveCssByTheme()`
-folds it in as the `"*"` (all-themes) block **when the map has no non-blank `"*"` entry of its own**, so a chart
+skin-name strings), authored on the editor's **Css** tab. It is emitted the same way — `"*"` plus the
+ACTIVE skin only, each scoped to `#<chart markupId>` (the same mechanism the HTML studio uses). The legacy single `css` field is still honoured: it is
+folded in as the `"*"` (all-themes) block **when the map has no non-blank `"*"` entry of its own**, so a chart
 authored before the Css tab existed keeps working, and a `"*"` you type on the tab wins over it. Same scoper, so
 everything in §5.2 (`:root` → the wrapper, `@keyframes` stays global, a malformed block falls back to RAW) applies
-verbatim; the same key spelling rules as §5.1 apply, because the tab is built from `"*"` + `Skin.allNames()`.
+verbatim; the same key spelling rules as §5.1 apply, because the tab is built from `"*"` + the five skin names.
 
 > ⚠️ **Chart CSS is a lint blind spot.** `validate`'s colour-literal check reads a node's `studioModel` only, so
 > **nothing** vets a chart's `cssByTheme`/`css` — the checklist in §10 is vacuously green for charts. Apply §3's
@@ -576,7 +573,7 @@ Everything else — background, text, border, accent, state colours — is a tok
 | `"*"` + tokens | per-theme blocks |
 |---|---|
 | 1 block to write and maintain | 5 blocks, and 4 of them are near-copies |
-| a new skin added to `Skin.java` works for free | a new skin renders with the `"*"` block only |
+| a new skin added to the platform works for free | a new skin renders with the `"*"` block only |
 | impossible to get "one skin forgotten" | the classic bug: 4 keys filled, 1 forgotten |
 | ~40 lines | ~200 lines, drifting apart on the first edit |
 
@@ -695,9 +692,9 @@ five per-skin blocks, ≈5 × 1 kB): it is a third of the size and there is no f
 
 > ⛔ **AN INLINE COLOUR CANNOT BE THEMED, ONLY PATCHED.**
 > **Mechanism:** inline styles outrank author stylesheets; the only cure is a per-theme rule with
-> `!important`. The platform's own tree still carries the scars: `CommentsFieldFormControlPlugin.html`
-> `style="background-color: #f8f9fa"`, `LayoutManagementPanel.html` `#f8f9fa`,
-> `UserActionsFieldPanel.html` `style="background: #eee"` — each forced a per-theme rescue block, e.g.
+> `!important`. The platform's own markup still carries the scars: the comments control
+> `style="background-color: #f8f9fa"`, the layout-management panel `#f8f9fa`,
+> the user-actions panel `style="background: #eee"` — each forced a per-theme rescue block, e.g.
 > `dark-blue.css` `.comments-control-container .reply-section{background-color:var(--background)!important;
 > border:1px solid var(--comment)!important}` (that one selector prefix appears **39 times** in
 > `dark-blue.css`, purely to undo inline literals).
@@ -964,12 +961,12 @@ build as failing only on an unrelated CRUD error. Sanity check the other way: th
 1. Sign in (an **anonymous** page always renders the platform default, `Dark`, §1.4 — you cannot see
    the others there).
 2. The header switch moves between **Dark** and **Standard** in one click. For the other three:
-   **Project Settings → Appearance → Skin** (`AppearanceSection.java`), pick a skin, save.
-   Either way the page fully reloads (`refreshPage()`).
-   ⚠️ **The picker may not offer all five.** Choices come from the appearance section's `resolveThemeChoices()`: if the
+   **Project Settings → Appearance → Skin**, pick a skin, save.
+   Either way the page fully reloads.
+   ⚠️ **The picker may not offer all five.** If the
    organization stores an explicit available-themes list, only that subset is shown (plus whatever the user
-   currently has). `Skin.byName()` still resolves any stored value, and `css.byTheme` still lists all five
-   (`HtmlStudioPanel.java`) — so a skin you cannot select is still a skin someone can be on. If the
+   currently has). Any stored skin value still resolves, and `css.byTheme` still lists all five
+   — so a skin you cannot select is still a skin someone can be on. If the
    list is restricted, widen it in the Organizations admin for the duration of the review.
 3. Order to test — **not** alphabetical:
    1. **Standard** — the only light skin, and the one where every dark-only token disappears. Catches

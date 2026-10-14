@@ -13,7 +13,7 @@ in step:
   * the REGISTRY lives on each branch in ``branches.json`` as ``globalAssets`` — links and metadata
     only, never the file text;
   * the BYTES live under ``tenant-files/webassets/<storageId>/…``, which the platform re-uploads into
-    nct-file-storage at ``t/<newTenantId>/webassets/<storageId>/…`` on import.
+    its file storage at ``t/<newTenantId>/webassets/<storageId>/…`` on import.
 
 The registry stores the path RELATIVE to the tenant root for exactly that reason: the tenant id
 changes on every import, so an absolute ``t/<id>/…`` link would point at the donor project's files —
@@ -104,7 +104,7 @@ def safe_segment(value):
     Not cosmetic. The storage path travels to the file service as an HTTP HEADER, which is
     effectively ISO-8859-1, so a name with a space or an accent is mangled or rejected there.
 
-    ``-ver-`` is rewritten for a second reason: Wicket's ``ResourceMapper`` strips
+    ``-ver-`` is rewritten for a second reason: the platform's resource URL mapper strips
     ``<base>-ver-<version>`` out of the last URL segment of EVERY mapped resource request, so a file
     genuinely called ``app-ver-2.css`` would be requested as ``app.css`` and never found.
     """

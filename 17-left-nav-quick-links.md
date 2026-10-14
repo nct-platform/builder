@@ -2,8 +2,7 @@
 
 > 📐 **Field evidence — the nav three deliveries converge on, and the two silent ways a grant dies:** [02-navigation-and-front-door.md](references/02-navigation-and-front-door.md). Measured across four delivered projects, domain removed; it says which of this doc's options production chose, and where it contradicted them.
 
-> ⛔ **A nav link is localized on the ITEM, not (only) on its `linkModel`.** A nav entry is a
-> `PageModel extends LocalizedBean`; the sidebar renders `getLocalized("name", locale)`, i.e.
+> ⛔ **A nav link is localized on the ITEM, not (only) on its `linkModel`.** A nav entry has its own `localizedMap`; the sidebar renders
 > `localizedMap["name"][<locale>]` **on the item**, and falls back to the raw `name` property when the map
 > has no entry for that locale. `linkModel.localizedMap` is a SECOND, inner map — filling only that one is
 > invisible to the render, and the link then shows its `name` (one language) under every locale, which is
@@ -16,8 +15,7 @@
 > The branch ships a common virtual plugin named **`Nct left nav`** (`branch.virtualPlugins[]` whose
 > `name == "Nct left nav"` → its `content`, `identifier: "left-nav"`; in `initialtemplates/empty.mrjun` its
 > `uniqueIdentifier` is `23ab2aca-…`). **Every** page's per-page `site.kicker.plugin` node carries a
-> `linkContentIdentifier` equal to **that `uniqueIdentifier`**, so `PluginPanel.getContent()` (`mrjun-cms-view
-> PluginPanel`, via `findOneByUniqueIdentifier`) resolves the render to the **shared** node and the per-page
+> `linkContentIdentifier` equal to **that `uniqueIdentifier`**, so the platform resolves the render to the **shared** node and the per-page
 > `modelGroups` are **DEAD DATA — never read at runtime**. So: **put quick links in the `Nct left nav` common
 > node's `modelGroups`**, not in per-page kicker nodes. `mrjun.py quicklink add` now does this automatically
 > (targets the shared node via `_target_nav_nodes`); if you hand-edit, edit `virtualPlugins[] name="Nct left nav"` →
@@ -96,15 +94,15 @@ The `left-nav` node lives inside every page's materialized layout. Its config sl
 
 ```json
 {
-  "pagesModel": [ <PageModel>, <PageModel>, ... ]
+  "pagesModel": [ <page item>, <page item>, ... ]
 }
 ```
 
-`pagesModel` is an ordered list of top-level items. Each item is a **`PageModel`** that is either a **group**
+`pagesModel` is an ordered list of top-level items. Each item is a **page item** that is either a **group**
 (a heading/folder with `children`) or a **link** (carries a `linkModel`). Groups can nest links, and links can
 themselves have `children` (sub-menu).
 
-### `PageModel` (a tree node — group or link)
+### Page item (a tree node — group or link)
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -115,9 +113,9 @@ themselves have `children` (sub-menu).
 | `icon` | String | icon class (Pe-icon-7-stroke `pe-7s-*`, Linearicons `lnr-*`, or a plain name like `globe`) |
 | `heading` | boolean | `true` = a non-clickable section heading; usually `false` |
 | `linkModel` | object | present ⇒ this node is a **link** (see below); absent/`null` ⇒ this node is a **group/folder** |
-| `roleAccess` | object | optional per-item `RoleAccess` (same shape as node `roleAccess`, see [01](01-content-model-and-pages.md)) — role-group membership is checked here exactly as it is on a content node; see the note below. Omit ⇒ `publicReadAccess:true` ⇒ visible to everyone |
-| `localizedMap` | object | `PageModel extends LocalizedBean`, so a node carries its own `{"name":{"en_US":…,"ru_RU":…}}` (same shape as `linkModel.localizedMap`). For a **group/heading** (no `linkModel`) this is the **only** place to localize the heading label; see [20-localization.md](20-localization.md) |
-| `children` | `PageModel[]` | nested items (empty `[]` for a leaf link) |
+| `roleAccess` | object | optional per-item access object (same shape as node `roleAccess`, see [01](01-content-model-and-pages.md)) — role-group membership is checked here exactly as it is on a content node; see the note below. Omit ⇒ `publicReadAccess:true` ⇒ visible to everyone |
+| `localizedMap` | object | A node carries its own `{"name":{"en_US":…,"ru_RU":…}}` (same shape as `linkModel.localizedMap`). For a **group/heading** (no `linkModel`) this is the **only** place to localize the heading label; see [20-localization.md](20-localization.md) |
+| `children` | array of page items | nested items (empty `[]` for a leaf link) |
 
 > ✅ **Hiding a link from a persona.**
 > Set it on the item (or on the whole group/section, which prunes its children too):
@@ -133,7 +131,7 @@ themselves have `children` (sub-menu).
 > ([01](01-content-model-and-pages.md)) — and even then the real gate on data is the action predicates plus the
 > scoped fetch rule ([19](19-build-decision-procedure.md) Phase 6).
 
-### `linkModel` (present only on a link) — `IconNamedLinkModel`
+### `linkModel` (present only on a link)
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -142,7 +140,7 @@ themselves have `children` (sub-menu).
 | `identifier` | String (uuid) | **for an internal link: the `identifier` of the target `siteMapPage` content node** (resolved within the active branch) |
 | `internal` | Boolean | `true` (default) ⇒ internal page link by `identifier`; `false` ⇒ external link — use `link` |
 | `link` | String | external URL (used only when `internal == false`) |
-| `params` | String | optional query/path params appended to the internal link **as they are** (`ContentLinkByIdentifierParams.params`, `ContentLink.getURL`: `url += params`) — so it carries its own leading `?` (or `/`). `?tab=<tab id>` opens that page on a given tab ([14a](14a-plugin-config-reference.md) §`nct.tab.plugin` → «Which tab opens»); `quicklink add --params '?tab=<tab id>'` |
+| `params` | String | optional query/path params appended to the internal link **as they are** (`url += params`) — so it carries its own leading `?` (or `/`). `?tab=<tab id>` opens that page on a given tab ([14a](14a-plugin-config-reference.md) §`nct.tab.plugin` → «Which tab opens»); `quicklink add --params '?tab=<tab id>'` |
 | `needToBeSaved` | boolean | authoring housekeeping flag; set `true` on hand-authored items |
 | `localizedMap` | object | per-locale values: `{"name":{"en_US":…,"ru_RU":…,"hy_AM":…}, "icon":{…}}` — cover every locale in `tenant.json.locales` |
 
@@ -191,10 +189,10 @@ the 1512-char **per-page** copy, quoted here for its **shape**; the node you act
 Here `linkModel.identifier` `03e4579a-…` is the content `identifier` of the `Sources` `siteMapPage`
 (verified: it resolves to `{name:"Sources", pluginName:"siteMapPage"}`).
 
-## How a link resolves at render (`PagesPanel`)
+## How a link resolves at render
 
-- **Internal** (`internal == true`): the item becomes a `ContentLink` built from
-  `ContentLinkByIdentifierParams(activeBranchId, linkModel.identifier, linkModel.params)` — the platform looks
+- **Internal** (`internal == true`): the item becomes a link built from
+  the active branch, `linkModel.identifier` and `linkModel.params` — the platform looks
   up the content node whose `identifier == linkModel.identifier` in the current branch and links to it. So the
   **join key is the target page's `identifier`** (not its alias, not a URL).
 - **External** (`internal == false`): `href = linkModel.link` (the raw URL). No external links appear in any of
@@ -240,7 +238,7 @@ To add a quick link to the left nav in an unpacked export:
    ```
    - Cover **every** locale from `tenant.json.locales` in `localizedMap.name`/`localizedMap.icon`.
    - For an **external** link: set `"internal": false` and `"link": "https://…"`, and drop `identifier`.
-5. **To add a new group/folder** instead, push a `PageModel` with **no** `linkModel` and a `children` array:
+5. **To add a new group/folder** instead, push a page item with **no** `linkModel` and a `children` array:
    ```json
    { "order": <n>, "name": "Reports", "uuid": "<fresh uuid4>", "icon": "globe", "heading": false, "children": [ … ] }
    ```
@@ -264,7 +262,7 @@ To add a quick link to the left nav in an unpacked export:
    **A quick link renders — on EVERY page — ONLY when you edit the shared `Nct left nav` common node**
    (`virtualPlugins[] name="Nct left nav"` → `content` → `properties.modelGroups`). **Editing a per-page
    `left-nav` node — even to try to customize just ONE page's sidebar — changes NOTHING at runtime**:
-   `getContent()` (`PluginPanel.java`) resolves every per-page node's `linkContentIdentifier` back to
+   the platform resolves every per-page node's `linkContentIdentifier` back to
    the shared node, so the shared tree renders on all pages and the per-page `modelGroups` are never read.
    **There is NO per-page sidebar to customize.** `quicklink add` targets the shared node for you
    (`_target_nav_nodes` returns only the shared node when present). The front door only lands on the Home/root
@@ -277,7 +275,7 @@ To add a quick link to the left nav in an unpacked export:
 4. **`uuid` must be unique** within the tree; `parentUuid` must equal the enclosing group's `uuid`. `order`
    controls sibling sort.
 5. **Localization:** a **link** localizes via `linkModel.localizedMap`; a **group/heading** has no `linkModel`,
-   so it localizes via the `PageModel`'s **own** `localizedMap` (`PageModel extends LocalizedBean`) — the
+   so it localizes via the item's **own** `localizedMap` — the
    only way to translate a group heading. The top-level `name`/`icon` are the default-locale fallback. Cover all
    `tenant.json.locales`. See [20-localization.md](20-localization.md).
 6. **`icon`** accepts Pe-icon-7-stroke (`pe-7s-*`), Linearicons (`lnr-*`), or plain names (`globe`); see the
@@ -287,10 +285,10 @@ To add a quick link to the left nav in an unpacked export:
    tooling below (or a raw slot edit).
 8. **The platform "management console" nav (`Home, Rules, Contexts, Form Groups, Workflows, Processes, Users,
    Role Management, Database, Business Logic, Audit Logs, Mail Templates, Pdf Templates, Schedulers, Settings`)
-   IS `modelGroups` data — it is the shared `Nct left nav` node's own `Pages` group** (15 ordinary `PageModel`
-   links, the ~19 KB blob of Gotcha 1), and you can edit it from the export. `PagesPanel.getAllModelGroups()`
+   IS `modelGroups` data — it is the shared `Nct left nav` node's own `Pages` group** (15 ordinary page-item
+   links, the ~19 KB blob of Gotcha 1), and you can edit it from the export. The platform
    renders the sidebar as *runtime-injected groups ∪ the shared node's `modelGroups`*; the injection (an
-   `Add_Model_Groups` Wicket event fired from `NctBasePlugin.onInitialize()` via a plugin's `pageGroups(...)`)
+   `Add_Model_Groups` event fired by the plugins)
    contributes only a handful of **per-plugin action links** — "Create new source", "Create new query" and the
    like on the platform's own admin pages — never the page list. Consequences:
    (a) you **should** append your business pages to that same `Pages` group — exactly what
@@ -299,7 +297,7 @@ To add a quick link to the left nav in an unpacked export:
    `{"pagesModel":[…]}` of your own links deletes Settings / Database / Rules / Business Logic / Mail & Pdf
    Templates / Schedulers from **every** page of the project, and neither `validate` nor `pack` flags it;
    (c) because they are data, you can also **prune or role-gate** them for an end-user portal — put a
-   `roleAccess` on the item or on the whole `Pages` group (see the note under `PageModel`) to keep
+   `roleAccess` on the item or on the whole `Pages` group (see the note under Page item) to keep
    `Rules`/`Database`/`Business Logic`/`Settings` out of an operator's sidebar;
    (d) the console renders on every page — including one whose *per-page* `modelGroups` is empty — which is why
    a **blank root/Home with no `Redirect` looks like "only the default menu, none of my links"**: the fix is the

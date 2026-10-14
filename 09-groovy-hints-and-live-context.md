@@ -7,16 +7,16 @@
 In the Groovy-rules editor (rule dialog: create/edit rule; see [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md))
 **TWO different autocomplete systems** operate, which merge into a single CodeMirror hint tree:
 
-1. **Server-side HintsService hint tree** — a static tree `{context:{...}, service:{...}, validation?:{...}}`,
-   built in the `nct-executor` microservice (`HintsService.buildRuleHints`) from the **definitions** of contexts
+1. **Server-side hint tree** — a static tree `{context:{...}, service:{...}, validation?:{...}}`,
+   built by the platform's rule executor from the **definitions** of contexts
    (`contexts` / `crudAliases`), CRUD methods, and service functions (`service.security`, `service.rimm`,
-   `service.global`, `service.enums`, `service.notification`, `service.report`, …). It arrives over HTTP in
-   `nct-ui` (`RuleEditorField.getHints()` → Feign `UiMcpClient`), then is post-processed UI-side
-   (`injectReturnFieldsFromCruds`). This tree is **always** present in any rule editor.
+   `service.global`, `service.enums`, `service.notification`, `service.report`, …). It reaches the editor over
+   HTTP, then is post-processed UI-side (the CRUD-method return fields `_returnFields` are added). This tree is
+   **always** present in any rule editor.
 
 2. **Live context-data hints** — real values from a **live form**. When the rule dialog is opened from a form's
-   settings, `FormPlugin` publishes a live `ContextDataDto` to the page. `RuleEditorField.injectLiveContextDataHints`
-   reads it, and `LiveContextDataHints.inject(...)` **merges** the real attribute names/types into the
+   settings, the form publishes its live context data to the page. The editor
+   reads it and **merges** the real attribute names/types into the
    already-fetched static tree: `context.data.*` (global), `context.<alias>.data.*` (per context),
    `context.currentData.get().*` (current element of a nested list), and overlays the live entity onto
    `context.<alias>.<crud>.data.get().*`. **Only** where `contextData` exists (form / form button).
@@ -43,9 +43,8 @@ where `contexts[].crudAliases` lives in the export — [08](08-groovy-rules-and-
 
 The hints are NOT stored in the export. The inputs from which the tree is built live in `rep-objects.json`:
 
-- `rule.contextIdentifiers[]` — context UUIDs (→ `HintsService` resolves them into `ContextDto` → `alias` + `crudAliases`).
-- `rule.ruleType` — `EXECUTION_RULE` | `VALIDATION_RULE` | `PREDICATE`
-  (`RuleType.java`).
+- `rule.contextIdentifiers[]` — context UUIDs (→ resolved into the context's `alias` + `crudAliases`).
+- `rule.ruleType` — `EXECUTION_RULE` | `VALIDATION_RULE` | `PREDICATE`.
 - `contexts[].alias`, `contexts[].crudAliases[]` — from `rep-objects.json.contexts`.
 
 Worked input (`rep-objects.json` — a project with the usual single context `finance_context`):
@@ -69,8 +68,8 @@ Worked input (`rep-objects.json` — a project with the usual single context `fi
 > that is the project's **only** context (`jq '.contexts|length'` → `1`), and it lists **all** of the project's
 > crud aliases, so any rule referencing it sees the entire CRUD set.
 
-From this pair `HintsService.buildRuleHints("<realm>","<client>",["871f974f-..."],EXECUTION_RULE)` builds the tree.
-The request shape is `RuleHintsRequestDto{contextIdentifiers[], ruleType, crudMethod}` — `crudMethod` is `true`
+From this pair the platform builds the tree for the realm/client, `["871f974f-..."]` and `EXECUTION_RULE`.
+The request shape is `{contextIdentifiers[], ruleType, crudMethod}` — `crudMethod` is `true`
 only from the business-logic editor, which writes a GROOVY method of a dynamic CRUD; such a method IS an
 execution rule and asks for `EXECUTION_RULE` hints, so the flag is the only thing that distinguishes it, and the
 only member it changes is `service.redirectPage`. The response shape (JSON) is described below.
@@ -100,7 +99,8 @@ only member it changes is `service.redirectPage`. The response shape (JSON) is d
                       "users":      { "create(Map options)": <methodDetails+_returnFields>, ... },   // EXECUTION rules only (9 members)
                       "roleGroups": { "list()": <methodDetails+__element>, ... } },                  // EXECUTION rules only (6 members)
     "notification": { "push": { "sendText(...)": ..., ... }, "mail": { "<mailAlias>(List<String> recipients, Map<String, String> placeholders)": <methodDetails>, "<mailAlias>(List<String> recipients, String subject, Map<String, String> placeholders)": <methodDetails> } },
-    "report":       { "pdf": { "get": { "<pdfAlias>(String fileName, Map<String, Object> params)": <methodDetails> },
+    "report":       { "pdf": { "get": { "<pdfAlias>(String fileName, Map<String, Object> params)": <methodDetails>,
+                                         "<pdfAlias>(String fileName, Map<String, Object> params, String lang)": <methodDetails> },
                                "download(String fileName, List<PdfReferenceDto> pdfs)": <methodDetails>,
                                "email": { "<mailAlias>(...)": <methodDetails>, ... },
                                "push":  { "sendText(String userEmail, String message, List<PdfReferenceDto> pdfs)": <methodDetails>, ... } } },
@@ -122,7 +122,7 @@ only member it changes is `service.redirectPage`. The response shape (JSON) is d
 }
 ```
 
-`<methodDetails>` (the executor's convention; e.g. `buildCrudServiceMethods`, `formatMethodInsertText`):
+`<methodDetails>` (the hint-entry convention):
 
 ```json
 { "name": "find",
@@ -131,7 +131,7 @@ only member it changes is `service.redirectPage`. The response shape (JSON) is d
   "parameters": ["Map params"],
   "description": "...",
   "insertText": "find(\n    [\n        key: \"value\"\n    ]\n)",
-  "_returnFields": { "id": "String", "name": "String" },  // added UI-side (injectReturnFieldsFromCruds)
+  "_returnFields": { "id": "String", "name": "String" },  // added UI-side
   "argValues": { "0": { "ref": "workflows" } }            // optional — see below
 }
 ```
@@ -169,23 +169,23 @@ the editor filters them out of the top-level suggestion list. They are two keys 
 built under different conditions: the `workflows` and `processTables` sets cost a call to another service and are
 assembled only when the payload carries `service.workflow`, i.e. for execution rules; `mailAccounts` and
 `roleGroups` are assembled in every rule type (fail-soft: one call for `roleGroups`, two for `mailAccounts`, bounded by
-a 2 s / 5 s Feign timeout on the role-group client — `roleGroups` is needed by `hasAnyRoleGroup` in predicates); the stores are offered in every rule type, so their keys have to be there in
+a 2 s / 5 s timeout on the role-group call — `roleGroups` is needed by `hasAnyRoleGroup` in predicates); the stores are offered in every rule type, so their keys have to be there in
 every rule type too.
 
-**The key distinction between the three node shapes** that the JS parses:
-- **method-details** — a map with a `"signature"` field (String). JS treats it as a method call
-  (`isMethodDetails`, `groovy-hint.js`): on an exact match of `get()`/`find(...)` it expands into
+**The key distinction between the three node shapes** that the editor parses:
+- **method-details** — a map with a `"signature"` field (String). The editor treats it as a method call:
+  on an exact match of `get()`/`find(...)` it expands into
   `_returnFields`, so that `method().field` works.
-- **typed leaf** — `{"type":"String"}` (no `signature`). JS calls `getTypeSpecificSuggestions(type)` →
+- **typed leaf** — `{"type":"String"}` (no `signature`). The editor offers
   the list of type methods (`String`→`length()`, `trim()`, …).
 - **navigable subtree** — an ordinary map of child keys (for example `get()` DTO fields, `security.user()` fields,
-  `quota.mail`). JS enumerates the keys as suggestions.
+  `quota.mail`). The editor enumerates the keys as suggestions.
 
 ## Per-variant reference
 
-### System 1 — Server-side HintsService tree
+### System 1 — Server-side hint tree
 
-#### `context.data.*` (global attributes) — `buildGlobalDataHints` (`HintsService.java`)
+#### `context.data.*` (global attributes)
 
 Statically contains **only methods** (returnType `ContextDataDto`):
 
@@ -199,85 +199,85 @@ Statically contains **only methods** (returnType `ContextDataDto`):
 }
 ```
 
-| Key | Node type | Meaning | Backing |
-|---|---|---|---|
-| `setAttr(String key, Object value)` | method-details | `context.data.setAttr("k", v)` → runtime `getAttr/setAttr` on `GlobalDataWrapper` | `HintsService.java` |
-| `getAttr(String key)` | method-details | reading a global attribute | `HintsService.java` |
-| `getAttr(String key, Object defaultValue)` | method-details | reading with a default | `HintsService.java` |
+| Key | Node type | Meaning |
+|---|---|---|
+| `setAttr(String key, Object value)` | method-details | `context.data.setAttr("k", v)` → runtime `getAttr/setAttr` on the global data |
+| `getAttr(String key)` | method-details | reading a global attribute |
+| `getAttr(String key, Object defaultValue)` | method-details | reading with a default |
 
 > The runtime sugar `context.data.<name>` / `context.data.<name> = v` (property get/set → `getAttr/setAttr`)
-> **always works** (engine `DynamicRuleContext.groovy`),
+> **always works**,
 > but statically the attribute names are NOT known → they are provided by System 2 below.
 
-#### `context.currentData.*` — `buildCurrentDataHints` (`HintsService.java`)
+#### `context.currentData.*`
 
 `put(Object value)`, `get()`, `setAttr(...)`, `getAttr(...)`. Relevant only in **nested forms** (list item);
 in the parent form `currentData` itself is null — the hint's "returns null" is wrong: `get()` throws a
 `NullPointerException` there, so guard with `if (currentData != null)`. `setAttr`/`getAttr` do not exist on it at
 all (see "Where the hints and the runtime disagree"). `get()` here is method-details **without** `_returnFields`; System 2
-fills in `_returnFields` with the real fields of the current element (`injectCurrentData`).
+fills in `_returnFields` with the real fields of the current element.
 
 > ⚠️ **`setAttr`/`getAttr` here are a hint-tree artefact — do not write them.** At runtime `currentData`
-> is a `CrudDataDto`, whose whole surface is `get()`, `put(...)`, `getField(...)`, `setField(...)`,
+> is a CRUD data object, whose whole surface is `get()`, `put(...)`, `getField(...)`, `setField(...)`,
 > `hasField(...)`; calling `getAttr`/`setAttr` on it throws `MissingMethodException`. Attributes exist only on
 > the global scope (`context.data.*`) and the context scope (`context.<alias>.data.*`).
 
-#### `context.<alias>.data.*` — `buildContextDataHints` (`HintsService.java`)
+#### `context.<alias>.data.*`
 
 Same as `context.data.*`, but `returnType` = `ContextData`. Attribute scope = the context. The tree node key is
-the context's **alias** (`hints.put(context.getAlias(), contextMap)`, `HintsService.java`).
+the context's **alias**.
 
-#### `context.<alias>.<crudAlias>.service.*` — `buildCrudServiceMethods` (`HintsService.java`)
+#### `context.<alias>.<crudAlias>.service.*`
 
 Real CRUD methods (the same ones as in `dynamic-cruds.json.cruds[].methods[]`, see
 [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md)). Each method is method-details, key =
 `"<name>(<Type1 p1>, <Type2 p2>)"`, `insertText` = a multi-line call with sample values
 (DTO parameter → Groovy map literal). The methods are fetched over RSocket from the live integration (register-time cache or
-`getServiceMethods`).
+on demand).
 
-The same map is reused under `service.crud.<crudAlias>` (`HintsService.java`), so that
+The same map is reused under `service.crud.<crudAlias>`, so that
 `context.<ctx>.<crud>.service.find(...)` ≡ `service.crud.<crud>.find(...)`.
 
-#### `context.<alias>.<crudAlias>.data.get()` — `addCrudDataMethods` (`HintsService.java`)
+#### `context.<alias>.<crudAlias>.data.get()`
 
 `get()` — a map of the CRUD's DTO fields (**NOT** method-details: no `signature`). Dotted paths
-(`"address.street"`) expand into nested maps (`HintsService.java`). A field leaf =
-`{"type":"<FieldClass.getSimpleName()>"}`; no class → `"Object"`. `put(...)`, `setAttr(...)`
+(`"address.street"`) expand into nested maps. A field leaf =
+`{"type":"<SimpleType>"}`; no class → `"Object"`. `put(...)`, `setAttr(...)`
 `getAttr(...)` — method-details (returnType `CrudDataDto`).
 
 > ⚠️ Same artefact as for `currentData`: the `setAttr`/`getAttr` entries are **hint-only**. The wrapper behind
-> `data` resolves calls reflectively against `CrudDataDto`, which has no such methods, so
+> `data` resolves calls reflectively against the CRUD data object, which has no such methods, so
 > `context.<ctx>.<crud>.data.getAttr('x')` fails at runtime (`MissingMethodException`, rethrown as
 > "Failed to execute data.getAttr()"). Write `getField('<col>', <Type>.class)` / `setField('<col>', v)` for
 > columns, and use `context.data.*` / `context.<alias>.data.*` for attributes.
 
-#### `service.*` — `buildServiceMap` (`HintsService.java`)
+#### `service.*`
 
-| Key | What | Backing |
-|---|---|---|
-| `service.access.*` | `addRoleAccess`, `removeUserAccess`, `hasRoleGroupAccess`, `getRoleAccesses()`, … — offered in every rule kind, but an edit is SAVED only from a service task or a sequence-flow predicate ([16](16-groovy-service-api.md) §2.7) | `buildAccessManagementMethods` |
-| `service.rimm.*` | `query(...)`, `run(...)` (running saved queries by name) | `buildRimmServiceMethods` |
-| `service.security.*` | `user()` (navigable: `id/email/firstName/lastName`, all `{type:String}`), `hasAnyRole(String... roles)`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` (all `boolean`) — offered in every rule type. `hasAnyRoleGroup` / `hasAllRoleGroups` annotate their first argument with the `roleGroups` value set, so the project's real role-group names complete inside the quotes | `buildSecurityMethods` + `attachRoleGroupValues` |
-| `service.security.users.*` (9 members) / `service.security.roleGroups.*` (6) | managing the project's people and role groups. Offered **only** when `ruleType` is `EXECUTION_RULE` (a CRUD GROOVY method asks for execution-rule hints, so it sees them) — never in a predicate or a validation rule, where the runtime refuses every member, and never while the type is still unknown. Every member that takes a role group's NAME (`addRoleGroup`, `removeRoleGroup`, `roleGroups.get/update/delete/members`) carries `argValues` pointing at the `roleGroups` value set; every member that hands a person back (`get`, `create`, `update`, `setEnabled`, `addRoleGroup`, `removeRoleGroup`) says what is in it via `_returnFields`, and `list()` via `__element` | `buildSecurityUserHints` / `buildSecurityRoleGroupHints` |
-| `service.notification.push.*` | `sendText`, `sendAlert`, `sendWarning`, `sendError`, `sendReminder`, `*ToRole`, `*ToRoleGroup` (see full list below) | `buildPushNotificationMethods` |
-| `service.notification.mail.<alias>(...)` | **TWO overloads** per mail-template alias (see below) | `buildMailNotificationMethods` |
-| `service.report.pdf.*` | PDF generation/download/delivery (see the subsection below) | `buildReportHints` → `buildPdfReportHints` |
-| `service.global.rest.*` | always: `get/post/put/delete/patch/head/options` (× no-body / +Map options) | `GlobalFunctionsService.buildRestHints` |
-| `service.global.<yamlGroup>.<fn>(...)` | functions from `globalFunctions.yaml` (dynamically) | `GlobalFunctionsService.processGroup` / `addFunctionHint` |
-| `service.quota.{mail,processes,users,schedulers}` | typed leaves `{type:Integer/Long}` (property access) | `buildQuotaHints` |
-| `service.enums.<EnumName>.list()` | the project enum registry | `buildEnumsHints` |
-| `service.workflow.start(...)` | starting a process; **two overloads**, both annotating argument 0 with the `workflows` value set so the identifier autocompletes inside the quotes, and both expanding the whole call when one is picked | `buildWorkflowHints` + `attachArgValueSets` |
-| `service.workflow.list / actions / startActions / contextData / complete` | working an existing case; the settings-id argument is annotated with the `processTables` value set and expands the whole call, writing that table's real filter keys and naming its indexed values | `buildWorkflowHints` + `attachArgValueSets` |
-| `service.store.session.*` / `service.store.user.*` | the two key/value stores; **eight identical methods each**, every key argument annotated with `argValues: {"0": {keysOf: "__storeKeys.<scope>"}}` so it completes from that scope's catalogued keys. Offered in **every** rule type, because all three executors wire the runtime | `buildStoreHints` → `buildStoreScopeMethods` |
-| `__storeKeys` (payload root, not under `service`) | `{session: {<key>: {type}}, user: {…}}` — the keys this project has actually written, per scope. A separate root key rather than an entry in `__argValueSets`, whose workflow sets exist only for execution rules | `attachStoreKeys` |
-| `service.actionName` / `service.actionId` | typed leaf `{type:String}`; set when the rule is invoked from an action button | `HintsService.java` |
-| `service.redirectPage(String pagePath)` | navigating the browser after the rule returns; offered when `ruleType` is `EXECUTION_RULE` **and** `crudMethod` is false — a CRUD GROOVY method asks for execution-rule hints but cannot navigate, so the business-logic editor sends `crudMethod: true` | `HintsService.java` |
-| `service.rule(String ruleName)` | invoking another rule by name | `HintsService.java` |
-| `service.crud.<crudAlias>.<method>()` | flat synonym for `context.<ctx>.<crud>.service.<method>()` | `HintsService.java` |
+| Key | What |
+|---|---|
+| `service.access.*` | `addRoleAccess`, `removeUserAccess`, `hasRoleGroupAccess`, `getRoleAccesses()`, … — offered in every rule kind, but an edit is SAVED only from a service task or a sequence-flow predicate ([16](16-groovy-service-api.md) §2.7) |
+| `service.rimm.*` | `query(...)`, `run(...)` (running saved queries by name) |
+| `service.security.*` | `user()` (navigable: `id/email/firstName/lastName`, all `{type:String}`), `hasAnyRole(String... roles)`, `hasAllRoles`, `hasAnyRoleGroup`, `hasAllRoleGroups` (all `boolean`) — offered in every rule type. `hasAnyRoleGroup` / `hasAllRoleGroups` annotate their first argument with the `roleGroups` value set, so the project's real role-group names complete inside the quotes |
+| `service.security.users.*` (9 members) / `service.security.roleGroups.*` (6) | managing the project's people and role groups. Offered **only** when `ruleType` is `EXECUTION_RULE` (a CRUD GROOVY method asks for execution-rule hints, so it sees them) — never in a predicate or a validation rule, where the runtime refuses every member, and never while the type is still unknown. Every member that takes a role group's NAME (`addRoleGroup`, `removeRoleGroup`, `roleGroups.get/update/delete/members`) carries `argValues` pointing at the `roleGroups` value set; every member that hands a person back (`get`, `create`, `update`, `setEnabled`, `addRoleGroup`, `removeRoleGroup`) says what is in it via `_returnFields`, and `list()` via `__element` |
+| `service.notification.push.*` | `sendText`, `sendAlert`, `sendWarning`, `sendError`, `sendReminder`, `*ToRole`, `*ToRoleGroup` (see full list below) |
+| `service.notification.mail.<alias>(...)` | **TWO overloads** per mail-template alias (see below) |
+| `service.report.pdf.*` | PDF generation/download/delivery (see the subsection below) |
+| `service.global.rest.*` | always: `get/post/put/delete/patch/head/options` (× no-body / +Map options) |
+| `service.global.<yamlGroup>.<fn>(...)` | functions from `globalFunctions.yaml` (dynamically) |
+| `service.quota.{mail,processes,users,schedulers}` | typed leaves `{type:Integer/Long}` (property access) |
+| `service.enums.<EnumName>.list()` | the project enum registry |
+| `service.workflow.start(...)` | starting a process; **two overloads**, both annotating argument 0 with the `workflows` value set so the identifier autocompletes inside the quotes, and both expanding the whole call when one is picked |
+| `service.workflow.list / actions / startActions / contextData / complete` | working an existing case; the settings-id argument is annotated with the `processTables` value set and expands the whole call, writing that table's real filter keys and naming its indexed values |
+| `service.store.session.*` / `service.store.user.*` | the two key/value stores; **eight identical methods each**, every key argument annotated with `argValues: {"0": {keysOf: "__storeKeys.<scope>"}}` so it completes from that scope's catalogued keys. Offered in **every** rule type, because all three executors wire the runtime |
+| `__storeKeys` (payload root, not under `service`) | `{session: {<key>: {type}}, user: {…}}` — the keys this project has actually written, per scope. A separate root key rather than an entry in `__argValueSets`, whose workflow sets exist only for execution rules |
+| `service.actionName` / `service.actionId` | typed leaf `{type:String}`; set when the rule is invoked from an action button |
+| `service.redirectPage(String pagePath)` | navigating the browser after the rule returns; offered when `ruleType` is `EXECUTION_RULE` **and** `crudMethod` is false — a CRUD GROOVY method asks for execution-rule hints but cannot navigate, so the business-logic editor sends `crudMethod: true` |
+| `service.rule(String ruleName)` | invoking another rule by name |
+| `service.crud.<crudAlias>.<method>()` | flat synonym for `context.<ctx>.<crud>.service.<method>()` |
 
-##### `service.notification.mail.<alias>` — **two overloads** per alias (`HintsService.java`)
+##### `service.notification.mail.<alias>` — **two overloads** per alias
 
-For **each** mail-template alias, `buildMailNotificationMethods` puts **two** entries (not one):
+For **each** mail-template alias, the tree has **two** entries (not one):
 
 ```json
 "<alias>(List<String> recipients, Map<String, String> placeholders)":                 { "returnType":"void", ... },
@@ -285,12 +285,12 @@ For **each** mail-template alias, `buildMailNotificationMethods` puts **two** en
 ```
 
 The first uses the template's default subject, the second accepts a custom subject. Placeholders are sampled from
-`MailTemplateAliasInfoDto.getPlaceholders()` (a bare slot `key: "key"`). The aliases are **your project's own** —
+the template's `placeholders` (a bare slot `key: "key"`). The aliases are **your project's own** —
 whatever `rep-objects.json.mailTemplates` defines (typically a few account-lifecycle ones such as
 `userRegistration` / `passwordRecover`, plus business ones such as `invoiceIssued` or `approvalRequested`) — so
 that, for example, `service.notification.mail.invoiceIssued([...], [...])` becomes available.
 
-##### `service.notification.push.*` — full list (`HintsService.java`)
+##### `service.notification.push.*` — full list
 
 15 methods (5 base × 3 addressings):
 
@@ -315,41 +315,38 @@ that, for example, `service.notification.mail.invoiceIssued([...], [...])` becom
 `*ToRoleGroup`/`*ToRole` return `int` (the number sent). The same 5 base names recur in
 `service.report.pdf.push.*`, but with an additional trailing parameter `List<PdfReferenceDto> pdfs`.
 
-##### `service.report.pdf.*` — PDF generation/download/delivery (`buildPdfReportHints`, `HintsService.java`)
+##### `service.report.pdf.*` — PDF generation/download/delivery
 
 The `service.report.pdf` tree has **four** branches:
 
-| Branch | Shape | What | Backing |
-|---|---|---|---|
-| `pdf.get.<pdfAlias>(String fileName, Map<String, Object> params)` | method-details, `returnType:"PdfReferenceDto"` | build a `PdfReferenceDto` from a PDF template; one method per pdf-template alias | `buildPdfGetMethods`; sig |
-| `pdf.download(String fileName, List<PdfReferenceDto> pdfs)` | method-details, `returnType:"byte[]"` — ⚠️ stale, see below | merge `PdfReferenceDto`s into one PDF (`byte[]`, + save to file storage) | `buildPdfDownloadMethod` |
-| `pdf.email.<mailAlias>(...)` | **2 overloads** per mail-alias, `returnType:"void"` | send an email with PDF attachment(s): `(List<String> recipients, Map<String, String> placeholders, List<PdfReferenceDto> pdfs)` and `(…, String subject, …)` | `buildPdfEmailMethods`; sig1, sig2 |
-| `pdf.push.*` | 15 methods, like push above, but with a trailing `List<PdfReferenceDto> pdfs` | the same `sendText/Alert/Warning/Error/Reminder` (`ToRole`/`ToRoleGroup`) with a PDF attachment | `buildPdfPushMethods` |
+| Branch | Shape | What |
+|---|---|---|
+| `pdf.get.<pdfAlias>(String fileName, Map<String, Object> params[, String lang])` | method-details, `returnType:"PdfReferenceDto"` (two entries per alias: without and with the language of the document) | build a `PdfReferenceDto` from a PDF template; one method per pdf-template alias |
+| `pdf.download(String fileName, List<PdfReferenceDto> pdfs)` | method-details, `returnType:"void"` (older platform builds: `"byte[]"` — ⚠️ stale, see below) | render and merge `PdfReferenceDto`s into one PDF and hand it to the user's browser as a download |
+| `pdf.email.<mailAlias>(...)` | **2 overloads** per mail-alias, `returnType:"void"` | send an email with PDF attachment(s): `(List<String> recipients, Map<String, String> placeholders, List<PdfReferenceDto> pdfs)` and `(…, String subject, …)` |
+| `pdf.push.*` | 15 methods, like push above, but with a trailing `List<PdfReferenceDto> pdfs` | the same `sendText/Alert/Warning/Error/Reminder` (`ToRole`/`ToRoleGroup`) with a PDF attachment |
 
-> ⚠️ **The `pdf.download` label in the hint tree is STALE.** The row above reflects what `HintsService`
-> (`buildPdfDownloadMethod`) actually puts into the tree (`returnType:"byte[]"`, "merges into one PDF"),
-> but the **real** `PdfReportProxy.download` (`nct-executor/.../PdfReportProxy.groovy`) is **`void`
-> asynchronous fire-and-forget**: it queues a Kafka request, nct-pdf renders/merges the PDF and POSTs the bytes into a per-user
-> inbox file-storage, and a UI poller opens the browser save dialog (~10 s). `byte[]` is **not returned** — do not
+> ⚠️ **On older platform builds the `pdf.download` label in the hint tree is STALE.** Those builds list
+> `returnType:"byte[]"` and "merges into one PDF"; current builds say `void`. Whatever the hint says, the
+> **real** `download` is **`void`
+> asynchronous fire-and-forget**: it queues a request, the PDF service renders/merges the PDF and POSTs the bytes into a per-user
+> inbox file-storage, and a UI poller opens the browser save dialog (every 20 s). `byte[]` is **not returned** — do not
 > assign the result of `download(...)`. Details — [16-groovy-service-api.md](16-groovy-service-api.md) §2.6.
 
-`pdf.get` is empty if the project has no PDF templates (`safeFetchPdfAliases` returned an empty list — the normal
-state of a project that has not authored any). `pdf.email`, by contrast, uses **mail** aliases
-(`safeFetchMailAliases`), so `pdf.email.<yourMailAlias>(...)` entries are present **even with zero PDF
+`pdf.get` is empty if the project has no PDF templates (the alias list is empty — the normal
+state of a project that has not authored any). `pdf.email`, by contrast, uses **mail** aliases, so `pdf.email.<yourMailAlias>(...)` entries are present **even with zero PDF
 templates** — an empty `pdf.get` next to a populated `pdf.email` is expected, not a broken tree. PDF today is
-the `report.pdf.templates.plugin` plugin (see [00-export-format-and-import.md](00-export-format-and-import.md);
-the historical `PdfPlugin`/`PdfPagePlugin` does not exist).
+the `report.pdf.templates.plugin` plugin (see [00-export-format-and-import.md](00-export-format-and-import.md)).
 
 ##### `service.global.*` — YAML functions + always-`rest`
 
-`service.global` = Lombok `@Getter` over the `GlobalFunctionsService.hintsStructure` field
-(`GlobalFunctionsService.java`), which is populated at startup (`@PostConstruct init`) from two sources:
+`service.global` is populated at startup from two sources:
 
-1. **YAML functions** — `processGroup`/`addFunctionHint` read `globalFunctions.yaml`. Groups/functions are
+1. **YAML functions** — read from the platform's global-functions YAML. Groups/functions are
    dynamic (depend on the project YAML) → **not enumerable** from the export. Leaf shape —
    method-details `+_returnFields`.
-2. **`service.global.rest.*` — a fixed branch, always added** by `buildRestHints`, independent of
-   YAML (registered in `hintsStructure.put("rest", ...)`). Seven HTTP methods, each in two overloads:
+2. **`service.global.rest.*` — a fixed branch, always added**, independent of
+   YAML. Seven HTTP methods, each in two overloads:
 
 | Key | Parameters | Return |
 |---|---|---|
@@ -365,7 +362,7 @@ the historical `PdfPlugin`/`PdfPagePlugin` does not exist).
 `text`(raw String), `headers`(Map). The body methods (`post/put/patch`) in `insertText` suggest
 `[headers, body, query, timeout]`; the no-body ones (`get/delete/head/options`) — `[headers, query, timeout]`.
 
-##### `service.quota.*` — all typed leaves (`buildQuotaHints`, `HintsService.java`)
+##### `service.quota.*` — all typed leaves
 
 ```json
 "quota": {
@@ -376,34 +373,32 @@ the historical `PdfPlugin`/`PdfPagePlugin` does not exist).
 }
 ```
 
-This is property access (`service.quota.mail.usedToday` and so on), a fixed set — all 8 leaves are known from the code.
+This is property access (`service.quota.mail.usedToday` and so on), a fixed set of 8 leaves.
 
 #### `validation.*` — only when `ruleType==VALIDATION_RULE`
 
-`addError(String)`, `addWarning(String)`, `addFieldError(String, String)`, `addFieldWarning(String, String)`
-(`buildValidationMethods`, `HintsService.java`). The result wrapper: `{context, validation, service}`
-(`HintsService.java`). For `EXECUTION_RULE`/`PREDICATE` → `{context, service}`.
+`addError(String)`, `addWarning(String)`, `addFieldError(String, String)`, `addFieldWarning(String, String)`.
+The result wrapper: `{context, validation, service}`. For `EXECUTION_RULE`/`PREDICATE` → `{context, service}`.
 
-#### No contexts (`contextIdentifiers` empty/null) — `buildMinimalHints` (`HintsService.java`)
+#### No contexts (`contextIdentifiers` empty/null)
 
 `context` contains only `data` + `currentData`; `service` — all the same **plus** `service.crud.<alias>` for
-**every** registered CRUD (`addAllRegisteredCrudsToServiceMap`). That is, `service.crud.*` is
+**every** registered CRUD. That is, `service.crud.*` is
 reachable even without any selected contexts; only `context.<alias>.*` is empty there.
 
-### System 2 — Live context-data hints (`LiveContextDataHints`, only with a live form)
+### System 2 — Live context-data hints (only with a live form)
 
-Merged into the System 1 tree **in place**, UI-side, after `injectReturnFieldsFromCruds`
-(`RuleEditorField.java`). The source is the live `ContextDataDto` captured off the page. Merge targets
-(`LiveContextDataHints.inject`):
+Merged into the System 1 tree **in place**, UI-side, after the return fields are added.
+The source is the live context data captured off the page. Merge targets:
 
-| Target | From what | Method |
-|---|---|---|
-| `context.data.<attr>` | `live.getAttrs()` (global) | `mergeAttrs` (call) |
-| `context.<alias>.data.<attr>` | `live.getContextDataMap().get(id).getAttrs()`; `id→alias` via `loadIdentifierToAlias` | `inject`, `mergeAttrs` |
-| `context.<alias>.<crud>.data.get().<field>` (overlay onto the live entity) | `ContextData.crudDataMap[crudAlias].getValue()` (JsonNode) | `overlayCrudEntities` → `overlayLiveObject` |
-| `context.currentData.get()._returnFields.<field>` | `crudDataMap["__temp_item__"]` in the `"__temp_list_item_context__"` context | `injectCurrentData` |
+| Target | From what |
+|---|---|
+| `context.data.<attr>` | the live global attributes |
+| `context.<alias>.data.<attr>` | the live attributes of each context (context identifier → alias) |
+| `context.<alias>.<crud>.data.get().<field>` (overlay onto the live entity) | the live CRUD entity value (JSON) |
+| `context.currentData.get()._returnFields.<field>` | the current list item of the nested form |
 
-The shape of the added node (`buildNode`) is the System-2-specific shape with `displayText`:
+The shape of the added node is the System-2-specific shape with `displayText`:
 
 ```json
 // scalar → leaf
@@ -416,67 +411,62 @@ The shape of the added node (`buildNode`) is the System-2-specific shape with `d
   "__element": { "sku": {"type":"String",...}, "qty": {"type":"Integer",...} } }
 ```
 
-| Node field | Type | Meaning | Backing |
-|---|---|---|---|
-| `type` | String | type inference from JsonNode: text→`String`, bool→`Boolean`, int/short→`Integer`, long/bigint→`Long`, bigdec→`BigDecimal`, float→`Double`, array→`List`, null/else→`Object` | `typeName`, `LiveContextDataHints.java` |
-| `insertText` | String | the **bare** attribute name — what gets inserted into the editor | `buildNode` |
-| `displayText` | String | `"<name> : <Type>"` — what is shown in the dropdown | `buildNode` |
-| `__fields` | Map | the object's child fields (recursion up to `MAX_DEPTH=6`) | `buildNode`; `MAX_DEPTH` |
-| `__element` | Map | fields of the first object element of the list (`firstObjectElement`) | `buildNode`; `firstObjectElement` |
-| `_returnFields` | Map | fields of the current list item under `currentData.get()` (like the methods) | `injectCurrentData` |
+| Node field | Type | Meaning |
+|---|---|---|
+| `type` | String | type inference from the JSON value: text→`String`, bool→`Boolean`, int/short→`Integer`, long/bigint→`Long`, bigdec→`BigDecimal`, float→`Double`, array→`List`, null/else→`Object` |
+| `insertText` | String | the **bare** attribute name — what gets inserted into the editor |
+| `displayText` | String | `"<name> : <Type>"` — what is shown in the dropdown |
+| `__fields` | Map | the object's child fields (recursion up to depth 6) |
+| `__element` | Map | fields of the first object element of the list |
+| `_returnFields` | Map | fields of the current list item under `currentData.get()` (like the methods) |
 
-`buildNode` assigns `type/insertText/displayText` for a scalar, while the type inference itself is done by
-`typeName(JsonNode)`. The object/array branches hard-code `"Object"`/`"List"` and
+A scalar gets `type/insertText/displayText`; the type is inferred from the JSON value. The object/array branches hard-code `"Object"`/`"List"` and
 recursively populate `__fields`/`__element`.
 
 **The map key is always the bare name** (`status`, `order`), so that `context.data.status.` continues navigation to
-the type methods; `displayText` carries the label. Existing static entries are **not touched**: `mergeAttrs`
-skips keys that are already present, `overlayLiveObject` only adds missing fields and
-makes the existing leaf navigable (`navigableFields`), without rewriting scalars.
+the type methods; `displayText` carries the label. Existing static entries are **not touched**: the merge
+skips keys that are already present, the overlay only adds missing fields and
+makes the existing leaf navigable, without rewriting scalars.
 
-**HIDDEN_ATTR_KEYS** — 9 internal keys (`_crudAlias`, `_crudEntityId`, `__actionId`
+**Hidden attribute keys** — 9 internal keys (`_crudAlias`, `_crudEntityId`, `__actionId`
 `__actionName`, `__methodParams`, `__currentItem__`, `__currentItemIndex__`, `__listItem__`, `__localize__`)
-are **never** offered in autocomplete (`isHidden`; checked in `mergeAttrs`, `addObjectFields`
-`overlayLiveObject`). The runtime `getAttr/setAttr` for them still works — only the hint is suppressed.
+are **never** offered in autocomplete. The runtime `getAttr/setAttr` for them still works — only the hint is suppressed.
 This is an explicit set of 9 keys, NOT a rule based on the `__` prefix.
 
 ## How it reaches the browser (data flow)
 
-1. `RuleEditorField.getHints()` → Feign `UiMcpClient.getRuleHints(realm, client, RuleHintsRequestDto)`
-   (`UiMcpClient.java`) → HTTP `POST /api/hints/tenant/{realm}/{client}/getRuleHints` to the executor
-   (`HintsController.java`, `@PreAuthorize("isAuthenticated()")`, JWT forwarded).
-2. Executor `HintsService.buildRuleHints` → returns `{context, service, validation?}`.
-3. Back in the UI: `injectReturnFieldsFromCruds(hints)` — for each CRUD alias it loads the methods
-   (`bl.getCrudByAlias` → `bl.getMethods`) and puts `_returnFields` into the method entries (for `method().field`).
-4. `injectLiveContextDataHints(hints)` — reads the live `ContextDataDto` off the page
-   (`readLiveContextData` → `BasePage.getAttribute("nct.live.form.contextData")`). If null → return
-   (dialog from the Rules list). Otherwise `LiveContextDataHints.inject(hints, live, identifierToAlias)`.
+1. The rule editor requests the hints from the executor — `POST /api/hints/tenant/{realm}/{client}/getRuleHints`
+   with `{contextIdentifiers[], ruleType, crudMethod}` (authenticated, JWT forwarded).
+2. The executor builds the tree and returns `{context, service, validation?}`.
+3. Back in the UI: for each CRUD alias it loads the methods and puts `_returnFields` into the method entries
+   (for `method().field`).
+4. The live context data is read off the page. If there is none → nothing to merge
+   (dialog from the Rules list). Otherwise the live attributes are merged into the tree (System 2).
 5. The rule editor field serializes the hint tree into the component's JS model.
-6. `GroovyField.js` puts it into `hintOptions.serverHints = this.model.hints` and calls
-   `editor.showHint(hintOptions)` on `inputRead` (after a `.` or a letter/digit).
+6. The editor script hands it to CodeMirror's hint mechanism, which shows hints on typing
+   (after a `.` or a letter/digit).
 
-## How `groovy-hint.js` parses the expression and walks the tree
+## How the editor parses the expression and walks the tree
 
-0. **argValueHint** — checked FIRST and returns early. If the cursor is inside a single-line string literal that
-   is an argument of a call the tree knows (`stringLiteralBounds` + `findEnclosingCall`), the offers are that
+0. **Argument-value hints** — checked FIRST and returns early. If the cursor is inside a single-line string literal that
+   is an argument of a call the tree knows, the offers are that
    argument's `argValues` and picking one replaces the whole literal content. This branch has to run before
    step 1, because step 1 treats a quote as a hard boundary and would have thrown the context away. It declines
    what it should: an interpolated GString, a slashy regex literal, a triple-quoted block.
-1. **extractExpression** — scans **backwards** from the cursor, collecting a member-access chain: it walks over
+1. **Expression extraction** — scans **backwards** from the cursor, collecting a member-access chain: it walks over
    `[A-Za-z0-9_$.]` and balanced `()`/`[]` (+ Groovy `?.`/`*.`), and **any** operator/space/quote is a
    boundary. That is why hints work on `!context.a.b`, `-x.y`, `a == b.c` — a leading/infix operator is not
  glued onto the first identifier. Outside a string literal, a quote is still an unconditional boundary.
-2. **resolveMultilineExpression** — stitches together multi-line chains (`.` on a new/previous line).
-3. **parseChainParts** — splits on `.`, respecting parentheses and string literals (so that `format(d,"yyyy-MM-dd")`
-   is not split on the dots inside the pattern). `stripChainMarker` removes a trailing `?`/`*` of `?.`/`*.`.
-4. **walkServerHintChain** — walks the tree:
-   - exact key match + it is method-details (`isMethodDetails`) → expand into `_returnFields`;
+2. **Multi-line resolution** — stitches together multi-line chains (`.` on a new/previous line).
+3. **Chain splitting** — splits on `.`, respecting parentheses and string literals (so that `format(d,"yyyy-MM-dd")`
+   is not split on the dots inside the pattern). A trailing `?`/`*` of `?.`/`*.` is stripped.
+4. **Tree walk**:
+   - exact key match + it is method-details → expand into `_returnFields`;
    - node with `__fields` → descend into `__fields` (navigation over the live object);
    - `list[0]`/`list[i]` → descend into `__element`
    - `foo(...)` without an exact key → prefix-match `"<name>("` → its `_returnFields`.
-5. **getServerHintSuggestions** — resolves the chain (plus a fallback on `var x = ...`/`def x = ...`
-   via `resolveVariableToHintNode`), then builds the suggestion list from the resolved node:
-   - if the node has a `type` → `getTypeSpecificSuggestions(type)` (type methods);
+5. **Suggestions** — resolves the chain (plus a fallback on `var x = ...`/`def x = ...`), then builds the suggestion list from the resolved node:
+   - if the node has a `type` → the type's methods;
    - otherwise it enumerates the keys. **For each value** with `insertText` **and/or** `displayText`
      it returns `{ text: value.insertText || key, displayText: value.displayText || key }` — so a
      live attribute shows `"name : Type"`, inserts the bare `name`, and the key stays bare (navigation intact).
@@ -540,7 +530,7 @@ def x = context.data.myFlag           // == context.data.getAttr("myFlag")
 ```
 
 That is, in the rule body you can write `context.data.<name>` even if the hints did not show it — the
-`DynamicRuleContext` engine resolves the property get/set into `getAttr/setAttr`. Name autocompletion is a matter of convenience, not
+rule engine resolves the property get/set into `getAttr/setAttr`. Name autocompletion is a matter of convenience, not
 correctness.
 
 ## Where the hints and the runtime disagree
@@ -569,48 +559,45 @@ against this table, not against the hint:
 ## Gotchas
 
 - **Two systems — different lifecycles.** System 1 (executor) is **static**: built from the *definitions* of
-  contexts/CRUD, available in any rule editor. System 2 (live) — only when there is a live `ContextDataDto`
-  on the page (form / form button). In the dialog from the Rules list `injectLiveContextDataHints` is a no-op
-  (`RuleEditorField.java`), so there will be no live attribute names there — but the runtime sugar still works.
+  contexts/CRUD, available in any rule editor. System 2 (live) — only when there is live context data
+  on the page (form / form button). In the dialog from the Rules list the live merge is a no-op,
+  so there will be no live attribute names there — but the runtime sugar still works.
 - **The hints are not in the export.** Do not try to patch the "hint tree" in `.mrjun` — it does not exist. Control it via
   `rule.contextIdentifiers` + `contexts[].crudAliases`.
 - **`get()` is NOT method-details, it is a field map.** In `context.<ctx>.<crud>.data.get()` the value is a map of
   DTO fields (no `signature`), so JS enumerates the fields rather than "expanding a call". And `security.user()`,
   `currentData.get()` are also navigable maps/fields. Do not confuse them with method-details (`find(...)` etc.), which
   have `_returnFields`.
-- **`_returnFields` is added UI-side.** For `method().field` (`find(...).status`) the executor does NOT put `_returnFields`
-  itself; they are filled in by `injectReturnFieldsFromCruds` in `nct-ui` (`RuleEditorField.java`), reading
-  `bl.getMethods`. If the BL channel is unavailable — `method().field` does not resolve (the method call itself does resolve).
-- **Alias vs identifier.** The hint tree is keyed by the context's **alias** (`hints.put(context.getAlias(), contextMap)`, `HintsService.java`), while the live
-  `contextDataMap` is keyed by **identifier**. The bridge is `loadIdentifierToAlias` (`RuleEditorField.java`); without it
+- **`_returnFields` is added UI-side.** For `method().field` (`find(...).status`) the server-side tree does NOT put `_returnFields`
+  itself; they are filled in UI-side, from the CRUD's methods. If the business-logic channel is unavailable — `method().field` does not resolve (the method call itself does resolve).
+- **Alias vs identifier.** The hint tree is keyed by the context's **alias**, while the live
+  context data is keyed by **identifier**. The editor maps identifier to alias; without that
   System 2 would not be able to find the `context.<alias>` node.
-- **HIDDEN_ATTR_KEYS.** 9 internal keys are never hinted (`LiveContextDataHints.java`), but
+- **Hidden attribute keys.** 9 internal keys are never hinted, but
   they work at runtime. This is an explicit set, not a rule based on the `__` prefix.
 - **Orphan aliases are skipped.** If a context lists a CRUD alias that is not in the executor's live registry
   (a legacy context, an integration that is still starting up), it will not make it into the tree
-  (`HintsService.java`) — it disappears from the dropdown until the integration re-registers.
-- **`service.crud.*` is broader than the contexts.** Even without any selected contexts (`buildMinimalHints`),
+  — it disappears from the dropdown until the integration re-registers.
+- **`service.crud.*` is broader than the contexts.** Even without any selected contexts,
   `service.crud.<alias>.<method>()` is available for all registered CRUDs, because runtime reachability
   is not limited to the bound contexts. Only `context.<alias>.*` is empty there.
-- **`service.global` is two-part.** `service.global.rest.*` is a fixed branch (`buildRestHints`,
-  `GlobalFunctionsService.java`), always present, independent of `globalFunctions.yaml`. The other groups
-  `service.global.<group>.<fn>` come from YAML, are dynamic, and cannot be enumerated from the export. `service.global` is a
-  Lombok `@Getter` over the `hintsStructure` field, not a hand-written method.
+- **`service.global` is two-part.** `service.global.rest.*` is a fixed branch,
+  always present, independent of the global-functions YAML. The other groups
+  `service.global.<group>.<fn>` come from YAML, are dynamic, and cannot be enumerated from the export.
 - **`service.report.pdf.email` uses mail aliases, `pdf.get` uses pdf aliases.** That is why `pdf.email.*` can be
   non-empty in a project that has no PDF templates at all. The PDF plugin today is `report.pdf.templates.plugin`.
-- **`service.notification.mail` gives 2 overloads per alias** (`HintsService.java`): with and without a subject.
+- **`service.notification.mail` gives 2 overloads per alias**: with and without a subject.
   Not "one method per alias".
-- **`displayText` requires support in JS.** A System 2 leaf carries `insertText`+`displayText`; `getServerHintSuggestions`
-  (`groovy-hint.js`) shows `displayText`, inserts `insertText`, and the map key is bare. Method entries
+- **`displayText` requires support in JS.** A System 2 leaf carries `insertText`+`displayText`; the editor
+  shows `displayText`, inserts `insertText`, and the map key is bare. Method entries
   (only `insertText`) behave as before — backward compatibility.
 - **The hint tree is cached in the JS model at render time** — selecting a different context on an
   already-open editor does not re-fetch it; re-render the field.
-- **Only `RuleEditorField`, not `GroovyMethodEditorField`.** Live hints are merged only in the rule editor;
-  the CRUD method editor (`GroovyMethodEditorField`) has no live form data.
-- **The PREDICATE enum string.** In `RuleHintsRequestDto`/`rule.ruleType` a predicate is `PREDICATE` (not
-  `PREDICATE_RULE`), see `RuleType.java`; the javadoc in HintsService sometimes writes `PREDICATE_RULE` inaccurately.
-  An unknown string → the default `EXECUTION_RULE` (`parseRuleType`, `HintsService.java`).
-- **The editor loses the RETURNED member's fields when the call's arguments contain `[` or `]`.** `groovy-hint.js`
+- **Only the rule editor, not the CRUD method editor.** Live hints are merged only in the rule editor;
+  the CRUD method editor has no live form data.
+- **The PREDICATE enum string.** In the hint request / `rule.ruleType` a predicate is `PREDICATE` (not
+  `PREDICATE_RULE`). An unknown string → the default `EXECUTION_RULE`.
+- **The editor loses the RETURNED member's fields when the call's arguments contain `[` or `]`.** the editor
   reads any bracket in a chain as an index, so `service.security.users.get("x").` and `….list()[0].` complete, but
   `users.update("a", [firstName: "x"]).`, `users.create(email: "a", roleGroups: ["X"]).` and a `def u = …` of those
   fall back to generic Object methods — the members still RUN; only the completion is missing. Write the call over

@@ -54,7 +54,7 @@ true only here ⇒ a case note. Flags — [`tools/README.md`](tools/README.md) �
 
 **NOT in this folder — you must have it:**
 1. **A running Dokie platform** — MANDATORY. `doc/builder` produces a `.mrjun` *artifact*; a `.mrjun` does nothing
-   until it's imported into the platform (nct-ui + microservices + Postgres). You cannot see, run, demo, or debug a
+   until it's imported into the platform (UI + microservices + Postgres). You cannot see, run, demo, or debug a
    project without it. If the recipient has **cloud platform access** and downloads the `empty` project **from that
    same platform**, the version-coupling risk (below) disappears — the baseline and the runtime match by
    construction.
@@ -81,12 +81,12 @@ The build→run cycle: **author (offline) → `validate` (offline) → import �
 - **`log/ui.log` is for the *scattered, data-shaped* failures** that DON'T show a clean error: after import you see
   an **empty context** ("No CRUD found with alias X in context Y"), **"No source selected"**, or **missing data**
   (dates/rows "gone"). These are almost always **one** import-abort — a rep-object field that is a JSON string where
-  the platform wants an object/array, or a `workflows[].elements[].settings.type` that isn't a `BpmnTaskType`. The
-  real cause is a single **Jackson `MismatchedInputException`/`InvalidFormatException` stack** in `log/ui.log` (or
+  the platform wants an object/array, or a `workflows[].elements[].settings.type` that isn't a valid task type. The
+  real cause is a single **`MismatchedInputException`/`InvalidFormatException` stack** in `log/ui.log` (or
   the cloud's project-log equivalent). Ensure the recipient can see **project logs or at least import errors** —
   without them, this class is guess-and-check.
 - **You do NOT inherit the local dev-env bug classes.** Gradle `processResources` markup races, stale-process
-  `MarkupNotFoundException`, rebuild-restart cycles are pains of
+  markup-not-found errors, rebuild-restart cycles are pains of
   running the platform *from source locally*. A recipient on a **stable cloud** never rebuilds the platform, so
   those don't happen — their loop is cleaner than a platform-dev's.
 
@@ -281,7 +281,7 @@ Currently NOT caught offline (must be verified by driving the UI):
   `locale fill` has no map to fill and `validate` has no map to check. See
   [20 §iv](20-localization.md) for the rule and the three workarounds.
 - **Breadcrumb contributions land nowhere on a hand-built layout** — `ctx.breadcrumb` publishes through
-  `EventUtils.trigger`, which only reaches components already on the page. A page whose layout omits
+  a page event, which only reaches components already on the page. A page whose layout omits
   `site.breadcrumb.plugin` returns `{"ok":true}` and draws nothing. Offline-invisible; confirm live ([24 §7.5](24-html-component-studio.md)).
 - **The HTML plugin's markup-parse cache grows without bound for studio-active nodes** (platform-side, not a
   bundle problem). The base HTML plugin memoizes its parse result in a process-wide map keyed by the html STRING,

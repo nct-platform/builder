@@ -102,7 +102,7 @@ class _Graph:
 
 
 def _build_user_actions(form_group_id, name, locales=None):
-    """A minimal one-action UserTaskActionsDto (form 'a' from doc 07): open the
+    """A minimal one-action user-task actions payload (form 'a' from doc 07): open the
     form group (direct:"off"). Returns the JSON string, or None for a plain task.
 
     Seeds localizedNames/localizedButtonNames for EVERY tenant locale (copying the

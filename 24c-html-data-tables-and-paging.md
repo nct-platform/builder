@@ -21,9 +21,9 @@
 | | |
 |---|---|
 | Host plugin | `nct.html.plugin` with a non-empty `properties.studioModel` — [24](24-html-component-studio.md), [14 §1.1](14-plugin-catalog-all.md) |
-| Data in | `await ctx.callRule('<rule>', {…})` → the studio's rule bridge (`HtmlStudioSupport.executeRule`); `await ctx.callBl(alias, method, args)` → `executeBl` → `ReactorCrudService.executeCrudMethod` |
-| Page envelope | `{content, totalElements, totalPages, pageNumber}` — assembled in Java by `DynamicMethodExecutor.executeAutoFindWrapper` |
-| Transport | one **blocking** Wicket round-trip per call (the runtime posts through richwicket's `ajax`, whose `async` defaults to `false`; the sync supporter's callback script sets `setAsynchronous(false)`) |
+| Data in | `await ctx.callRule('<rule>', {…})` → the studio's rule bridge; `await ctx.callBl(alias, method, args)` → the BL bridge |
+| Page envelope | `{content, totalElements, totalPages, pageNumber}` — assembled by the platform |
+| Transport | one **blocking** Wicket round-trip per call (the runtime posts through richwicket's `ajax`, whose `async` defaults to `false`) |
 | Config slots | script → `studioModel.scripts[].code`; CSS → `studioModel.css.byTheme["*"]`; markup → `properties.html.stringValue` |
 
 > **🔧 Tooling.** For these entities run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
@@ -60,7 +60,7 @@ row actions, header ("create") actions, Excel import, column localization, per-r
 | process instances / tasks | `process.table.pluin` → [05](05-crud-tree-and-process-table.md) | filter tokens + index settings are built in |
 | numbers, trends, KPI tiles | `chart.js.plugin` → [22](22-charts-params-and-filters.md) | a dashboard carries **no** table |
 | **grouped rows** (a group header row that spans the table, collapsible sections) | hand-built | the plugin renders one flat `<tr>` per row |
-| **a cell that is not text** (sparkline, progress bar, stacked badges, thumbnail strip) | hand-built | a cell is a formatted string or a boolean icon (the table plugin renders it through `BooleanIconColumnUtils`), never a template |
+| **a cell that is not text** (sparkline, progress bar, stacked badges, thumbnail strip) | hand-built | a cell is a formatted string or a boolean icon (the table plugin renders it), never a template |
 | **master–detail in one viewport** (list left, live detail right, one selection driving both) | hand-built | two plugins cannot share a selection without a page round-trip |
 | **a board / timeline / calendar-like arrangement of rows** | hand-built (or `calendar.plugin`, which is registered in the platform but not yet covered by these docs) | not a table shape at all |
 | **a table whose columns come from data** (pivot, matrix, one column per period) | hand-built | `columnSettings` is a fixed authored list |
@@ -105,7 +105,7 @@ handlers registered by the html plugin. (There is a third, `dokieBreadcrumb`, bu
 
 ⛔ **Use ONE EXECUTION rule per table render.** `ctx.callBl` is fine for a single mutation (`create`, `delete`) and
 for a throwaway lookup; it is the wrong source for a screen. Neither bridge has an allowlist — the BL bridge runs
-any `alias.method` the current user may run (it goes through the *user-authenticated* `ReactorCrudService` path)
+any `alias.method` the current user may run (it goes through the *user-authenticated* path)
 and the rule bridge runs any ACTIVE rule resolved by identifier or **exact** (case-insensitive) display name.
 Whatever the browser names, the server executes; so the *rule* is where the row filter, the column projection and
 the page-size ceiling belong.
@@ -144,7 +144,7 @@ parameter map** and assembles the envelope in Java:
 
 Facts you will rely on, each verified:
 
-- `find` **requires** a sibling `findAll` — otherwise `IllegalStateException`.
+- `find` **requires** a sibling `findAll` — otherwise an error.
 - **No `count` method ⇒ `totalElements = rows.size()`** — see the trap in §7.
 - `rowsInPage`/`pageNumber` for the envelope are read from the **first map argument**;
   `totalPages = ceil(total / rowsInPage)`, or `1` when `rowsInPage <= 0`.
@@ -171,11 +171,11 @@ Rows are built column-by-column from the JDBC result set (the executor's `mapRow
 - an alias containing `__` becomes a **nested object** — `category__id` → `row.category.id` (each segment is
   camelCased on its own).
 - the CRUD's `localizationField` column is renamed to the canonical key **`localize`**.
-- **every value is converted in the executor, not by Jackson later** (its `setLeafValue`): a `json`/`jsonb`
+- **every value is converted by the executor, not by the JSON serializer later**: a `json`/`jsonb`
   column is *parsed* into a real object (which is why `row.localize` is a Map you can index, not a string), a
-  `date` becomes `"2026-08-10"`, a `timestamp` becomes **`Instant.toString()`** — UTC, with a trailing `Z` and
+  `date` becomes `"2026-08-10"`, a `timestamp` becomes an **ISO-8601 instant string** — UTC, with a trailing `Z` and
   whatever fractional seconds the column carries: `"2026-08-10T09:15:00Z"` — and a `uuid` and every unrecognised
-  type become `value.toString()`.
+  type become their plain string form.
 
 > ⚠️ **The localized column is `row.localize`, never `row.<localizationField>`.** Mechanism: `mapRow` rewrites the
 > column name when it equals the CRUD's `localizationField`. Symptom: your per-locale labels silently never
@@ -184,14 +184,14 @@ Rows are built column-by-column from the JDBC result set (the executor's `mapRow
 > not the string `localize`, so the lookup misses on every row and the whole screen quietly falls back to the
 > base language. `validate` catches: no.
 
-Then the whole return value is Jackson-serialized by the bridge's own mapper — `JavaTimeModule`,
-`WRITE_DATES_AS_TIMESTAMPS` **disabled** — so a temporal value the **rule itself** creates (a `LocalDate`, an
+Then the whole return value is JSON-serialized by the bridge's own mapper — java.time support on,
+dates-as-timestamps **disabled** — so a temporal value the **rule itself** creates (a `LocalDate`, an
 `Instant`) also arrives as an ISO-8601 string, never epoch millis. CRUD row values were already strings before
 this point (above), so the two paths agree — but they do **not** agree on shape: a `date` column gives
 `"2026-08-10"` while a `timestamp` column gives `"2026-08-10T09:15:00Z"`. Format in the rule (§3) or in JS;
 never `esc(r.someTimestamp)` straight into a cell.
 
-⚠️ **Return only what Jackson can serialize** — plain maps, lists, strings, numbers, booleans, dates. A result
+⚠️ **Return only what JSON can serialize** — plain maps, lists, strings, numbers, booleans, dates. A result
 the mapper cannot write is deliberately turned into the *error* envelope (`result is not serializable: …`)
 rather than a literal `null`, so `await ctx.callRule(...)` **rejects** instead of resolving with a wrong value.
 The projection step in §3 is what keeps you on the safe side of this.
@@ -315,7 +315,7 @@ def rows   = (result.content ?: []) as List
 long total = (result.totalElements ?: 0) as long
 
 // 5 · locale — JS has none; the bridge passes the page locale into the rule, and the executor puts it in
-//     the thread-local LocaleContext that service.global.locale.getKey() reads.
+//     the thread-local locale that service.global.locale.getKey() reads.
 //     ⛔ NOT context.data.localeKey — that is an ATTRS lookup and nothing ever writes it (always null).
 def loc = service.global.locale.getKey() ?: 'en_US'
 def label = { row, field, fallback ->
@@ -361,7 +361,7 @@ Why each block earns its place:
    integration call, so the count cannot disagree with the page (§7). If your CRUD needs a shape `find` cannot give
    (multi-table aggregation), run a saved query instead:
    `service.rimm.run([name:'<query>', itemsPerPage: size, offset: page*size, parameters:[…]])` — `name`,
-   `itemsPerPage`, `offset` and `parameters` are the `QueryByNameRequest` fields;
+   `itemsPerPage`, `offset` and `parameters` are the request fields;
    it returns a plain `List`, so **there is no total** and you owe the user one of §7's honest fallbacks —
    [16 §2.4](16-groovy-service-api.md), [12](12-queries-sources-schedulers-and-rest.md).
 5. **Locale server-side, through `service.global.locale.getKey()`.** `ctx` carries no locale at all; the rule is
@@ -370,7 +370,7 @@ Why each block earns its place:
    `localize` blob each is 50×. It is also the only way a column the user must not see stays off the wire —
    dropping the field here is the *only* real gate for "supervisors also see the cost column"; hiding the `<td>`
    in JS leaves the value in the response ([24](24-html-component-studio.md) §9a.5) — and it is what guarantees
-   the return value is Jackson-serializable (§2.3).
+   the return value is JSON-serializable (§2.3).
 
 > ⛔ **Read the locale as `service.global.locale.getKey()`. `context.data.localeKey` is ALWAYS `null`.**
 > Mechanism: `context.data.<name>` is sugar for `getAttr("<name>")`, which reads only the rule's **attrs** map;
@@ -898,7 +898,7 @@ Numbers to design against, and where they come from:
 | Bridge calls per user interaction | **1** | each one blocks the main thread (§2.5) |
 | Bridge calls on a timer | **0** (never poll a table) | a poll freezes the page on every tick |
 
-**Why 1 000–5 000-row fetches are the wrong default**, concretely: each row is a JSON object serialized by Jackson,
+**Why 1 000–5 000-row fetches are the wrong default**, concretely: each row is a JSON object serialized to JSON,
 shipped through a **synchronous** XHR, parsed, then turned into HTML string concatenation. At 2 000 rows ×
 20 columns the payload is megabytes, the main thread is blocked for the whole server round-trip *and* the parse,
 the `<tbody>` gets tens of thousands of DOM nodes, and every subsequent sort or filter re-renders all of it.

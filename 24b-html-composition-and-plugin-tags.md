@@ -19,14 +19,13 @@
 
 | | |
 |---|---|
-| Parser | `AbstractHtmlPlugin.constructListModel()` — Jsoup + a sentinel split, **not** a regex — over the html **after** `<include>` expansion |
-| Renderer | `AbstractHtmlPlugin.initPluginContent()` — a `ListView` alternating raw-HTML `Label`s with `PluginWrapperPanel`s |
-| Tag → node | `PluginUtils.getOrCreateChildContentComponent` (VP variant: `getOrCreateChildContentForVirtualPlugin`; behaviours: `getOrCreateChildContentBehavior`) |
+| Parser | Jsoup + a sentinel split, **not** a regex — over the html **after** `<include>` expansion |
+| Renderer | a list alternating raw-HTML fragments with plugin wrappers |
 | Config slot | `properties.html.stringValue` (STRING) on the `html.plugin` / `nct.html.plugin` node. `<plugin>` tags live **inside that string** — or inside any document it includes |
 | Documents | The `html` property is `main.html`; further documents are `studioModel.docs[]`, addressed by **name + extension** (`src="detail.html"`), spliced in server-side **before** the parse (§2.7) |
 | Include limits | Depth 20, 500 include tags per expansion, 2 000 000 characters of expanded output; a breach degrades to an HTML comment, never an exception (§2.7) |
-| Hosts | `html.plugin`, `nct.html.plugin` and `html.localized.plugin` — all extend `AbstractHtmlPlugin`. `html.localized.plugin` has **no** `studioModel`, so it has no documents and no includes |
-| Reuse | `ContentDomain.linkContentIdentifier`, resolved on every read in `PluginPanel.getContent` |
+| Hosts | `html.plugin`, `nct.html.plugin` and `html.localized.plugin` — all share the same parser. `html.localized.plugin` has **no** `studioModel`, so it has no documents and no includes |
+| Reuse | `linkContentIdentifier`, resolved on every read |
 
 > **🔧 Tooling.** For these entities run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
 > `node add --parent <html-node> --plugin <pluginName> --identifier <tag-id>` (the child that a `<plugin id>` tag
@@ -73,8 +72,8 @@ addresses seven children by name; the generated form grid is a chain of html plu
 ([04](04-crud-table-plugin.md)). If you understand this section you understand how every page in the product is
 assembled.
 
-**Rendering is a WRITE.** `PluginWrapperPanel` resolves its plugin through `getOrCreateChildContent`, which
-`contentService.save(...)`s a brand-new child when the tag has no matching node. So
+**Rendering is a WRITE.** Rendering a `<plugin>` tag resolves its child node and
+**saves** a brand-new child when the tag has no matching node. So
 **opening the page in a browser mutates the content tree.** A tag whose child you forgot to author does not
 error — it silently materialises an empty one.
 
@@ -84,25 +83,25 @@ error — it silently materialises an empty one.
 
 ### 2.1 What the parser actually does
 
-`AbstractHtmlPlugin.constructListModel()`, in order:
+The parser works in this order:
 
 1. **Expand `<include>`** — every `<include src="…html">` in the body is replaced, **server side**, by the text of
    the named document, recursively. This is a textual splice and it happens **before anything is parsed**, so a
    `<plugin>` tag that arrives from an included document is indistinguishable from one you typed here (§2.7).
-2. **Cache probe** — a **static, never-cleared** `HashMap` keyed by the whole **expanded** html string. See the
+2. **Cache probe** — a **static, never-cleared** map keyed by the whole **expanded** html string. See the
    trap in §8.3.
-3. **Parse** — `Jsoup.parse("<div>" + htmlString + "</div>")`, then `doc.body().children()`. Note
+3. **Parse** — the expanded html is parsed wrapped in `<div>…</div>`. Note
    the injected wrapper `<div>`: it ends up in the rendered output.
 4. **Select root plugins** — every `<plugin>` element that has **no `<plugin>` ancestor**.
    A nested one is dropped entirely (§5) — including one an `<include>` brought in (§2.7).
 5. **Split** — each root `<plugin>` is replaced by a per-JVM random sentinel tag and the serialized markup is
    split on it. The fragments and the plugins are then interleaved into one
-   `ListView`, so the rendered output is `html-fragment, plugin, html-fragment, plugin, …`.
+   list, so the rendered output is `html-fragment, plugin, html-fragment, plugin, …`.
 6. **Read attributes** and cache the result.
 
-Each fragment renders as a raw `Label` with `setEscapeModelStrings(false)` — your HTML is emitted
-verbatim. Each plugin renders as a `PluginWrapperPanel` that resolves the child node and instantiates
-the plugin reflectively (`PluginUtils.createPlugin`).
+Each fragment renders as raw, unescaped HTML — your HTML is emitted
+verbatim. Each plugin renders as a wrapper that resolves the child node and instantiates
+the plugin.
 
 > ⚠️ **Your surrounding HTML is re-serialized by Jsoup, not passed through.** Verified by driving the parser
 > directly (the CMS library and the host application pin different jsoup versions — 1.12.1 and 1.17.2 — and the
@@ -120,7 +119,7 @@ the plugin reflectively (`PluginUtils.createPlugin`).
 |---|---|---|
 | `id` | The **child node's `identifier`** (the platform also copies it into the node's `name`). Not a wicket id, not a DOM id. Missing ⇒ `""`, so every id-less tag in one body collides on identifier `""` | **yes, in practice** |
 | `name` | The child node's **`pluginName`**. Must be a plugin registered for the tenant's template. Also the `message` sentinel (§2.5) | **yes** |
-| `vp` | A **virtual-plugin id** (`VirtualPluginDomain.id`). Non-empty ⇒ the VP resolution path (§6.3) | no |
+| `vp` | A **virtual-plugin id**. Non-empty ⇒ the VP resolution path (§6.3) | no |
 | anything else | **Ignored.** There is no `class`, `style`, `order` or `wicket:id` attribute on a `<plugin>` tag | — |
 
 Both spellings render identically and both ship in real exports:
@@ -135,9 +134,9 @@ one wrapped in a `<div>` is invisible. Parsed by `initPluginProps`:
 | Attribute | Meaning |
 |---|---|
 | `name` | The property key on the child node |
-| `type` | `PropertyType.of(...)` — an **exact** enum-name match. Legal: `BOOLEAN, LONG, INTEGER, FLOAT, DOUBLE, BIG_DECIMAL, STRING, LOCALIZED_STRING, LOCAL_DATE, LOCAL_DATE_TIME, LOCAL_TIME`. Unknown or absent ⇒ `STRING` |
-| `value` | Parsed by `PropertyType.parse`. `LOCALIZED_STRING` ⇒ GSON of a `{locale→text}` map, with `\'` pre-replaced by `"` |
-| `override` | `Boolean.valueOf(...)`. **Decides whether the HTML wins over the stored node property** — §4. Absent ⇒ `false` |
+| `type` | An **exact** enum-name match. Legal: `BOOLEAN, LONG, INTEGER, FLOAT, DOUBLE, BIG_DECIMAL, STRING, LOCALIZED_STRING, LOCAL_DATE, LOCAL_DATE_TIME, LOCAL_TIME`. Unknown or absent ⇒ `STRING` |
+| `value` | Parsed according to `type`. `LOCALIZED_STRING` ⇒ GSON of a `{locale→text}` map, with `\'` pre-replaced by `"` |
+| `override` | Boolean text (`true`; anything else is `false`). **Decides whether the HTML wins over the stored node property** — §4. Absent ⇒ `false` |
 
 ⚠️ **Value fallback.** If `value` is absent, fails to parse, or is a STRING that trims to `""`, the property value
 becomes **the element's inner HTML**, forced to `STRING`. That is how a multi-line/HTML value is
@@ -164,10 +163,9 @@ Jsoup folds the commas into attribute *names* and ignores them, so it works by a
 
 `plugin.select(":root > behavior")`, attributes `id` and `name`, with its own
 `<prop>`/`<property>` children; each becomes a `behaviour=true` child node
-(`PluginUtils.getOrCreateChildContentBehavior`) attached by `PluginPanel.initBehaviors()`.
+attached to the plugin.
 
-> ⚠️ **There is exactly ONE registered behaviour in the whole platform** — `background.image.behavior`
-> (a repo-wide search for the `@PluginBehaviorConfig` annotation returns that one class). Unless you are setting
+> ⚠️ **There is exactly ONE registered behaviour in the whole platform** — `background.image.behavior`. Unless you are setting
 > a background image, you will never write a `<behavior>` tag. An unknown `name` throws while the wrapper builds
 > the plugin and degrades to the literal text `Not valid plugin <name>`.
 
@@ -177,8 +175,7 @@ Jsoup folds the commas into attribute *names* and ignores them, so it works by a
 <plugin name="message" id="some.bundle.key">Fallback text</plugin>
 ```
 
-This is **not a plugin**. It renders `getString(<id>, null, <tag inner HTML>)` with
-`setEscapeModelStrings(true)`: a Wicket resource-bundle lookup keyed by the `id`,
+This is **not a plugin**. It renders a Wicket resource-bundle lookup keyed by the `id`,
 defaulting to the tag body, HTML-escaped. No child node is created. (It is also the only place the parser keeps
 a tag's inner HTML at all.)
 
@@ -206,8 +203,8 @@ is the one the platform itself writes for a generated form-grid row:
 }
 ```
 
-`fieldPanelClass` is cosmetic — the platform overwrites it from the plugin's declared `DefaultProperty` list on
-first render (for `html` that is `PropertyBaseHtmlCodeFieldPanel`). The html plugin's own default-property
+`fieldPanelClass` is cosmetic — the platform overwrites it from the plugin's declared default-property list on
+first render. The html plugin's own default-property
 builder declares exactly four slots — `html`, `reuseItems` (BOOLEAN, default `false` — §8.6), `editorWidth`
 (default `"100%"`) and `editorHeight` (default `"700px"`) — and those are the four the platform auto-creates on
 first render. `className` / `styleName` / `tagProperties` are the universal baseline STRING slots that every real
@@ -371,7 +368,7 @@ Same `--parent` for both, because `head.html` and `rows.html` are documents of t
 > ⛔ **INCLUDING THE SAME DOCUMENT TWICE DUPLICATES ITS `<plugin id>`s — AND BOTH TAGS RESOLVE TO ONE CHILD NODE.**
 >
 > **Mechanism:** expansion is textual, so two `<include src="rows.html"/>` tags produce two copies of every tag
-> inside `rows.html`. Two tags with the same `id` both render and both resolve to the **same** `ContentDomain`
+> inside `rows.html`. Two tags with the same `id` both render and both resolve to the **same** node
 > (the lookup returns the first identifier match — §8.1): one configuration driving two components, in violation
 > of the one-tag-one-node assumption the binding contract of §3 is built on.
 > **Symptom:** two slots that always show the *same* thing; editing one child node changes both. If the
@@ -390,8 +387,8 @@ Same `--parent` for both, because `head.html` and `rows.html` are documents of t
 
 > ⛔ **`child.identifier` MUST equal the tag's `id`, and `child.pluginName` MUST equal the tag's `name`.**
 >
-> **Mechanism.** `getOrCreateChildContent` walks `parent.getChildren()` and matches on
-> `Objects.equals(child.getIdentifier(), identifier)`. Two divergences, two different
+> **Mechanism.** the platform walks the parent's children and matches on the
+> child's `identifier`. Two divergences, two different
 > disasters:
 >
 > **(a) identifier mismatch** → no match → the platform builds a **blank** child from the plugin's default
@@ -402,7 +399,7 @@ Same `--parent` for both, because `head.html` and `rows.html` are documents of t
 > regenerated identifiers, with `validate` reporting 0 errors at the time — which is why the check below now
 > exists).
 >
-> **(b) pluginName mismatch** → matched, then `child.getProperties().clear(); child.setPluginName(pluginName);`.
+> **(b) pluginName mismatch** → matched, then the child's properties are cleared and its `pluginName` is overwritten.
 > The **html wins**: your `model` / `settings` / `studioModel` / `html` blob is
 > gone and the node reverts to the type named in the tag. A form control silently loses its
 > scope/crudAlias/fieldExpression and stops mapping to anything. Changing a node's plugin type is therefore a
@@ -423,7 +420,7 @@ Three consequences worth internalising:
 * Set `name` = `identifier` on the child. The platform does `setName(identifier)` itself when it creates one, so
   anything else is noise that the next render may overwrite.
 * Identifiers only need to be unique **among the siblings of one parent** — the lookup is
-  `parent.getChildren()`. It is perfectly normal — and correct — for dozens of pages to carry nodes with the
+  over that parent's children. It is perfectly normal — and correct — for dozens of pages to carry nodes with the
   *same* wrapper identifier, one per page.
 * An identifier that any html references is **not** a uuid you may regenerate. When you clone a laid-out
   subtree, collect `re.findall(r'<plugin[^>]*\bid="([^"]+)"', html)` over the whole subtree first and preserve
@@ -436,7 +433,7 @@ Three consequences worth internalising:
 > ⛔ **A `<prop>` only writes a key that does not exist yet.** The merge writes the property only when
 > the node has no property under that name — or when the tag carries `override="true"`.
 > And on **first** creation the platform immediately creates a key for **every**
-> `DefaultProperty` the plugin declares. So from the second render onward, essentially every key the plugin owns
+> default property the plugin declares. So from the second render onward, essentially every key the plugin owns
 > already exists and **your `<prop>` is dead text**.
 >
 > What you see: you edit `<prop name="width" value="120"/>` in the html, re-import, and the image is still 90px
@@ -463,7 +460,7 @@ at all on that branch, and neither does the unknown-`vp` fallback.
 > smell).
 
 Real nesting is achieved by **node depth**: embed a container plugin and put the next level in **its own** html
-(or under its own parsis). Depth is unbounded; each level costs one `ContentDomain` and one Jsoup parse.
+(or under its own parsis). Depth is unbounded; each level costs one node and one Jsoup parse.
 
 **`<include>` does not change any of this.** It composes **documents**; node depth composes **plugins**. Because
 expansion is textual and happens before the parse (§2.7), an include can move a `<plugin>` tag into another
@@ -473,7 +470,7 @@ document — it can never put one plugin *inside* another, and an `<include>` wr
 | Your problem | Reach for | Cost |
 |---|---|---|
 | One html string has grown unreadable / two people edit different regions | **`<include>`**: split into documents, splice them from `main.html` (§2.7, §7.5) | none at runtime — same node, same children, **one** parse of the expanded body |
-| A hosted plugin must itself contain plugins, or an author must be able to drop content into a region | **node depth**: an `nct.html.plugin` / `nct.parsis.plugin` child with its own html or children | one `ContentDomain` and one extra parse per level |
+| A hosted plugin must itself contain plugins, or an author must be able to drop content into a region | **node depth**: an `nct.html.plugin` / `nct.parsis.plugin` child with its own html or children | one node and one extra parse per level |
 
 ### Worked two-level example
 
@@ -560,7 +557,7 @@ the wrong one is how projects end up with six drifted copies of the same widget.
 
 | # | Mechanism | What it really is | Edits propagate? | Per-placement config? | Use when |
 |---|---|---|---|---|---|
-| **a** | **Shared common virtual plugin** — VP with `commonContent:true`, placements are stubs carrying `linkContentIdentifier` | **ONE live node**, N stubs pointing at it (resolved in `PluginPanel.getContent`) | **Yes, instantly, everywhere** | **No** — impossible by construction | The component is the *same thing* on every page: a nav, a logo, a house-styled shell, a KPI console you want to fix in one place |
+| **a** | **Shared common virtual plugin** — VP with `commonContent:true`, placements are stubs carrying `linkContentIdentifier` | **ONE live node**, N stubs pointing at it (resolved on every read) | **Yes, instantly, everywhere** | **No** — impossible by construction | The component is the *same thing* on every page: a nav, a logo, a house-styled shell, a KPI console you want to fix in one place |
 | **b** | **Per-instance VP** — VP with `commonContent:false`, referenced by `vp="<id>"` or dropped from the palette | A **one-time clone** at first render | **No** — it diverges from that moment | Yes | A *starting template*: the same skeleton, then each page tunes it |
 | **c** | **Duplicated child node** — copy the node into each parent | **Independent copies** | **No** | Yes | Two or three placements that were never going to stay identical; anything you must be able to change on one page without touching the other |
 | **d** | **Shared LOGIC, not markup** — one component exports `ctx.api`, others call it | Not reuse of markup at all | n/a | n/a | The duplication you actually have is *behaviour* (a formatter, a fetch, a cache), not layout |
@@ -593,14 +590,14 @@ jq '[.. | objects | select(.linkContentIdentifier != null) | .name] | group_by(.
 
 > ⛔ **On a linked stub, the node's own `properties` and `children` are DEAD DATA.** `cloneContent` copies the
 > properties into the stub *and then* sets the link, so the export looks
-> like every placement carries a full config — but `getContent()` never reads it. Edit
+> like every placement carries a full config — but the platform never reads it. Edit
 > `properties.modelGroups` on a per-page `left-nav` node and **nothing changes**; the render came from the VP's
 > content. The toolkit states this in exactly those words and writes quick links to the shared node instead
 > (*"the per-page `modelGroups` are DEAD DATA — never read at runtime"*). `mrjun.py validate` does not check it.
 > **Rule: to change a shared component, edit `branches[0].virtualPlugins[] → content`, never a placement.**
 
 > ⚠️ **A dangling link self-heals destructively.** If the target `uniqueIdentifier` no longer exists,
-> `PluginPanel` logs `SEVERE "Common VP resolution failed"`, **nulls the link and saves the stub**.
+> The platform logs `SEVERE "Common VP resolution failed"`, **nulls the link and saves the stub**.
 > The stub then renders from its own leftover properties — fine for a chrome plugin, **an empty
 > component** for anything whose real content lived in `children`. This is not hypothetical: real exports routinely
 > ship a handful of dangling links — `footer`/`header` stubs pointing at ids that exist nowhere in the bundle —
@@ -608,14 +605,13 @@ jq '[.. | objects | select(.linkContentIdentifier != null) | .name] | group_by(.
 
 **Where the link gets written** (three places, all verified):
 
-1. `ContentServiceImpl.cloneContent(content, commonVirtual)`:
-   `commonVirtual ? setLinkContentIdentifier(content.getUniqueIdentifier()) : setLinkContentIdentifier(content.getLinkContentIdentifier())`.
-   Every palette drop calls it with `vp.getCommonContent()` (the plugin palette, the site-authoring panel and the
-   html editor's plugin chooser all go through it).
+1. **Cloning a dropped component:** for a common VP the stub's `linkContentIdentifier` is set to the target's
+   `uniqueIdentifier`; otherwise the source's link is copied. Every palette drop does this with the VP's common
+   content (the plugin palette, the site-authoring panel and the html editor's plugin chooser all go through it).
 2. The `vp=` attribute path (§6.3).
-3. The authoring action *"Save as Common Component / choose existing"* (`NctPluginUtils`),
+3. The authoring action *"Save as Common Component / choose existing"*,
    which also repoints every sibling that still carried the old link. Its inverse is *"Detach from
-   virtual template"*: copy children + properties in, `setLinkContentIdentifier(null)`.
+   virtual template"*: copy children + properties in, clear the link.
 
 > Same rule as §6.2 for the **Role access** item in that menu: on a linked component it edits the **shared**
 > node, so the access applies to every placement. Detach first if one placement must differ — and note that a
@@ -628,18 +624,17 @@ jq '[.. | objects | select(.linkContentIdentifier != null) | .name] | group_by(.
 <plugin name="site.kicker.plugin" vp="06e1f176-6e62-4f66-ac76-a4bcb54b38ae" id="site.kicker.plugin.1"/>
 ```
 
-Emitted by the authoring UI's plugin chooser (`PluginSnippetBuilder`, which writes an `id` sentinel that the
-editor JS replaces client-side with `<pluginName>.<N+1>`). Resolution —
-`PluginUtils.getOrCreateChildContentForVirtualPlugin`:
+Emitted by the authoring UI's plugin chooser (which writes an `id` sentinel that the
+editor JS replaces client-side with `<pluginName>.<N+1>`). Resolution:
 
 * **Fast path**: an existing child whose `identifier` matches **and** whose `__vpId` property
   equals `vp` is returned as-is.
 * **`commonContent:true`**: a stub is created with
-  `setLinkContentIdentifier(vp.getContent().getUniqueIdentifier())` ⇒ mechanism (a), live shared.
-* **`commonContent:false`**: `contentService.cloneContent(vp.getContent(), false)` ⇒ **a one-time
+  a link to the VP content's `uniqueIdentifier` ⇒ mechanism (a), live shared.
+* **`commonContent:false`**: the VP content is cloned ⇒ **a one-time
   clone**. From then on the placement and the VP are unrelated; editing the VP changes nothing.
 * Either way the child gets `identifier`/`name` = the tag id and a marker property `__vpId`.
-* **Unknown `vp`** ⇒ a warn and a plain `getOrCreateChildContentComponent` fallback — i.e. a blank
+* **Unknown `vp`** ⇒ a warn and a plain fallback — i.e. a blank
   child of `name=`'s type. `name=` is only a class-lookup hint on this path.
 * The VP is looked up **in the same branch**, and **all `<prop>` children are discarded** (§4).
 
@@ -687,10 +682,10 @@ Always author an `identifier` on a studio node (§3), which `node add --identifi
 ### 6.6 ⛔ A shared node reports the SAME `ctx.name` on every placement
 
 > ⛔ **`ctx.name` is the content identifier, resolved through the link — so all shared placements collide in
-> `window.Dokie.plugins`.** The plugin derives the studio instance id from `getContent().getIdentifier()`, and
-> `getContent()` resolves through `linkContentIdentifier`, so every placement of one shared node reports the
+> `window.Dokie.plugins`.** The plugin derives the studio instance id from the content identifier, and
+> the content resolves through `linkContentIdentifier`, so every placement of one shared node reports the
 > **same** name. The runtime stores `D.plugins[name] = ctx.api` — **last mount wins**.
-> The **wrapper id is not affected**: it is `"dokie-plug-" + getMarkupId()`, a session-scoped Wicket sequence, so
+> The **wrapper id is not affected**: it is `"dokie-plug-" + <markupId>`, a session-scoped Wicket sequence, so
 > DOM ids, the CSS scope and the runtime's per-node bookkeeping stay per-placement and the two instances really
 > do both run.
 >
@@ -715,7 +710,6 @@ There is no CLI for this. In `branches.json`:
                   "name": "<symbolic>", "pluginName": "nct.html.plugin",
                   "properties": { "html": { … }, "studioModel": { … } }, "children": [ … ] } }
    ```
-   (the field list is `VirtualPluginDomain`'s).
 2. In each hosting html add a normal tag: `<plugin id="<symbolic>" name="nct.html.plugin"></plugin>`.
 3. Under each host node add the **stub** child:
    ```jsonc
@@ -957,7 +951,7 @@ all — are in [24d](24d-html-component-structure.md).
 
 ### 8.1 ⚠️ Duplicate ids — in the html, and in `children`
 
-Two tags with the **same `id`** in one body both render, and both resolve to the **same** `ContentDomain` (the
+Two tags with the **same `id`** in one body both render, and both resolve to the **same** node (the
 lookup returns the first identifier match): two Wicket components sharing one config. If their
 `name=` also differs, every single render flips `pluginName` and clears `properties` — permanent
 config thrash. Symmetrically, two **children** with the same identifier: the first always wins and the second is
@@ -973,9 +967,9 @@ none of that matters; never depend on exact text nodes or whitespace.
 
 ### 8.3 ⚠️ The static, unbounded parse cache
 
-The parse cache is a plain `HashMap` (not concurrent), `static`, keyed by the **entire expanded html string**
-(after every `<include>` has been spliced in — §2.7), and **never cleared or evicted** — there is no other
-reference to it anywhere in mrjun or nct-ui. Consequences:
+The parse cache is a plain non-concurrent map, process-wide, keyed by the **entire expanded html string**
+(after every `<include>` has been spliced in — §2.7), and **never cleared or evicted** — nothing else ever
+clears it. Consequences:
 
 * It grows for the lifetime of the JVM, one entry per distinct html string ever rendered.
 * **Splitting a component into documents does not shrink the entry.** The key *is* the expanded body, so ten
@@ -990,21 +984,21 @@ reference to it anywhere in mrjun or nct-ui. Consequences:
   — so every page instance produces a *new* cache key that will never be hit again. Practical effect: extra
   memory, plus the Jsoup parse runs on **every** render for studio components (no caching benefit at all).
 * It is safe semantically only because the cached model carries no content or tenant identity — resolution to a
-  `ContentDomain` happens per plugin instance, later.
+  node happens per plugin instance, later.
 
 Nothing you author can fix this; know it so you do not blame your markup for a slow render, and keep studio
 component bodies small — "small" now meaning small **after** include expansion.
 
 ### 8.4 ⛔ Rendering writes child nodes
 
-> ⛔ **First render of a `<plugin>` tag creates and SAVES a child node** (the wrapper panel resolves its plugin
-> through `getOrCreateChildContent`, which saves). A typo'd `id` therefore does not fail — it *creates* a blank node with that
+> ⛔ **First render of a `<plugin>` tag creates and SAVES a child node** (the wrapper resolves its plugin
+> and saves the child). A typo'd `id` therefore does not fail — it *creates* a blank node with that
 > identifier, permanently, in the live branch. Re-exporting that tenant then ships the mistake back into your
 > bundle. Symptom: an export that grew children you never authored, and an empty slot on the page. Fix the html
 > **and** delete the stray node (`mrjun.py node rm`).
 
-Note also that the *existing-child* branch never calls `contentService.save` — it mutates the live
-in-memory `ContentDomain` the branch content index holds, and that is persisted on the branch's next save. So a
+Note also that the *existing-child* branch never saves — it mutates the live
+in-memory node the branch content index holds, and that is persisted on the branch's next save. So a
 type-swap wipe (§3b) can appear "not saved yet" and still land.
 
 ### 8.5 ⛔ `ctx.setHtml` / `ctx.showHtml` destroy server-rendered children
@@ -1033,8 +1027,8 @@ Related: a Wicket AJAX `refresh()` rebuilds the whole ListView (the html plugin 
 
 ### 8.6 ⚠️ `reuseItems`
 
-The renderer calls `listView.setReuseItems(getContent().getProperty("reuseItems", PropertyType.BOOLEAN, false))`.
-With the default `false`, ListItems are re-created on every render, so the wrapper re-resolves — and possibly
+The renderer reads the BOOLEAN `reuseItems` property (default `false`).
+With the default `false`, list items are re-created on every render, so the wrapper re-resolves — and possibly
 re-creates/re-saves — the child content on **every request**. Setting it `true` keeps items across renders,
 which stops that churn but also stops the list from noticing an html change. `false` is the shipped default
 everywhere; leave it alone unless you have measured a reason.
@@ -1076,7 +1070,7 @@ Two independent re-implementations exist; do not calibrate your html against the
 The authoring **plugin preview** panel pre-materialises children for
 the preview modal and reads only `id`/`name` + `prop`/`property` — **no `vp`, no `behavior`, no `override`**.
 The MCP content tools use a plain regex and consider only `nct.parsis.plugin` tags. `mrjun.py validate` uses a
-third regex. Only `AbstractHtmlPlugin` decides what renders.
+third regex. Only the HTML plugin's own parser decides what renders.
 
 ---
 

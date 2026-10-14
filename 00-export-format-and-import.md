@@ -30,10 +30,8 @@ explicitly, but the target build scenario is dynamic. A breakdown of the two sty
 > `mrjun.py validate`.
 
 > **⚠️ Two owners.** The base export layer (`tenant.json`, `branches.json`, `branch-metadata.json`, the zip
-> itself) belongs to the **mrjun CMS library** the platform embeds; everything else (`rep-objects`,
-> `project-db.dump`, `dynamic-cruds`, favicon, tenant-files) belongs to the **Dokie application** (`nct-*`).
-> That is why component names below carry an `mrjun-`/`nct-` prefix — it tells you which side owns a behaviour
-> when you report a bug.
+> itself) belongs to the **CMS library** the platform embeds; everything else (`rep-objects`,
+> `project-db.dump`, `dynamic-cruds`, favicon, tenant-files) belongs to the **Dokie application**.
 
 > **⚠️ Key precondition (see Gotcha #12): the export and restore of `rep-objects`/DB work
 > only for projects with the tenant property `type == REPORT`.** A populated `rep-objects` plus a DB riding
@@ -45,37 +43,35 @@ explicitly, but the target build scenario is dynamic. A breakdown of the two sty
 
 ## Export shape — what's inside the archive
 
-`.mrjun` is a flat ZIP (entries relative to the root, no nested wrapper folder: in `compress` each
-file is placed under `sourceDir.relativize(file)`,
-`mrjun .../util/ZipCompressUtils.java`). After unpacking:
+`.mrjun` is a flat ZIP (entries relative to the root, no nested wrapper folder). After unpacking:
 
 ```
 <archive>/
-  tenant.json              ← base layer (mrjun)
-  branches.json            ← base layer (mrjun) — content trees of the branches
-  branch-metadata.json     ← base layer (mrjun)
-  rep-objects.json         ← nct-ui: rules, forms, contexts, queries, source, roles, mail, etc.
-  project-db.dump          ← nct-ui: JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1 format)
-  project-db-<db>.dump     ← nct-ui: dump of each ADDITIONAL distinct CRUD-source DB (multi-source projects)
-  project-db-meta.json     ← nct-ui: {databaseName (primary), databases:[…all], schemaPrefix, rimmSourceIdentifier} for remapping
-  dynamic-cruds.json       ← nct-ui: DYNAMIC ONLY — CRUD business-logic definitions
-  integrations.json        ← nct-ui: the execution-platform integrations (the `bl` deployable and any other)
-  favicon/                 ← nct-ui: favicon assets (tenant/{id}/favicon/*)
-  tenant-files/            ← nct-ui: tenant files (t/{id}/*: logos, avatars, etc.)
+  tenant.json              ← base layer
+  branches.json            ← base layer — content trees of the branches
+  branch-metadata.json     ← base layer
+  rep-objects.json         ← rules, forms, contexts, queries, source, roles, mail, etc.
+  project-db.dump          ← JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1 format)
+  project-db-<db>.dump     ← dump of each ADDITIONAL distinct CRUD-source DB (multi-source projects)
+  project-db-meta.json     ← {databaseName (primary), databases:[…all], schemaPrefix, rimmSourceIdentifier} for remapping
+  dynamic-cruds.json       ← DYNAMIC ONLY — CRUD business-logic definitions
+  integrations.json        ← the execution-platform integrations (the `bl` deployable and any other)
+  favicon/                 ← favicon assets (tenant/{id}/favicon/*)
+  tenant-files/            ← tenant files (t/{id}/*: logos, avatars, etc.)
 ```
 
 Always present: `tenant.json`, `branches.json`, `branch-metadata.json`, `rep-objects.json`,
 `favicon/`, `tenant-files/`. Conditional:
 
 - `dynamic-cruds.json` **may be absent** (static only, or the project has no dynamic CRUD, or `bl` is not
-  deployed — `CmsProjectServiceImpl.java`).
+  deployed).
 - `integrations.json` is present when the project has integrations — and the bundled baseline already carries
   one (the **Business Logic** integration). ⛔ **Keep it.** The import is two-pass: the integrations are
   recreated and started FIRST, because importing `dynamic-cruds.json` binds each dynamic CRUD to a **running**
   integration. Drop this file from a hand-assembled archive and the dynamic CRUDs have nothing to bind to.
 - `project-db.dump` + `project-db-meta.json` are present when at least one project DB is dumpable. The export
   now dumps the **DISTINCT UNION** of the primary project DB (`projectDatabaseName`) **and every dynamic-CRUD's
-  own `sourceDb`** (`CmsProjectServiceImpl.writeOtherFilesToExportFolder`): the first → `project-db.dump`, each
+  own `sourceDb`**: the first → `project-db.dump`, each
   additional distinct source DB → `project-db-<db>.dump`, and `project-db-meta.json.databases[]` lists them all.
   This fixed the old data-loss bug where an export whose tenant snapshot lacked `projectDatabaseName` (async/tag
   export) — or whose CRUDs lived under a non-main source — fell through to the row-by-row `rimm-data.json` export,
@@ -86,15 +82,14 @@ Always present: `tenant.json`, `branches.json`, `branch-metadata.json`, `rep-obj
 
 **⚠️ The `type==REPORT` gate.** The contents of `rep-objects.json` (`sources`, `queries`, `schedulers`,
 `workflows`, `rules`, `contexts`, `formGroups`, `forms`, `settings`, `processGroups`) are assembled
-**only** inside `if (ProjectType.REPORT.equals(projectType))` (`CmsProjectServiceImpl.java`, where
-`projectType = ProjectType.valueOf(tenant.getProperty("type"))`). If the tenant type is not
+**only** when the tenant property `type` is `REPORT`. If the tenant type is not
 REPORT, all of these keys are exported as **empty arrays**; only `roleGroups`,
 `userRoleGroupAssignments`, `mailTemplates` and `pdfTemplates` are assembled unconditionally. So a `rep-objects.json` that is
 populated at all came from a REPORT-type tenant — and an all-empty one is the first symptom to check.
 
 **⚠️ A malformed rep-object aborts the whole import — same symptoms as a non-REPORT target.** Even against a REPORT
 tenant, if any rep-object fails Jackson deserialization while reading `rep-objects.json`, the exception aborts the
-entire REPORT-path block (`CmsProjectServiceImpl.initAllObjects` → `readOtherFilesFromFolder`): **contexts,
+entire REPORT-path block: **contexts,
 sources, and `project-db.dump` are all skipped**, and the dynamic-CRUD replay (a separate `bl/execute/importCruds`
 path) still runs. Because ONE bad object skips the WHOLE block, the symptoms are **scattered and data-shaped, not
 error-shaped** — they show up together:
@@ -102,13 +97,13 @@ error-shaped** — they show up together:
 | Symptom (in the app / business-logic UI) | Actually caused by |
 |---|---|
 | "No source selected" in Business Logic; sources list empty | the source rep-object was never saved |
-| The project's context (whatever you named it) shows **no CRUDs**; rules fail at runtime with `No CRUD found with alias X in context Y` | **Two causes.** (a) the context rep-object (its `crudAliases`) was never saved — cruds carry **no** context reference, so `crudAliases` is the ONLY crud↔context link (see [08](08-groovy-rules-and-context.md)). (b) **the dominant cause even for a byte-correct export:** the import STRIPPED `crudAliases`. Each dynamic-CRUD delete/recreate fires `crud.unregister` → `removeCrudAliasFromAllContexts`, and `crud.register` never re-adds; the inline import path self-heals (`CmsProjectServiceImpl`) but the pass-2 `importDynamicCrudsOnly` (the orchestrator REIMPORTING stage — every empty→dynamic and every re-import) historically did NOT, leaving `crudAliases=[]`. **Fix:** re-save the context in the Contexts UI (writes `crudAliases` straight to the entity), or import on a build where `importDynamicCrudsOnly` snapshots+restores `crudAliases`. Do NOT "fix" the export — the linkage is already correct. |
+| The project's context (whatever you named it) shows **no CRUDs**; rules fail at runtime with `No CRUD found with alias X in context Y` | **Two causes.** (a) the context rep-object (its `crudAliases`) was never saved — cruds carry **no** context reference, so `crudAliases` is the ONLY crud↔context link (see [08](08-groovy-rules-and-context.md)). (b) **the dominant cause even for a byte-correct export:** the import STRIPPED `crudAliases`. Each dynamic-CRUD delete/recreate fires `crud.unregister`, which removes the CRUD's alias from every context, and `crud.register` never re-adds it; the inline import path self-heals but the pass-2 dynamic-CRUD import (the orchestrator REIMPORTING stage — every empty→dynamic and every re-import) historically did NOT, leaving `crudAliases=[]`. **Fix:** re-save the context in the Contexts UI (writes `crudAliases` straight to the entity), or import on a build where the pass-2 dynamic-CRUD import snapshots+restores `crudAliases`. Do NOT "fix" the export — the linkage is already correct. |
 | All data / dates "gone" | `project-db.dump` was not restored |
 
 All three at once ⇒ suspect **one deserialization abort**, not three separate bugs; find the Jackson stack in
 `log/ui.log` (`Cannot deserialize … from …`). The gotcha we actually hit: `rep-objects.settings[].content` is a
 Jackson **`ObjectNode` (JSON object)**, NOT a string — a JSON *string* there throws `MismatchedInputException:
-Cannot deserialize ObjectNode from String value` (chain `Qss["settings"]->SettingsDto["content"]`). It is
+Cannot deserialize ObjectNode from String value` (at `settings[].content`). It is
 the exact inverse of the node's `properties.model.stringValue`, which IS a string. **The failure is only visible in
 `log/ui.log`**, not in `mrjun.py validate` output (validate now ERRORs on a string `content` AND on any rep-object
 field that is a string where the same field is an object/array elsewhere — but it does not deserialize into the
@@ -118,11 +113,9 @@ log prints the DB **id** (freshly assigned; `id=null` on export), not the `ident
 
 ### File write order on export
 
-1. **mrjun `exportProjectOrTemplate`** (`mrjun .../ProjectServiceImpl.java`):
-   creates a temp folder (`UUID`), writes `tenant.json`, `branches.json`, `branch-metadata.json`,
-   then calls the hook `writeOtherFilesToExportFolder(tenant, folder)`, then
-   `ZipCompressUtils.compress` (inside the export pipeline).
-2. **nct-ui `writeOtherFilesToExportFolder`** (`CmsProjectServiceImpl.java`) appends into the same
+1. **The base export** creates a temp folder (UUID), writes `tenant.json`, `branches.json`,
+   `branch-metadata.json`, then calls the application hook that appends its own files, then zips the folder.
+2. **The application hook** appends into the same
    folder: `rep-objects.json`, `project-db.dump` + `project-db-meta.json`
    `tenant-files/`, `favicon/`, `dynamic-cruds.json`.
 
@@ -132,12 +125,11 @@ log prints the DB **id** (freshly assigned; `id=null` on export), not the `ident
 
 ### 1. `tenant.json`
 
-Project metadata. Built by `copyTenantForExport`
-(`mrjun .../TenantServiceImpl.java`) — takes only `name, alias, description,
+Project metadata. Takes only `name, alias, description,
 domain, status, importedFrom, locales, defaultLocale, icon` (id, owner, publishedBranchId, etc. are **not**
-exported). The `template` method does **not** copy explicitly — `template:false` in the export is always a
-hardcoded default `new TenantDomain()` (not the source tenant's value); import overwrites it with
-`isTemplate` anyway (`ProjectServiceImpl.java`). A populated project's `tenant.json`:
+exported). The `template` flag is **not** copied — `template:false` in the export is always a
+hardcoded default (not the source tenant's value); import overwrites it with
+`isTemplate` anyway. A populated project's `tenant.json`:
 
 ```json
 {"name":"Trade Finance","alias":"tradefin","description":"Trade finance back office",
@@ -158,15 +150,15 @@ nulls. That is not evidence the field is unsupported: add it yourself (`mrjun.py
 
 | Field | Type | Meaning | Required | Default |
 |---|---|---|---|---|
-| `name` | string | Project name. **Overwritten on import** by the `projectName` parameter (`ProjectServiceImpl.java` `tenant.setName(projectName)`) | yes | — |
+| `name` | string | Project name. **Overwritten on import** by the `projectName` parameter | yes | — |
 | `alias` | string | Project URL alias; part of schema names (`rimm_<realm>_<client>`, the system schema) | yes | — |
 | `description` | string | Description | no | — |
 | `domain` | string | Domain `<realm>.<client>` (e.g. `acme.tradefin`) | yes | — |
-| `status` | string | Status; forced to `published` on import (`ProjectServiceImpl.java` `setStatus(TenantStatus.published...)`) | no | `published` |
-| `template` | boolean | Overwritten on import by the `isTemplate` flag (`setTemplate(isTemplate)`) | no | false |
+| `status` | string | Status; forced to `published` on import | no | `published` |
+| `template` | boolean | Overwritten on import by the `isTemplate` flag | no | false |
 | `importedFrom` | array | Import history | no | `[]` |
-| `locales` | string[] | Project locales (`en_US`, `hy_AM`, `ru_RU`…). Always read on import (`setLocales(...)`) | yes | — |
-| `defaultLocale` | string | The project's DEFAULT/authoritative locale (`Locale.toString()`, e.g. `hy_AM`). Exported and applied on import, but only when it is one of `locales`; absent ⇒ consumers fall back to `locales[0]`. Author it with `mrjun.py locale set-default` — see [20-localization.md](20-localization.md) | no | — |
+| `locales` | string[] | Project locales (`en_US`, `hy_AM`, `ru_RU`…). Always read on import | yes | — |
+| `defaultLocale` | string | The project's DEFAULT/authoritative locale (e.g. `hy_AM`). Exported and applied on import, but only when it is one of `locales`; absent ⇒ consumers fall back to `locales[0]`. Author it with `mrjun.py locale set-default` — see [20-localization.md](20-localization.md) | no | — |
 | `icon` | string | Icon | no | null |
 
 ### 2. `branch-metadata.json`
@@ -177,18 +169,16 @@ nulls. That is not evidence the field is unsupported: add it yourself (`mrjun.py
 
 | Field | Type | Meaning |
 |---|---|---|
-| `publishedBranchName` | string | Name of the published branch; on import selects the published branch by name (`ProjectServiceImpl.java`) |
+| `publishedBranchName` | string | Name of the published branch; on import selects the published branch by name |
 | `totalBranches` | int | Branch count |
 
-Published-branch selection logic on import (`determinePublishedBranchId`,
-`ProjectServiceImpl.java`): first by the name from the metadata → otherwise the `master` branch
+Published-branch selection logic on import: first by the name from the metadata → otherwise the `master` branch
 → otherwise the first one. A single-branch project — the normal case — is
 `{"publishedBranchName":"master","totalBranches":1}`.
 
 ### 3. `branches.json` — an **array** of branches
 
-Written as `gson.toJson(clonedBranches)` (`ProjectServiceImpl.java`). Each branch is a serialization of
-`BranchDomain`. Branch keys:
+Each branch is a serialized branch. Branch keys:
 
 ```json
 { "name": "master", "tenantId": 1, "virtualPlugins": [ ... ],
@@ -199,7 +189,7 @@ Written as `gson.toJson(clonedBranches)` (`ProjectServiceImpl.java`). Each branc
 | Field | Type | Meaning |
 |---|---|---|
 | `name` | string | Branch name (`master`) |
-| `tenantId` | int | id of the source tenant. **Overwritten on import** with the new one (`ProjectServiceImpl.java` `br.setTenantId(tenant.getId())`) |
+| `tenantId` | int | id of the source tenant. **Overwritten on import** with the new one |
 | `virtualPlugins` | array | Shared/reusable plugins (layout HTML, headers/footers). On import marked `virtualContent=true` recursively. The count **depends on the project** — an empty admin scaffold already ships about twenty, and a built project adds its own. See [01-content-model-and-pages.md](01-content-model-and-pages.md) |
 | `rootContent` | object | **Recursive content tree** — all of the project's pages/plugins |
 | `globalAssets` | object | *Optional.* The project's own files — js, css, html, fonts, images — in ONE folder tree; a script or a stylesheet in it can be switched on and then loads on every page. Links and metadata only: the bytes are in `tenant-files/webassets/<storageId>/`, and each BRANCH owns its own `storageId`. Absent means the project has none. See [29-global-resources.md](29-global-resources.md) |
@@ -242,12 +232,11 @@ The full node model, `properties`, `roleAccess`, `virtualContent`/parsis and the
 [02-form-controls-reference.md](02-form-controls-reference.md). Table plugins (`model.stringValue`) —
 in [04-crud-table-plugin.md](04-crud-table-plugin.md),
 [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md). Here we note only that this is a
-base (mrjun) file and node ids are **not** remapped on import — they are preserved as-is
-(`branchService.saveAll(branches)`, `ProjectServiceImpl.java`).
+base-layer file and node ids are **not** remapped on import — they are preserved as-is.
 
 ### 4. `project-db-meta.json`
 
-Metadata for DB remapping on import. Written in `CmsProjectServiceImpl.java`:
+Metadata for DB remapping on import:
 
 ```json
 {"databaseName":"org_<realm>_<hash>",
@@ -261,22 +250,19 @@ Metadata for DB remapping on import. Written in `CmsProjectServiceImpl.java`:
 | `databaseName` | string | Name of the donor's project DB. On the current storage model one database holds a whole **organisation** and each project is a set of prefixed schemas inside it, so this is an org-level name — not `prj_<realm>_<client>`. Used to remap `dbName` in source rows and to locate the RIMM schema in the dump | yes |
 | `databases` | array | every database the archive carries a dump for (a multi-source project has more than one) | yes |
 | `schemaPrefix` | string | **the DONOR's schema prefix.** This is the single field that tells the import which of the dump's schemas belong to this project; the import renames each one into the RECIPIENT's own prefix. A schema you add to the dump by hand must carry it. Absent only for a legacy donor whose schemas were unprefixed — the import then infers the prefix from the dump's own `_system`/`_rimm`/`_data` names | yes, whenever the dump's schemas are prefixed |
-| `rimmSourceIdentifier` | string(uuid) | identifier of the RIMM-source source. Written **only if** a RIMM source was found (`CmsProjectServiceImpl.java` `if (rimmSource != null)`). On import, old `query.sourceIdentifier == this` → remapped to the new RIMM source | no (only if a RIMM source exists) |
+| `rimmSourceIdentifier` | string(uuid) | identifier of the RIMM-source source. Written **only if** a RIMM source was found. On import, old `query.sourceIdentifier == this` → remapped to the new RIMM source | no (only if a RIMM source exists) |
 
 See [10-database-management.md](10-database-management.md) §"Import-time source materialization" — the two
 sections describe one file and must not drift.
 
-**⚠️ DB staging requires BOTH files.** `readOtherFilesFromFolder` puts the dump in file storage and
-sets the tenant properties `initProjectDbDumpPath`/`initProjectDbMeta` only when
-`projectDbDump.exists() && projectDbMeta.exists()` (`CmsProjectServiceImpl.java`, the `&&` operator).
+**⚠️ DB staging requires BOTH files.** The import stages the dump only when
+both files exist.
 If at least one is absent — the DB is **not** staged and not restored. When building by hand, write
 `project-db.dump` and `project-db-meta.json` as a pair.
 
 ### 5. `project-db.dump` — the `nct-jdbc-dump-v1` format
 
-A JSON dump of the project DB (**not** a `pg_dump` binary; a custom JSON format). Written as bytes via
-`databaseClient.dumpDatabase(...)` → `dumpDatabaseAsJson`
-(`ProjectDatabaseServiceImpl.java`). Top level:
+A JSON dump of the project DB (**not** a `pg_dump` binary; a custom JSON format). Top level:
 
 ```json
 { "format": "nct-jdbc-dump-v1",
@@ -297,12 +283,10 @@ Each `schemaDump` — keys in **this insertion order**: `name`, `enumTypes`
 #### Schemas that make it into the dump
 
 All DB schemas are dumped, **except** `information_schema`, `pg_catalog`, `pg_toast`, `pg_%`
-(`ProjectDatabaseServiceImpl.java`) and except `excludeSchemas` passed by the export.
-`excludeSchemas` is populated with the schemas of `INTEGRATION`/`SYSTEM` sources
-(`CmsProjectServiceImpl.java`) — they are recreated on the target side and don't ride in the dump.
-The tables `users`, `role_groups`, `users_has_role_groups` (`KAFKA_MANAGED_TABLES`) are skipped at the
-table/FK/index level — they are recreated by
-`rimmSchemaClient.createSchemaSync` on import.
+and except `excludeSchemas` passed by the export.
+`excludeSchemas` is populated with the schemas of `INTEGRATION`/`SYSTEM` sources — they are recreated on the target side and don't ride in the dump.
+The tables `users`, `role_groups`, `users_has_role_groups` are skipped at the
+table/FK/index level — they are recreated on import.
 
 Schema sets you can expect (inspect any dump with `jq -r '.schemas[]|.name'`):
 
@@ -310,7 +294,7 @@ Schema sets you can expect (inspect any dump with `jq -r '.schemas[]|.name'`):
 |---|---|
 | Empty baseline | `<prefix>_data`, `<prefix>_rimm` — **both empty** |
 | **DYNAMIC** build | the **business schema** (`<prefix>_<your name>`) with tables/sequences/FKs, one `<prefix>_<hash>` per dynamic-integration, `<prefix>_rimm` (a few lookup tables), `<prefix>_data`(empty). The registry `<prefix>_system` is deliberately EXCLUDED from the export |
-| **STATIC** build | only `<prefix>_<hash>` integration schemas (large, FK-heavy — Hibernate-generated) and an empty `<prefix>_rimm` — **no business schema** |
+| **STATIC** build | only `<prefix>_<hash>` integration schemas (large, FK-heavy — generated) and an empty `<prefix>_rimm` — **no business schema** |
 
 `<prefix>` throughout is `project-db-meta.json.schemaPrefix`. Older archives predating the org-per-database
 model carry unprefixed `public` / `rimm_<realm>_<client>` / `system_<realm>_<client>` instead; the import
@@ -319,7 +303,7 @@ handles both.
 **The key static ↔ dynamic difference at the dump level** (see §Static vs Dynamic below):
 in a dynamic project the business schema (tables *with data*) rides **inside the dump**; in a static project
 there is no business schema — only `int_*` (schemas of INTERNAL/INTEGRATION sources) and an empty
-`rimm_*`, because the business logic is compiled Java `@Crud` beans in a separate
+`rimm_*`, because the business logic is compiled Java CRUD beans in a separate
 microservice, not tables in the project DB.
 
 #### `enumTypes[]`
@@ -341,12 +325,12 @@ microservice, not tables in the project DB.
 |---|---|---|
 | `name` | string | Table name (without schema) |
 | `ddl` | string | Full `CREATE TABLE "schema"."table" (...)` with the schema-qualified name |
-| `columns` | string[] | Column names (order from `ResultSetMetaData`) |
+| `columns` | string[] | Column names (in column order) |
 | `columnTypes` | int[] | JDBC `java.sql.Types` codes for each column (5=SMALLINT, 12=VARCHAR, -7=BIT/boolean, 1111=OTHER/jsonb) |
-| `rows` | `Array<Map<string,string\|null>>` | Data; **all values are strings** (`val.toString()`), null is preserved as `null` |
-| `rowCount` | int | `rows.size()` |
+| `rows` | `Array<Map<string,string\|null>>` | Data; **all values are strings**, null is preserved as `null` |
+| `rowCount` | int | Number of rows |
 
-Tables are dumped in FK dependency order (`getTablesInDependencyOrder`).
+Tables are dumped in FK dependency order.
 
 #### `sequences[]` — element
 
@@ -391,10 +375,9 @@ triggers[]:  ["<pg_get_triggerdef>", ...]
 Empty in practically every project. A detailed breakdown of the DB schema, DDL auto-generation and the Database
 Management plugin — in [10-database-management.md](10-database-management.md).
 
-### 6. `rep-objects.json` — object (`Qss` wrapper)
+### 6. `rep-objects.json` — object
 
-All project objects except content and DB. Serialized as `Qss`
-(`CmsProjectServiceImpl.java`, fields in this order). 14 keys **always present** (may be empty arrays), plus a
+All project objects except content and DB. Fields in this order. 14 keys **always present** (may be empty arrays), plus a
 15th, `apiExposures`, that only an export of a live project writes:
 
 ```
@@ -420,17 +403,16 @@ apiExposures        <- optional; LEAVE IT OUT of anything you author (below)
 > `mrjun.py api-exposures show` says what it would do, `api-exposures drop` removes it, and `validate` refuses `[]`
 > and a list until it is gone.
 
-(`pdfTemplates[]` — element `PdfTemplateDto`, `id` nulled on export like the rest — is exported for **all**
+(`pdfTemplates[]` — a PDF-template object, `id` nulled on export like the rest — is exported for **all**
 project types, and imported for all types alongside `roleGroups`/`mailTemplates` (not gated on REPORT); see
 [15](15-pdf-and-mail.md).)
 
 **⚠️ Population is gated on `type==REPORT`.** `sources/queries/schedulers/workflows/rules/contexts/
 formGroups/forms/settings/processGroups` are populated only if the tenant is REPORT-type
-(`CmsProjectServiceImpl.java`, see §Export shape). `roleGroups`/`userRoleGroupAssignments`
+(see §Export shape). `roleGroups`/`userRoleGroupAssignments`
 `mailTemplates` are assembled for any type.
 
-**⚠️ `id` is nulled, but the KEY IS PRESENT as `null`.** On export, each object gets
-`it.toBuilder().id(null).build()`, which serializes the field as `"id": null` — the key is **not
+**⚠️ `id` is nulled, but the KEY IS PRESENT as `null`.** On export, each object's `id` is set to null, which serializes the field as `"id": null` — the key is **not
 removed**. Check it yourself on any export: `jq '.rules[0]|has("id")'` == `true`, `.rules[0].id` == `null`
 (same for `queries`, `sources`, `forms`, and the nested `forms[].formGroup.id`). On import, ids
 are regenerated. Relationships hold on **`identifier`** (the business key, a UUID). When building by hand, write
@@ -439,7 +421,7 @@ are regenerated. Relationships hold on **`identifier`** (the business key, a UUI
 **⚠️ forms filter + nested `formGroup.id=null`.** Forms export additionally:
 (a) **drops** forms whose `formGroup.identifier` is non-null but is not among the exported
 `formGroups` (a soft-deleted group); forms with `formGroup == null` or `formGroup.identifier == null`
-are **kept** (`return true`) — so `forms.length` can be smaller than the number of authored
+are **kept** — so `forms.length` can be smaller than the number of authored
 forms only because of forms with a "dangling" group; (b) nulls the nested `built.formGroup.id`
 so import binds the form to the group by `identifier`, not by numeric id.
 
@@ -447,21 +429,21 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 
 | Key | Element shape (abbr.) | Topical doc |
 |---|---|---|
-| `sources` | `SourceDto`: `{id, identifier, name, sourceType, dbType, hostName, port, dbName, schemaName, userName, password, ...}` | [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md) |
+| `sources` | `{id, identifier, name, sourceType, dbType, hostName, port, dbName, schemaName, userName, password, ...}` | [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md) |
 | `queries` | `{id, identifier, name, query, parameters, attributes, aggregations, sourceIdentifier, wrapInPaging, itemsPerPage, offset, schedule, statementTimeoutSeconds}` | [12-...](12-queries-sources-schedulers-and-rest.md) |
-| `schedulers` | `ScheduleDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
+| `schedulers` | a schedule object | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `workflows` | `{id, identifier, name, bpmnContent, elements, processDefinitionId, externalId, deployed, contextIdentifiers[]}` | [07-workflows-and-tasks.md](07-workflows-and-tasks.md) |
 | `rules` | `{id, identifier, name, description, status, ruleType, executor, contextIdentifiers[], rule:{ruleScriptStr}, hidden, access?, realmName, clientName, ...}` — `access` = who may RUN it (below) | [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) |
 | `contexts` | `{id, identifier, name, alias, crudAliases[]}` | [08-...](08-groovy-rules-and-context.md) |
 | `formGroups` | `{id, identifier, name, contentPageIdentifier, formGroupsPageIdentifier, contextIdentifiers[], predicateFormMapping, placeFormsNextToLanding}` | [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) |
 | `forms` | `{id, identifier, name, formGroup, contentIdentifier, contextIdentifiers[], validators, actionValidators, hiddenConfigs, allowDrafts, multiLanguage}` | [06-...](06-form-groups-and-mapping.md) |
-| `settings` | `SettingsDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
-| `processGroups` | `ProcessGroupDto` | [07-...](07-workflows-and-tasks.md) |
-| `roleGroups` | `RoleGroupDto` (id is **not** nulled on export — the only exception to the id=null rule) | [12-...](12-queries-sources-schedulers-and-rest.md) |
+| `settings` | a settings object | [12-...](12-queries-sources-schedulers-and-rest.md) |
+| `processGroups` | a process-group object | [07-...](07-workflows-and-tasks.md) |
+| `roleGroups` | a role-group object (id is **not** nulled on export — the only exception to the id=null rule) | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `userRoleGroupAssignments` | `{userId, roleGroupId, roleGroupName}` | — |
-| `mailTemplates` | `MailTemplateDto` | [12-...](12-queries-sources-schedulers-and-rest.md) |
-| `pdfTemplates` | `PdfTemplateDto` (`id` nulled on export; saved into nct-pdf on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
-| `apiExposures` | `ApiExposureDto` — one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
+| `mailTemplates` | a mail-template object | [12-...](12-queries-sources-schedulers-and-rest.md) |
+| `pdfTemplates` | a PDF-template object (`id` nulled on export; saved into the PDF service on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
+| `apiExposures` | one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
 
 **Execution access — `rules[].access`.** Who may RUN the rule, whoever asks (a page, the public API, a workflow
 step, MCP): `{"publicAccess": bool, "authenticatedUserAccess": bool, "roleGroups": ["<Group>", …]}` —
@@ -510,19 +492,19 @@ So *queries ≈ CRUDs × 6* plus any hand-written ones. Breakdown in
 
 **Hidden rules are absent from rep-objects**: the rules export filters out `hidden=true`, so `rules[]`
 never contains one. Hidden Groovy rules of CRUD methods are **recreated** on
-import separately (`ensureHiddenGroovyRule`, see §Import).
+import separately (see §Import).
 
 ### 7. `dynamic-cruds.json` — **DYNAMIC only**
 
 Present only if the system CRUD `bl` (dynamic-integration) is deployed and returned a non-empty
-list (`CmsProjectServiceImpl.java`). Present in dynamic projects; **absent** in static ones and in the
-empty baseline. Top level (`DynamicCrudsExport`):
+list. Present in dynamic projects; **absent** in static ones and in the
+empty baseline. Top level:
 
 ```json
-{ "exportVersion": 1, "cruds": [ { ExportedCrud }, ... ] }
+{ "exportVersion": 1, "cruds": [ { CRUD }, ... ] }
 ```
 
-`exportVersion` is `1`, and `cruds[]` holds one entry per CRUD. One full CRUD (`ExportedCrud`):
+`exportVersion` is `1`, and `cruds[]` holds one entry per CRUD. One full CRUD:
 
 ```json
 { "alias": "equipment_event_types_cruid",
@@ -539,7 +521,7 @@ empty baseline. Top level (`DynamicCrudsExport`):
                  {"fieldName":"equipmentEventType","displayName":"equipment_event_type","fieldType":"String","fieldOrder":1},
                  {"fieldName":"localized","displayName":"localized","fieldType":"ObjectNode","fieldOrder":4}, ... 5 fields ],
   "filterFields": [],
-  "methods": [ {ExportedMethod}, ... 7 methods: find, findAll, count, get, create, update, delete ] }
+  "methods": [ {method}, ... 7 methods: find, findAll, count, get, create, update, delete ] }
 ```
 
 | CRUD field | Type | Meaning |
@@ -550,13 +532,13 @@ empty baseline. Top level (`DynamicCrudsExport`):
 | `sourceHost`/`sourcePort`/`sourceDb`/`sourceSchema`/`sourceUser`/`sourcePassword` | string/int | Copy of the connection (fallback if the source is not found) |
 | `localizationField` | string | Localization column (`localized` jsonb). Set via `bl.setLocalizationField` |
 | `access` | object\|absent | Who may RUN the CRUD's methods (`{publicAccess, authenticatedUserAccess, roleGroups}`), inherited by every method without its own. Absent/null = signed-in users. `mrjun.py crud access` |
-| `dtoFields` | `ExportedField[]` | DTO fields |
-| `filterFields` | `ExportedField[]` | Filter fields |
-| `methods` | `ExportedMethod[]` | CRUD methods |
+| `dtoFields` | array | DTO fields |
+| `filterFields` | array | Filter fields |
+| `methods` | array | CRUD methods |
 
-`ExportedField`: `{fieldName, displayName, fieldType, fieldOrder}`.
+A field entry: `{fieldName, displayName, fieldType, fieldOrder}`.
 
-`ExportedMethod` — a SQL method (real `findAll`):
+A SQL method (real `findAll`):
 
 ```json
 { "methodName": "findAll", "methodType": "SQL", "returnType": "Object",
@@ -590,7 +572,7 @@ A Groovy method (real `find`):
 | `queryIdentifier` | string(uuid)\|null | identifier of the saved `query` (SQL only) |
 | `contextIdentifiers` | string[]\|null | Contexts of a Groovy method |
 | `returnFields` | `Map<col,Type>`\|null | Map of returned fields |
-| `parameters` | `ExportedParameter[]` | `{parameterName, parameterType, parameterOrder}` |
+| `parameters` | array | `{parameterName, parameterType, parameterOrder}` |
 | `inheritAccess` | boolean\|absent | Absent/null/`true` = runs with the CRUD's `access`; `false` = with the method's own `access` |
 | `access` | object\|absent | The method's own access, read **only** when `inheritAccess` is `false` (then absent = signed-in users). `mrjun.py crud method-access` |
 
@@ -598,7 +580,7 @@ A Groovy method (real `find`):
 execution access carries none of them, and absent/`null` means **signed-in users** — so an old archive imports with
 every CRUD and method at signed-in users, as before. A platform that predates the feature ignores the keys. A
 GROOVY method's hidden rule (`crud_<alias>_<method>`) is governed by the METHOD's access, never its own; a Java
-(static) CRUD's access is `@CrudAccess` in code and is not in the archive. Model, defaults and what `validate`
+(static) CRUD's access is declared in code and is not in the archive. Model, defaults and what `validate`
 reports: [11 §"Execution access"](11-business-logic-dynamic-crud.md).
 
 **Link SQL method ↔ query**: the method's `queryIdentifier` points to a `query` in `rep-objects.json` with
@@ -620,8 +602,7 @@ The full CRUD recipe (dtoFields, filterFields, the standard set of methods) —
 
 ### 8. `favicon/` and `tenant-files/`
 
-Flat file trees (binaries). Export — `exportFilesRecursively`
-(`CmsProjectServiceImpl.java`), import — `importFilesRecursively`.
+Flat file trees (binaries). Both are copied recursively on export and import.
 
 - `favicon/` ← from the storage `tenant/{tenantId}/favicon`; on import placed in
   `tenant/{newTenantId}/favicon`. Several dozen files: `favicon.ico`
@@ -636,16 +617,13 @@ Flat file trees (binaries). Export — `exportFilesRecursively`
   (`{id}/profile/camera_*.png`).
 
 ⚠️ `tenant-files/` sometimes contains a stray `project-db.dump` — an artifact of import staging:
-`readOtherFilesFromFolder` temporarily puts the dump in `t/{tenantId}/project-db.dump`
-(`CmsProjectServiceImpl.java`), and if the source tenant was itself imported the file lingers there. When building
+the import temporarily puts the dump in `t/{tenantId}/project-db.dump`, and if the source tenant was itself imported the file lingers there. When building
 by hand, `tenant-files/*.dump` files can be ignored.
 
 ### 9. `integrations.json` — the project's integrations, and the data sources they provide
 
-An **array** of the project's execution-platform integrations. Written by
-`CmsProjectServiceImpl.writeOtherFilesToExportFolder`, read on import by
-`ProjectImportOrchestrationServiceImpl` (which recreates + starts them BEFORE `dynamic-cruds.json`
-is replayed) and by `CmsProjectServiceImpl.bindIntegrationDataSources` (below).
+An **array** of the project's execution-platform integrations. On import they are recreated and started BEFORE
+`dynamic-cruds.json` is replayed, and their data sources are bound (below).
 
 ```json
 [{ "identifier": "5557500e-…",        // the DONOR's id — the target mints its own
@@ -734,107 +712,103 @@ Two consequences, both of which have cost a real debugging session:
 
 The full import pipeline (after unpacking the ZIP):
 
-**Phase A — base layer (mrjun `importProjectOrTemplate`, `ProjectServiceImpl.java`):**
+**Phase A — base layer:**
 1. Unpack the ZIP. ⚠️ Everything below assumes the upload was answered **Override**; an import into an existing
    project first raises a business-logic choice dialog, and **Ignore** strips `project-db.dump`,
    `project-db-meta.json`, `dynamic-cruds.json` and `integrations.json` out of the archive before this step —
    steps 4 and 12 then do nothing at all. **Rebuild** runs every step below, but drops each business schema
    instead of emptying it at step 4, and skips the integration teardown/recreate entirely. See Gotcha #19.
-2. Read `tenant.json` → `TenantDomain`; take `locales`, overwrite
+2. Read `tenant.json`; take `locales`, overwrite
    `template=isTemplate`, `status=published`, `name=projectName`.
-3. Call the hook `readOtherFilesFromFolder(tenant, folder, user)` — staging of nct-ui files
+3. Stage the application files
    into tenant properties (**the actual import of rep-objects/db/cruds is launched from here**, see phase B).
-4. `tenantService.save(tenant, user)`.
+4. Save the tenant.
 5. Read `branches.json`, remove existing virtual plugins and branches, set
-   `tenantId`/`virtualContent=true` recursively, `branchService.saveAll(branches)`.
+   `tenantId`/`virtualContent=true` recursively, save the branches.
    **Content node ids are NOT remapped.**
-6. Determine the published branch from `branch-metadata.json` (`determinePublishedBranchId`).
+6. Determine the published branch from `branch-metadata.json`.
 
-**Phase B — nct-ui objects (`readOtherFilesFromFolder` → `initAllObjects`):**
+**Phase B — application objects:**
 
-`readOtherFilesFromFolder` (`CmsProjectServiceImpl.java`) reads `rep-objects.json` into
-`tenant.property("initObjectsOnFirstLogin")`, puts `project-db.dump` into file storage +
-the path into `initProjectDbDumpPath` and `project-db-meta.json` into `initProjectDbMeta` **only if both files
-are present** (`&&`), stages `dynamic-cruds.json` into `initDynamicCrudsOnImport`, then
-(for a non-admin realm) calls `initAllObjects(tenant, val, true, currentUser)`.
+The staging step reads `rep-objects.json` into a tenant property, puts `project-db.dump` into file storage and
+records its path together with `project-db-meta.json` **only if both files
+are present**, stages `dynamic-cruds.json` the same way, then
+(for a non-admin realm) runs the object import.
 
-`initAllObjects` — the order. **⚠️ Step 1 and steps 3–9 are gated on `isReportProject`**
-(`isReportProject = ProjectType.REPORT.equals(projectType)`; the gate opens before
-`deleteAllProjectData` and wraps the whole restore of sources/DB/queries/rules/contexts/formGroups/forms/
-settings/processGroups, and closes at the comment "End of isReportProject condition"). For a non-REPORT
+The object import — the order. **⚠️ Step 1 and steps 3–9 are gated on the REPORT type**
+(the gate opens before the cleanup and wraps the whole restore of sources/DB/queries/rules/contexts/formGroups/forms/
+settings/processGroups). For a non-REPORT
 tenant, only steps **10** (roleGroups), **11** (mailTemplates) and **PdfTemplates** below run.
 
-1. `projectCleanupService.deleteAllProjectData` — cleanup (**isReportProject only**).
-2. Parse `rep-objects.json` into `Qss`.
-3. **Sources** (isReportProject): skip RIMM (`RIMM_`); remap `dbName` old DB → new;
+1. Clean up: delete all existing project data (**REPORT only**).
+2. Parse `rep-objects.json`.
+3. **Sources** (REPORT only): skip RIMM (`RIMM_`); remap `dbName` old DB → new;
    fetch the project-level Postgres role (creds are **not** rotated — taken from
-   ProjectEntity); recreate the SYSTEM schema; rewrite INTERNAL sources to
+   the project record); recreate the SYSTEM schema; rewrite INTERNAL sources to
    new creds; save.
-4. **Restore the project DB** from `project-db.dump` (isReportProject): build the schema remap
+4. **Restore the project DB** from `project-db.dump` (REPORT only): build the schema remap
    (`public→null` (skip); `rimm_<old>→rimm_<realm>_<client>`; **and `int_*`/`system_*`→null (skip)** unless the
    name is the target's own `system_<realm>_<client>` — a schema mapped to null is silently dropped, so a
    business schema must never carry those prefixes, see
-   [10-database-management.md](10-database-management.md) §Export shape), call
-   `databaseClient.restoreDatabase(...)` → `restoreDatabaseFromJson`
-   (`ProjectDatabaseServiceImpl.java`). Each schema in its own transaction; the order within a schema:
+   [10-database-management.md](10-database-management.md) §Export shape) and restore. Each schema in its own transaction; the order within a schema:
    `CREATE SCHEMA` → enums → sequences → tables (DDL, then data) → `setval` sequences → unique →
    check → FK → indexes → views. Schema-qualified names in the DDL are rewritten
    on remap.
-5. Recreate the security tables and the RIMM source: `rimmSchemaClient.createSchemaSync`
-   `applyGrantsAfterImport`; `syncInternalSourceHosts`; delete the staged dump file.
-6. **Queries** (isReportProject): remap `sourceIdentifier` old RIMM → new;
-   save with `id(null)`.
-7. **Workflows, rules, contexts** (isReportProject) — save with `id(null)`.
-8. **FormGroups → forms** (isReportProject): save formGroups, build an `identifier→saved` map,
+5. Recreate the security tables and the RIMM source; re-apply grants; sync the internal-source hosts;
+   delete the staged dump file.
+6. **Queries** (REPORT only): remap `sourceIdentifier` old RIMM → new;
+   save with a null id.
+7. **Workflows, rules, contexts** (REPORT only) — save with a null id.
+8. **FormGroups → forms** (REPORT only): save formGroups, build an `identifier→saved` map,
    rebind `form.formGroup` by identifier, save forms.
-9. **Settings, processGroups** (isReportProject), then **API endpoints** (isReportProject, and only when
+9. **Settings, processGroups** (REPORT only), then **API endpoints** (REPORT only, and only when
    `apiExposures` is present and not `null`) — the last object step of the block, after every definition an
    endpoint names. The archive's list replaces the project's endpoints in ONE step: matched by `identifier`,
    the ones it lacks deleted with their key bindings, the kept ones keeping theirs. All or nothing — one
    invalid entry refuses the whole list, changes nothing, and the import's failure report names each endpoint
    with its reason. Keys never travel, so an endpoint new to the project arrives with none
-   ([32](32-public-api.md) §6). End of the `isReportProject` block.
-10. **RoleGroups** (for any type): delete existing ones, recreate with `id(null)`
+   ([32](32-public-api.md) §6). End of the REPORT-only block.
+10. **RoleGroups** (for any type): delete existing ones, recreate with a null id
     ensure `Author`/`Developer`; restore `userRoleGroupAssignments` by
     role-group name.
 11. **MailTemplates** (for any type): delete existing ones, recreate; ensure the
     system ones. **PdfTemplates** are restored the same any-type way (outside the
-    `isReportProject` gate) — each `PdfTemplateDto` saved into nct-pdf via `pdfTemplateClient.save`
+    REPORT gate) — each PDF template saved into the PDF service
     ([15](15-pdf-and-mail.md)).
-12. **Dynamic CRUDs**: call `importDynamicCruds`, then
-    `rebindAllCrudsToSources`. Runs **last**, after sources/rules/queries/
+12. **Dynamic CRUDs**: import them (below), then
+    rebind every CRUD to its source. Runs **last**, after sources/rules/queries/
     contexts are already saved (Groovy methods resolve identifiers at runtime).
 13. **Integration data sources** (orchestration, after the integrations are RUNNING):
-    `bindIntegrationDataSources` points every source declared in
+    the import points every source declared in
     `integrations.json.dataSourceIdentifiers` at THIS tenant's integration schema — repointing the
     imported row, or recreating it under the same identifier ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)).
     Runs on the Override **and** the Ignore path (Ignore imports the static content, which is what
     carries the charts). Without it a statically integrated project imports with its charts still
     querying the donor's database.
 
-### `importDynamicCruds` — in detail
+### The dynamic-CRUD import — in detail
 
-1. Parse `dynamic-cruds.json` into `DynamicCrudsExport`.
+1. Parse `dynamic-cruds.json`.
 2. Check that `bl` (dynamic-integration) is deployed (a probe `bl.getCruds`); otherwise — skip.
 3. Delete existing dynamic CRUD of this (realm, client) — idempotency.
-4. Load live sources by identifier (`sourcesByIdentifier`).
+4. Load live sources by identifier.
 5. For each CRUD:
    - `bl.create({alias, name[, access]})` → new `crudId` (`access` only when the archive carries one; absent =
      signed-in users).
    - `bl.setSource(crudId, sourceIdentifier, host, port, db, schema, user, password)` — **creds
      are taken from the live source by `sourceIdentifier`**, exported values are only a fallback.
    - `bl.setLocalizationField(crudId, localizationField)`.
-   - For each method: **`ensureHiddenGroovyRule`** (GROOVY with ruleIdentifier+script only),
+   - For each method: **ensure the hidden Groovy rule** (GROOVY with ruleIdentifier+script only; see below),
      then `bl.addMethod(crudId, {methodName, methodType, script, returnType, returnsArray,
      methodOrder, ruleIdentifier, queryIdentifier, contextIdentifiers[, inheritAccess, access]})` → `newMethodId`;
      `bl.addParameter` for each parameter; `bl.setReturnFields`.
    - `bl.addDtoField` / `bl.addFilterField` for each field.
-6. After all CRUD — `rebindAllCrudsToSources`: push the current src_source creds into
+6. After all CRUD — rebind every CRUD to its source: push the current src_source creds into
    each `dynamic_crud` row via `bl.setSource`.
 
-### `ensureHiddenGroovyRule`
+### The hidden Groovy rule
 
-Recreates the **hidden** `RuleEntity` that authoring writes for each Groovy CRUD method but
+The import recreates the **hidden** rule that authoring writes for each Groovy CRUD method but
 which is filtered out of the export (`rep-objects.rules` contains no hidden=true). Without this the first call
 to a Groovy method fails with `"Rule not found with identifier: <ruleIdentifier>"`. The rule:
 `name="crud_<alias>_<methodName>"`, `executor="GroovyExecutionRule"`,
@@ -847,7 +821,7 @@ needs none: a hidden rule's own access is ignored — callers are checked agains
 
 | Entity | id/identifier on import |
 |---|---|
-| Content (branches.json) | node ids are **preserved as-is** (`branchService.saveAll`); `branch.tenantId` is overwritten |
+| Content (branches.json) | node ids are **preserved as-is**; `branch.tenantId` is overwritten |
 | rep-objects (all except roleGroups) | `id:null` on export (key present, value null) → new id on import; relationships by `identifier` |
 | roleGroups | id is **not** nulled on export, but on import created with `id(null)` |
 | `form.formGroup.id` | nulled on export → import maps the form to the group by `identifier` |
@@ -859,7 +833,7 @@ needs none: a hidden rule's own access is ignored — callers are checked agains
 | DB schema `public` | **skipped** (mapped to null) — Kafka-managed tables |
 | DB schema `int_*` / `system_*` (≠ the target's own `system_<realm>_<client>`) | **skipped** (mapped to null) — assumed to be the donor's integration/liquibase registries. Silent: logged only. A business schema named this way loses ALL its tables and rows on import ([10](10-database-management.md) §Export shape) |
 | dynamic CRUD | recreated entirely via `bl.*`; new ids; source creds from the live src_source |
-| hidden Groovy rules of methods | recreated by `ensureHiddenGroovyRule` from `method.ruleIdentifier` |
+| hidden Groovy rules of methods | recreated on import from `method.ruleIdentifier` |
 | `apiExposures` (API endpoints) | `id` nulled on export, `identifier` kept; reconciled by `identifier` as one list; key bindings never travel and survive only on the endpoints the list keeps ([32](32-public-api.md) §6) |
 
 ---
@@ -910,7 +884,7 @@ Cause: Reset restore could not apply the rows of rop_schema.supplier:
 
 Every hop passes the failing service's sentence through **unwrapped**. A layer that re-wraps
 (`Failed to restore database: [500 ] during [POST] to [http://…?schemaRemap=%7B…]
-[RepositoryDatabaseClient#restoreDatabaseFromJson(String,String,Boolean,Boolean,byte[])]: {…}`) pushes the one
+[…]: {…}`) pushes the one
 actionable sentence out of sight and turns a fixable report into a shrug. If you add a hop, unwrap.
 
 ## Static vs Dynamic — the exact difference at the file level
@@ -918,7 +892,7 @@ actionable sentence out of sight and turns a fixable report into a shrug. If you
 | Aspect | STATIC | DYNAMIC |
 |---|---|---|
 | `dynamic-cruds.json` | **absent** | **present** (`exportVersion:1`, N CRUD) |
-| CRUD business logic | compiled Java `@Crud` beans in a separate microservice; resolved by reflection (`service.crud.product.find` → `ProductCrud.find`) | defined in the project (`bl`/Business Logic); stored in `dynamic-cruds.json`; methods = SQL(→query) or Groovy |
+| CRUD business logic | compiled Java CRUD beans in a separate microservice; resolved by name (`service.crud.product.find`) | defined in the project (`bl`/Business Logic); stored in `dynamic-cruds.json`; methods = SQL(→query) or Groovy |
 | Business schema in `project-db.dump` | **no** — only `int_*` (schemas of INTERNAL/INTEGRATION sources), `public`(0), an empty `rimm_*` | **yes** — the business schema, with its tables, data, sequences and FKs, rides inside the dump |
 | `rep-objects.queries` | few — only manually created queries | many — one `crud_<alias>_<method>` per SQL method + others |
 | `rep-objects.sources` | 0 (INTEGRATION/SYSTEM sources are excluded; the business DB is external, in the microservice) — a project whose CHARTS read the integration's schema declares it in `integrations.json.dataSourceIdentifiers` instead, and the import rebinds it ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)) | ≥1 (an INTERNAL source on the business schema, referenced by CRUD methods) |
@@ -974,9 +948,9 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    (parents before children). Don't forget the paired `project-db-meta.json` (otherwise the DB isn't staged).
    Schema recipe — [10-database-management.md](10-database-management.md).
 3. **`rep-objects.json`** — add (write `"id": null` on every object — the key is required):
-   - `sources[]`: one INTERNAL `SourceDto` per business schema (`identifier`=UUID,
+   - `sources[]`: one INTERNAL source object per business schema (`identifier`=UUID,
      `dbType:"POISTGRESQL"`, `dbName`, `schemaName=<prefix>_app`, `hostName`, `port`, a non-blank
-     `userName` — it is `@NotBlank` and a blank one makes the platform REJECT the object). ⚠️ The baseline
+     `userName` — a blank one makes the platform REJECT the object). ⚠️ The baseline
      already ships one INTERNAL source named `data`; reuse it or delete it, never leave two INTERNAL rows
      over two schemas. On import the `dbName`, `schemaName` and the creds are all rewritten onto the
      RECIPIENT's project — so whatever you write there is a placeholder, never a live coordinate.
@@ -1008,12 +982,12 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 ## Gotchas
 
 1. **`id` = `null`, but the key is present.** In rep-objects, an object's `id` field serializes as `"id": null`
-   (`it.toBuilder().id(null).build()`) — the key is **not** removed. Verified:
+   — the key is **not** removed. Verified:
    `jq '.rules[0]|has("id")'` == `true`, `.rules[0].id` == `null`. Relationships hold on `identifier`
    (UUID). Write `"id": null` by hand and set consistent `identifier`s. Exception:
-   `roleGroups` (id not nulled on export, but still created with `id(null)` on import).
-2. **Content ids are NOT remapped.** `branches.json` nodes are saved with their `id`/`identifier` as-is
-   (`saveAll`). Ensure uniqueness of page `identifier`/`uniqueIdentifier`/aliases yourself
+   `roleGroups` (id not nulled on export, but still created with a null id on import).
+2. **Content ids are NOT remapped.** `branches.json` nodes are saved with their `id`/`identifier` as-is.
+   Ensure uniqueness of page `identifier`/`uniqueIdentifier`/aliases yourself
    (an alias collision breaks routing — a known form-page problem).
 3. **The config slot depends on the plugin.** Form controls → `properties.settings.stringValue`; table
    plugins (`crud.table.plugin`/`crud.tree.plugin`/`process.table.pluin`) → `properties.model.stringValue`.
@@ -1025,16 +999,16 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    ⛔ **A type error in the envelope is skipped just as silently, and it is the worse one.**
    `exportVersion` is the **integer** `1` — a platform-produced export carries `1`, and the toolkit
    writes `1`. A STRING there — `"1"`, and certainly `"1.0"`, which does not
-   coerce — throws inside `DynamicCrudsExport` parsing. Because `importDynamicCruds` is the LAST step of
-   `initAllObjects`, everything else has already landed: pages, rules, queries, contexts, forms,
+   coerce — throws while the file is parsed. Because the dynamic-CRUD import is the LAST step of
+   the object import, everything else has already landed: pages, rules, queries, contexts, forms,
    workflows, mail/PDF templates and the restored database all arrive, and only the business logic is
    missing. What the customer reports is not "the import failed" but **"every register shows headers and
    no rows"**, with `No RSocket connection found for CRUD alias: <alias>` in the UI and an empty
    Business Logic console — a symptom that reads like a dead runtime rather than two characters in the
-   archive. `validate` now ERRORs on it (`_check_dynamic_cruds_envelope`); nothing else does — `pack`
+   archive. `validate` now ERRORs on it; nothing else does — `pack`
    never reads the file's types and the import report does not name the step it skipped.
 5. **Hidden Groovy rules of methods are not in rep-objects.** The export filters out `hidden=true`. They
-   are recreated on import from `dynamic-cruds.json` (`ensureHiddenGroovyRule`). If you manually delete
+   are recreated on import from `dynamic-cruds.json`. If you manually delete
    `dynamic-cruds.json`, Groovy CRUD methods will fail with "Rule not found".
 6. **SQL placeholder syntax differs.** `method.script` in `dynamic-cruds.json` uses
    `:param`; `query.query` in `rep-objects.json` uses `{name:'param', type:'integer'}`. These are **different**
@@ -1044,19 +1018,10 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    is driven by `columnTypes` (JDBC `Types`).
 
    ⛔ **An unquoted number in `rows[]` loses the whole schema.** This is not a tidiness rule — it is the
-   restorer's signature. `ProjectDatabaseServiceImpl.restoreSingleSchema` reads
-
-   ```java
-   List<Map<String, String>> rows = (List<Map<String, String>>) tableDump.get("rows");
-   ...
-   String val = row.get(columns.get(i));            // erased generics -> checkcast lands HERE
-   setTypedParameter(ps, i + 1, val, sqlType);      // ps.setObject(idx, val, sqlType)
-   ```
-
-   so a JSON `1` parses to `Integer` and throws `class java.lang.Integer cannot be cast to class
-   java.lang.String`. A `ClassCastException` is **not** a `SQLException`, so it misses the per-table
-   `catch (SQLException insertEx)` savepoint that exists to keep one bad table from poisoning the rest —
-   it unwinds `restoreSingleSchema` entirely and the caller reports:
+   restorer's signature. The restore reads every row value as a string, so a JSON `1` arrives as a number and
+   throws `class java.lang.Integer cannot be cast to class java.lang.String`. That is a type error, **not** a
+   SQL error, so it misses the per-table savepoint that exists to keep one bad table from poisoning the rest —
+   it unwinds the whole schema restore and the caller reports:
 
    > Imported with warnings — The database was NOT replaced. Schema(s) `[x]` were rolled back to their
    > previous contents … Cause: class java.lang.Integer cannot be cast to class java.lang.String
@@ -1065,24 +1030,24 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    page rendering and **every table, chart and worklist empty**. Read as a database-shape problem; caused
    by one unquoted integer.
 
-   | field | JSON type the restore requires | read as |
-   |---|---|---|
-   | `tables[].rows[].<col>` | **string** or `null` — including integers (`"1"`), booleans (`"true"`/`"false"`), numerics (`"1200.00"`) and jsonb (the JSON **as a string**) | `Map<String,String>` |
-   | `tables[].columnTypes[]` | **number** (JDBC `java.sql.Types` code) | `List<Number>` → `.intValue()` |
-   | `sequences[].lastValue` | **number** | `(Number)` |
-   | `tables[].columns[]`, `foreignKeys[]`, `indexes[]`, `checkConstraints[]`, `uniqueConstraints[]`, `triggers[]`, `views[]`, `functions[]` | string | `List<String>` / `Map<String,String>` |
+   | field | JSON type the restore requires |
+   |---|---|
+   | `tables[].rows[].<col>` | **string** or `null` — including integers (`"1"`), booleans (`"true"`/`"false"`), numerics (`"1200.00"`) and jsonb (the JSON **as a string**) |
+   | `tables[].columnTypes[]` | **number** (JDBC `java.sql.Types` code) |
+   | `sequences[].lastValue` | **number** |
+   | `tables[].columns[]`, `foreignKeys[]`, `indexes[]`, `checkConstraints[]`, `uniqueConstraints[]`, `triggers[]`, `views[]`, `functions[]` | string |
 
-   Every dump the platform EXPORTS is string-typed by construction (`row.put(label, val.toString())`), so
+   Every dump the platform EXPORTS is string-typed by construction, so
    **no reference export can show you this by contrast** — only a generated or hand-edited dump can carry it,
    and it is invisible to any offline check that loads the file with Python's `json`, where `1` and `"1"`
    behave alike. Build the rows through `db_cmds.normalise_rows(columns, rows)` / `db_cmds.dump_cell(v)`,
    and `mrjun.py validate` ERRORs if one slips through.
 8. **`public` and Kafka tables.** The `public` schema is skipped on restore (`public→null`), and
    the tables `users`/`role_groups`/`users_has_role_groups` are excluded from the dump and
-   recreated by `createSchemaSync`. Don't put business tables in `public` — they won't be restored.
-9. **INTEGRATION/SYSTEM source schemas are excluded from the dump** (by `SourceType`) —
+   recreated on import. Don't put business tables in `public` — they won't be restored.
+9. **INTEGRATION/SYSTEM source schemas are excluded from the dump** (by source type) —
    managed by the execution platform and recreated on the target side. The exclusion goes by
-   `source.getSchemaName()` of those sources that are actually present and of type INTEGRATION/SYSTEM.
+   the schema name of those sources that are actually present and of type INTEGRATION/SYSTEM.
    Note: `int_*` schemas routinely **still end up in the dump** when `rep-objects.sources` is empty —
    i.e. no INTEGRATION/SYSTEM source row was found for those schemas to exclude them. Conclusion: the mere
    presence of `int_*` in the dump doesn't mean the exclusion mechanism failed; it only works when
@@ -1092,29 +1057,27 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 10. **`tenant-files/*.dump` is junk.** If `tenant-files/` got a `project-db.dump`,
     it's a leftover of import staging (`t/{tenantId}/project-db.dump`); ignore it when building.
 11. **Source creds are overwritten on import.** Don't count on `sourcePassword`/`sourceUser` from
-    the export surviving: INTERNAL sources and dynamic CRUD get the project-level role of the target cluster
-    (`rebindAllCrudsToSources`). `sourceIdentifier` must point to an
+    the export surviving: INTERNAL sources and dynamic CRUD get the project-level role of the target cluster. `sourceIdentifier` must point to an
     actually existing (imported) source, otherwise it falls back to stale exported creds with
     a warning.
 12. **⚠️ The `type==REPORT` gate — the most important precondition.** `rep-objects` are assembled on export
-    (`CmsProjectServiceImpl.java`) and restored on import (`isReportProject`) **only** for the REPORT type. If the source tenant is not REPORT — `rep-objects`
+    and restored on import **only** for the REPORT type. If the source tenant is not REPORT — `rep-objects`
     exports empty; if the target is not REPORT — import restores only `roleGroups`/`mailTemplates`/`pdfTemplates`,
     and everything else (sources/DB/queries/rules/contexts/forms/settings) is skipped silently.
     Build for a REPORT tenant.
 13. **DB staging requires BOTH files.** `project-db.dump` **and** `project-db-meta.json` must
-    be present (`&&`), otherwise the DB isn't staged and not restored. Write them as a pair.
+    both be present, otherwise the DB isn't staged and not restored. Write them as a pair.
 14. **`branch-metadata.publishedBranchName` must match** `branches[].name`, otherwise the published
     branch is selected by fallback (`master` → the first).
 15. **A form with a "dangling" group is dropped.** The `forms` export drops a form only if its
     `formGroup.identifier` is **non-null** and not among the exported `formGroups`; forms
-    with `formGroup == null` or `formGroup.identifier == null` are **kept** (`return true`).
+    with `formGroup == null` or `formGroup.identifier == null` are **kept**.
     So the number of forms in the export can be smaller than the authored one. Keep each form bound to
     an existing group.
 16. **⚠️ Don't identify the business schema by name prefix — an `int_`-looking name can be the business
-    schema.** A *dynamic* project built on top of a schema that a JPA service originally created keeps that
+    schema.** A *dynamic* project built on top of a schema that an integration service originally created keeps that
     schema's generated name (`int_<realm>_<client>_<hash>`): its tables and rows ride **inside**
-    `project-db.dump`, and every dynamic CRUD points `sourceSchema` at it (`dynamic-cruds.json`, backing
-    `ExportedCrud.sourceSchema`). This is *not* an excluded INTEGRATION/SYSTEM schema (contrast Gotcha #9).
+    `project-db.dump`, and every dynamic CRUD points `sourceSchema` at it (`dynamic-cruds.json`). This is *not* an excluded INTEGRATION/SYSTEM schema (contrast Gotcha #9).
     **Identify the business schema by which schema the CRUDs' `sourceSchema` points at, NOT by name prefix** —
     an `int_`/`system_`/`app_` prefix is just a name, not a type. (In a *static* project the `int_*`
     schemas really are integration schemas with no CRUDs behind them; the two cases are distinguished only
@@ -1123,10 +1086,9 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     correct as a *description*, and yet cannot be re-imported: rename it first
     ([10-database-management.md](10-database-management.md) §Adding an entity to a FILLED dump).
 17. **⚠️ Import is DESTRUCTIVE — a full REPLACE, not a merge.** Into a REPORT tenant, **step 1** of the import
-    (`projectCleanupService.deleteAllProjectData`, [§How import restores it](#how-import-restores-it-operation-order-and-id-remapping),
-    isReportProject only) **wipes ALL existing project data first**; and the dynamic-CRUD import runs its own
-    clean-slate — `bl.deleteCrud` for **every** existing dynamic CRUD of the (realm, client) before recreating
-    (`importDynamicCruds`). So re-importing a modified `.mrjun` **replaces the whole project**; you cannot
+    (the cleanup of all existing project data, [§How import restores it](#how-import-restores-it-operation-order-and-id-remapping),
+    REPORT only) **wipes ALL existing project data first**; and the dynamic-CRUD import runs its own
+    clean-slate — `bl.deleteCrud` for **every** existing dynamic CRUD of the (realm, client) before recreating. So re-importing a modified `.mrjun` **replaces the whole project**; you cannot
     incrementally import a delta into a populated tenant, and there is no "merge" mode. To change one entity in a live
     project, edit the source `.mrjun` and re-import the entire archive (the modify-and-reimport scenario C in
     [19-build-decision-procedure.md](19-build-decision-procedure.md)). That re-import first asks how to treat the
@@ -1136,7 +1098,7 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     imported".** Editing `branches.json`/`rep-objects.json` and re-packing changes **nothing** in a running
     tenant until the archive is imported (and the import is a full replace, Gotcha #17). The failure looks
     like a platform bug: the settings panel shows the field **empty**, because a stored rule identifier is
-    resolved with `ruleService.findByIdentifier` (`RuleIdentifierSelectorField.java`) — an id that
+    looked up by identifier — an id that
     does not exist in the tenant renders as "nothing selected", not as an error. Before debugging the
     runtime, prove what is actually in the tenant with two read-only queries against the platform DB
     (substitute your own container / database / credentials):
@@ -1160,7 +1122,7 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 19. **⚠️ Uploading into an existing project asks which business-logic treatment you want first — the answer
     decides whether your DB and CRUD work lands at all.** Settings → Import/Export is the only route a
     hand-assembled `.mrjun` takes into the platform, and before importing it the upload opens a choice dialog
-    (`ImportBusinessLogicChoiceDialog`) whenever the archive carries business logic — a non-empty
+    whenever the archive carries business logic — a non-empty
     `dynamic-cruds.json`, **or** an `integrations.json` entry with `external:false` — or the target project
     already runs an internal integration. The bundled baseline ships exactly such an `integrations.json` entry
     (§Export shape), so in practice **every** archive built on it raises the dialog, including a first

@@ -15,8 +15,8 @@ charts directly in `.mrjun`.
 
 | Concern | What it is | Where |
 |---|---|---|
-| `chart.js.plugin` node | one content node; config JSON (`ChartJsModel`) in property **`Javascript`** | §1 |
-| `$$('name', default, 'Type')` | the data-binding placeholder — **in `js` only** (`html` is rendered as-is, never tokenized); one per `ChartJsReplacement` | §2 |
+| `chart.js.plugin` node | one content node; config JSON in property **`Javascript`** | §1 |
+| `$$('name', default, 'Type')` | the data-binding placeholder — **in `js` only** (`html` is rendered as-is, never tokenized); one per replacement | §2 |
 | `replaceStrategy` `QUERY`/`LABEL` | pull from a SQL query column, or inject a literal | §2.2 |
 | **which charts to build** | the specified list is a FLOOR — derive candidates from the schema, challenge the ones you were given, propose | §2A |
 | Query parameter | inline `{name:'P', type:'…', dropDownPopulation:{…}}` **in the SQL text** | §3 |
@@ -33,7 +33,7 @@ charts directly in `.mrjun`.
 
 **Everything about the underlying data substrate is already in [12](12-queries-sources-schedulers-and-rest.md)
 — link, don't restate:** saved queries ([12](12-queries-sources-schedulers-and-rest.md) §1), SQL placeholder
-syntax ([12](12-queries-sources-schedulers-and-rest.md) §1.4), the `FieldType` set + report-param types
+syntax ([12](12-queries-sources-schedulers-and-rest.md) §1.4), the field-type set + report-param types
 ([12](12-queries-sources-schedulers-and-rest.md) §9), `dropDownPopulation` & cascading dropdowns
 ([12](12-queries-sources-schedulers-and-rest.md) §10), aggregations ([12](12-queries-sources-schedulers-and-rest.md)
 §11), and the `findControls → replaceParams` engine ([12](12-queries-sources-schedulers-and-rest.md) §15). This
@@ -44,7 +44,7 @@ doc covers only the **chart-specific glue** on top of that substrate.
 ## 1. The chart content node (`chart.js.plugin`)
 
 A chart is **one content-tree node** whose config lives in the property named **`Javascript`** (NOT `model`,
-NOT `settings`). Its `stringValue` is a GSON-serialized `ChartJsModel`. The node sits inside a page's
+NOT `settings`). Its `stringValue` is a JSON-serialized chart model. The node sits inside a page's
 `nct.parsis.plugin` slot like any business plugin (see [01](01-content-model-and-pages.md)).
 
 ### 1.1 Export shape
@@ -67,13 +67,13 @@ NOT `settings`). Its `stringValue` is a GSON-serialized `ChartJsModel`. The node
       "propertyType": "STRING",
       "fieldPanelClass": "com.devsegment.mrjun.security.common.field.property.supportedfields.PropertyBaseTextFieldPanel",
       "arguments": {}, "localizedStringValue": {}, "required": false, "hidden": false,
-      "stringValue": "<<< a JSON-ENCODED ChartJsModel string — see 1.2 >>>"
+      "stringValue": "<<< a JSON-ENCODED chart-model string — see 1.2 >>>"
     }
   }
 }
 ```
 
-`ChartJsModel` (the decoded `Javascript.stringValue`):
+The chart model (the decoded `Javascript.stringValue`):
 
 ```jsonc
 {
@@ -87,17 +87,17 @@ NOT `settings`). Its `stringValue` is a GSON-serialized `ChartJsModel`. The node
   },                                 // only the "*" block + the ACTIVE theme's block are emitted, each auto-scoped
                                      // to this chart instance. Omit both keys when the chart needs no CSS.
   "schedule": { "job": {} },         // caching (§8 / Gotcha 12) — PRESENT as an empty object in real exports; a hand-authored blob may omit it (back-filled on import). Empty = no caching.
-  "replacements": [ /* one ChartJsReplacement per distinct $$() name — see 1.4 */ ]
+  "replacements": [ /* one replacement per distinct $$() name — see 1.4 */ ]
 }
 ```
 
-> ⛔ **The embedded `replacements[].query` must be a MINIMAL QueryDto — ONLY these ~12 fields: `id, identifier,
+> ⛔ **The embedded `replacements[].query` must be a MINIMAL query copy — ONLY these ~12 fields: `id, identifier,
 > realmName, clientName, name, query, sourceIdentifier, offset, itemsPerPage, parameters, attributes,
 > aggregations` (with `aggregations.aggregations = []`, not `null`). Do NOT embed the whole query REP-OBJECT**
-> (its rep metadata: `creationTime`/`modificationTime` Instant strings, `errors`, `message`, `hidden`, `schedule`,
-> `lastScheduledTime`, `statementTimeoutSeconds`, `wrapInPaging`). The plugin reads the model through the CMS
-> property store's JSON decoder, which **SWALLOWS any decode failure and hands back an EMPTY model** (the
-> rep-object's `Instant` timestamps are what usually trips it) — so a query carrying those extra fields makes the chart
+> (its rep metadata: `creationTime`/`modificationTime` timestamp strings, `errors`, `message`, `hidden`, `schedule`,
+> `lastScheduledTime`, `statementTimeoutSeconds`, `wrapInPaging`). The platform reads the model through a
+> JSON decoder which **SWALLOWS any decode failure and hands back an EMPTY model** (the
+> rep-object's timestamps are what usually trips it) — so a query carrying those extra fields makes the chart
 > render as a blank `nct.html.plugin` **"Modify html"** cell with an empty HTML/JS editor (it looks like the chart
 > "lost its config", but the config is present in `properties.Javascript` — it just won't deserialize). A common
 > way to hit this: a generator that does `"query": json.dumps(<the query rep-object>)` instead of a trimmed subset.
@@ -141,7 +141,7 @@ Pull the equivalent out of any project you have with:
       "type": "Integer[]",
       "replaceStrategy": "QUERY",
       "queryIdentifier": "64813fd2-0855-435e-a276-054dac4b1110",
-      "query": { /* identical QueryDto copy, same identifier */ },
+      "query": { /* identical query copy, same identifier */ },
       "futureReplacements": [], "defaultValue": "[1]", "columnName": "monthly_completed_effort",
       "order": 1, "maxItemsCount": 1000
     }
@@ -157,7 +157,7 @@ get replaced with the fetched arrays at render time.
 > exactly the clock-anchored form that empties out as a **frozen** dump ages (§2.6 Rule 5). Anchor a demo window
 > to the data (`max(<date col>)`) or to a Period param instead.
 
-### 1.3 `ChartJsModel` — field by field
+### 1.3 The chart model — field by field
 
 | Field · type | Meaning | Required | Default |
 |---|---|---|---|
@@ -166,25 +166,25 @@ get replaced with the fetched arrays at render time.
 | `html` · String | mount markup — `<canvas>` (Chart.js) or `<div>` (Plotly/ECharts) or `<pre class="mermaid">`. Rendered **verbatim**: `$$()` here is never substituted, and an inline `<style>` here is **global** (use `cssByTheme` instead) | yes | — |
 | `css` · String | LEGACY single CSS block; still honoured — read as the `"*"` entry of `cssByTheme` when that key is absent | no | omitted |
 | `cssByTheme` · Map | **per-theme CSS** — key `"*"` (all themes) or an exact theme name (`Standard` / `Dracula` / `Forest` / `Dark` / `Dark Blue`). Authored on the editor's **Css** tab, whose theme pills are generated from the platform's skin list. Only the `"*"` block **plus the active theme's block** are emitted, each auto-scoped to that chart instance (§6) | no | omitted |
-| `schedule` · `ScheduleDto` | the **Caching** tab's cron — fanned onto every replacement's `query.schedule`, which makes those queries cacheable (Gotcha 12) | no | present as empty `{"job":{}}` |
-| `replacements[]` · `ChartJsReplacement` | one entry per distinct `$$()` name | no | `[]` |
+| `schedule` · object | the **Caching** tab's cron — fanned onto every replacement's `query.schedule`, which makes those queries cacheable (Gotcha 12) | no | present as empty `{"job":{}}` |
+| `replacements[]` · list | one entry per distinct `$$()` name | no | `[]` |
 
-### 1.4 `ChartJsReplacement` — field by field
+### 1.4 The replacement — field by field
 
 | Field · type | Meaning |
 |---|---|
 | `name` · String | the binding key = **1st arg of `$$(...)`** |
 | `group` · String | the **exact literal `$$(...)` text** — the server does `js.replace(group, value)`, so it must match `js` byte-for-byte |
-| `type` · String | a `ReplacementType` string (`String[]`, `Integer[]`, `Double[]`, `Full`, …) — determines how the value is emitted as a JS literal |
+| `type` · String | a replacement-type string (`String[]`, `Integer[]`, `Double[]`, `Full`, …) — determines how the value is emitted as a JS literal |
 | `replaceStrategy` · enum | `QUERY` (run `query`, pull `columnName`) or `LABEL` (inject `value`); `null` = auto-discovered, not yet bound |
 | `queryIdentifier` · String | identifier of the saved query (matches `query.identifier`) |
-| `query` · `QueryDto` | an embedded **TRIMMED 12-field copy** of the saved query (SQL, source, params, id) — this copy is what actually runs. ⛔ Trim it: see the ⛔ in §1.1 — the rep-object emitted by `query add` carries extra fields that make the whole chart render blank |
+| `query` · object | an embedded **TRIMMED 12-field copy** of the saved query (SQL, source, params, id) — this copy is what actually runs. ⛔ Trim it: see the ⛔ in §1.1 — the rep-object emitted by `query add` carries extra fields that make the whole chart render blank |
 | `columnName` · String | the result column to pull (lowercased — Postgres folds unquoted aliases); **absent for `Full`** |
 | `defaultValue` · Object | arg #2 of `$$()` stored verbatim as a string (`"deflt"`, `"[1]"`, `"0"`, `"[]"`) |
 | `value` · Object | the literal injected when `replaceStrategy == LABEL` — injected **raw/unquoted** unless `type` is exactly `String` (§2.3) |
 | `maxItemsCount` · Integer | row cap → set as `query.itemsPerPage` before running (default **1000**) |
 | `order` · int | display/eval order |
-| `futureReplacements[]` · `ChartJsReplacement` | the editor-built drill chain (§5.1); `[]` in all sample charts |
+| `futureReplacements[]` · list of replacements | the editor-built drill chain (§5.1); `[]` in all sample charts |
 | `currentFutureRepNumber` · Integer | which drill step the editor is currently showing; `null`/absent = the root replacement |
 
 > 🔧 **Tooling.** Place the node with the generic plugin-add — the slot is auto-routed to `Javascript`
@@ -205,7 +205,7 @@ get replaced with the fetched arrays at render time.
 ### 2.1 The grammar
 
 The tokenizer scans **`model.js` and nothing else** for `$$(` … matching `)` and parses the inside by a naive
-`split(",")`. ⛔ **`model.html` is never tokenized** — it is emitted verbatim into the page, so a `$$()` written
+comma-split. ⛔ **`model.html` is never tokenized** — it is emitted verbatim into the page, so a `$$()` written
 in the `html` reaches the browser literally and evaluates through the `window.$$` fallback (i.e. it always shows
 its default). Put every data binding in `js`; keep `html` to the mount element.
 
@@ -215,10 +215,10 @@ $$('<name>', <default>, '<type>')
 ```
 
 - **arg0 `name`** (required) — trimmed, outer single-quotes stripped → the replacement's `name`. Binding is
-  **by name**: the `$$()` and its `ChartJsReplacement.name` must match.
+  **by name**: the `$$()` and its replacement's `name` must match.
 - **arg1 `default`** (optional) — trimmed, **quotes kept verbatim**. Stored as `defaultValue`. It is a raw JS
   expression the browser evaluates **if the server left the placeholder unsubstituted** (see 2.4).
-- **arg2 `type`** (optional) — trimmed, single-quotes stripped, must equal a `ReplacementType` string.
+- **arg2 `type`** (optional) — trimmed, single-quotes stripped, must equal a type string from §2.3.
 
 Because splitting is a naive comma-split, **`default` must be a single element with no internal commas** — this
 is why the shipped templates write `['-']`, `[1]`, `[0]`, `[100]`, `[]`, not multi-element arrays. Only a
@@ -245,7 +245,7 @@ Always write `$$(` with no space, and write every occurrence of a repeated place
 Only **`QUERY`** replacements register their query with the filter bar (LABEL ones are skipped). So **a chart is
 filterable only through its `QUERY` replacements**.
 
-### 2.3 The type set (`ReplacementType`)
+### 2.3 The type set
 
 `type` decides how the fetched value(s) become a JS literal in the emitted `js`. Unknown strings fall back to
 `String`.
@@ -282,7 +282,7 @@ Rule of thumb: axis labels → `String[]`, numeric series → `Integer[]`/`Doubl
 
 **The SQL type does not have to match the declared type — the server coerces.** Before a fetched column value is
 placed into the typed array, it is converted to the element type the replacement declares: any DB `Number` →
-`Integer`/`Long`/`Float`/`Double`/`BigDecimal`, anything → its `toString()` for `String`/`String[]`, `"true"`/
+`Integer`/`Long`/`Float`/`Double`/`BigDecimal`, anything → its text form for `String`/`String[]`, `"true"`/
 `"false"` text → `Boolean`. So an `INTEGER` column bound as `Double[]` just works, and a numeric-looking text
 column bound as `Integer[]` works too. What is **not** coerced: a genuinely non-numeric value for a numeric type
 (it fails and surfaces as a toast, §2.4), and the `Full`/`Json` types (passed through unchanged). Prefer
@@ -304,7 +304,7 @@ gap in the series) and as the string `'null'` inside a `String[]` (a category or
 
 ### 2.4 How the server substitutes (the render pipeline)
 
-The chart service builds the rendered script (`getJsChartConfigJson(model, realm, client)`) →
+The chart service builds the rendered script →
 1. **merge** — re-parses `$$()` from `js`, **adds** newly-seen placeholders, **removes** replacements whose name
    no longer appears, and syncs each `type`. Persisted `query`/`columnName`/`value`/`replaceStrategy` survive
    because matching is by `name`. Note what it does **not** re-sync: `group` (Gotcha 1).
@@ -356,7 +356,7 @@ reserves the space, then its JS twin immediately fires a follow-up AJAX request 
 
 ### 2.5 The chart *type* is the JS library, not a field
 
-There is **no** `engine`/`type`/`chartType` field on `ChartJsModel`. What you draw is decided entirely by the
+There is **no** `engine`/`type`/`chartType` field on the chart model. What you draw is decided entirely by the
 code in `js`, using whichever of the **four** charting libraries the chart plugin loads on every page that hosts
 a chart:
 
@@ -378,7 +378,7 @@ a chart:
 > gauge plugin. Chart.js **data labels on bars** need the datalabels plugin → use Plotly/ECharts if you need them.
 
 > ⛔ **The MOUNT and the SELECTOR must be emitted by ONE helper.** `js` reaches its element through
-> `this.$find(sel)`, which is `this.$component().find(sel)` (`RichClass.js`) — **scoped to this chart's own
+> `this.$find(sel)`, which is `this.$component().find(sel)` — **scoped to this chart's own
 > `html`**. Two ways that goes wrong, both of which leave a blank card and speak only in the browser console:
 >
 > 1. **the selector names something the mount does not contain.** `this.$find('div.kpi-plot')[0]` over an
@@ -396,8 +396,7 @@ a chart:
 > canvas-only mount. It is deliberately page-wide, not chart-local, because `$find` falls back to `$('body')`
 > and a sibling HTML plugin may legitimately provide the element.
 
-The editor's **template gallery** ("Start from a template") is **88 ready-made starters** (a classpath catalog
-served by `ChartTemplateService`), **sectioned by engine — Chart.js 29 · Apache ECharts 20 · Plotly 24 ·
+The editor's **template gallery** ("Start from a template") is **88 ready-made starters** (a built-in catalog), **sectioned by engine — Chart.js 29 · Apache ECharts 20 · Plotly 24 ·
 Mermaid 15** — and, within each engine, grouped by category. The category set is per engine and is whatever the
 catalog carries; today: Chart.js `Comparison, Trend, Part-to-whole, Relationship, Distribution, KPI`; ECharts
 the same six plus `Flow, Financial`; Plotly `Part-to-whole, Relationship, Distribution, KPI, Flow, Financial,
@@ -450,7 +449,7 @@ have to map.
 **Rule 2 — a dimension is only worth a FILTER if it has enough distinct values.** **≥ 3** distinct values is the
 floor (the null "— All —" option is added for you, §4.5); the seeding target for a demo is **≥ 4, with ≥ 2 rows
 behind each** ([10](10-database-management.md) "## Seeding demo-grade data into the dump"). A one-option dropdown
-is noise; a lookup that returns **zero** options is worse — `ParamsPanel` drops that control entirely, so the bar
+is noise; a lookup that returns **zero** options is worse — the filter bar drops that control entirely, so the bar
 silently renders one filter fewer than you designed and nothing reports it (§4.5, and §4.6 for how to choose the
 set). Check with `SELECT count(DISTINCT <col>) FROM <schema>.<entity>;` **before** you declare the param. A
 dimension that cannot reach three values should be charted, not filtered on.
@@ -1068,7 +1067,7 @@ WHERE team_project = {name: 'Project name', type: 'dropdown-string',
 > stored value survives a page reload — re-importing the project (which replaces the node) is what clears it.
 
 - `name` — the parameter's name (**this is the string that ties everything together — see §4.2**).
-- `type` — a `FieldType` ([12](12-queries-sources-schedulers-and-rest.md) §9): typed inputs
+- `type` — a field type ([12](12-queries-sources-schedulers-and-rest.md) §9): typed inputs
   (`string`, `number`, `date`, `date-range`, `time`, `datetime`, `datetime-range`, `checkbox` (alias `boolean`);
   full set in [12](12-queries-sources-schedulers-and-rest.md) §9) or a **`dropdown-*`** form (`dropdown-string`,
   `dropdown-instant`). There is **no** bare `instant` type — unknown/typo type strings silently fall back to a
@@ -1090,7 +1089,7 @@ The query's top-level `parameters` map does **not** declare params (the SQL text
 This map is populated **only on the query copy embedded in a chart replacement** (never on the
 standalone `rep-objects.json` query — `query add` always writes `{}`). It renders the chart's default filter
 state; live values live in the session and are persisted back into the chart node when the user filters.
-`QueryDto.Parameter` = `{ "value": <Object> }`.
+Each parameter entry is `{ "value": <Object> }`.
 
 ---
 
@@ -1109,16 +1108,16 @@ boilerplate, `children: []`. It builds its filter controls **at runtime** from t
 ```
 
 How it works:
-- Each chart, on init, fires an `addFieldsToParametersPanel` event carrying the query of every **`QUERY`**
-  replacement. The filter bar's `ParamsPanel` listens, asks the query service for that query's field controls
+- Each chart, on init, announces the query of every **`QUERY`**
+  replacement to the page. The filter bar listens, asks the query service for that query's field controls
   (which parses the SQL placeholders), and renders one input per distinct param (dropdown for `dropdown-*`,
   typed input otherwise).
-- On **submit**, it fires the page-wide `parametersOfQueryHasBeenChanged(changedQueries)` event.
+- On **submit**, it fires a page-wide "parameters changed" event carrying the changed queries.
 - It is also the sink for **click-to-cross-filter** (§5).
 
 > 🔧 **Tooling.** `node add --plugin global.replacement.plugin --parent <page/parsis>` creates it; it is in
 > `NO_CONFIG_SLOT_PLUGINS`, so passing `--model`/`--settings` is **rejected**. Nothing else to author on it —
-> the filtering is entirely emergent from the charts' query params. It **must be on the same Wicket page** as
+> the filtering is entirely emergent from the charts' query params. It **must be on the same page** as
 > the charts (the event bus is page-scoped), or there is no filter UI and cross-filter has no target.
 
 ### 4.2 The contract — one string in five places
@@ -1130,8 +1129,8 @@ Filtering works because the platform matches a **parameter name** across five in
 |---|---|---|
 | SQL placeholder | `{name: '<P>', …}` in the query text | the placeholder processor (declares the param) |
 | chart replacement query's seed | `query.parameters["<P>"]` | the same processor (supplies the value at run time) |
-| filter-bar control | the control's field name `<P>` (auto-derived — you never type it) | `ParamsPanel` |
-| session slot | the per-project param key for `<P>` | `ParamsPanel` (restore across redraws) |
+| filter-bar control | the control's field name `<P>` (auto-derived — you never type it) | the filter bar |
+| session slot | the per-project param key for `<P>` | the filter bar (restore across redraws) |
 | click-to-cross-filter | `crossFilter('<P>', …)` in chart JS | the chart panel → filter bar |
 
 If two charts declare the **same `<P>`** in their (distinct) queries, they filter **together** from one control.
@@ -1139,8 +1138,8 @@ If two charts declare the **same `<P>`** in their (distinct) queries, they filte
 ### 4.3 The re-run event chain
 
 ```
-filter control edited → ParamsPanel sets param.value on every bound QueryDto (+ writes session)
-submit → the filter bar fires  parametersOfQueryHasBeenChanged(changedQueries)
+filter control edited → the filter bar sets param.value on every bound query (+ writes session)
+submit → the filter bar fires the page-wide "parameters changed" event (changedQueries)
        → each chart: if one of its replacement queries is in the changed set → save the node + refresh
        → the chart re-renders: each QUERY replacement re-runs WITH the new param → new $$() literals
        → the chart redraws with filtered data
@@ -1155,37 +1154,37 @@ submit → the filter bar fires  parametersOfQueryHasBeenChanged(changedQueries)
   param is passed as a parameter into the next dropdown's lookup query
   ([12](12-queries-sources-schedulers-and-rest.md) §10).
 
-### 4.5 `ParamsPanel` — how the filter controls are actually built (the engine inside the bar)
+### 4.5 How the filter controls are actually built (the engine inside the bar)
 
-The filter-bar plugin is a thin shell around **`ParamsPanel`** (the same panel report queries use) — that panel
+The filter-bar plugin is a thin shell around the **params panel** (the same panel report queries use) — that panel
 is what turns the charts' query params into rendered filter inputs and applies user/click selections back onto
 the queries. Its lifecycle:
 
-1. **Harvest** — each chart, on init, fires `addFieldsToParametersPanel(query)` for every **QUERY** replacement
-   (§4.3). `ParamsPanel` listens and for each query asks the query service for its field controls — the engine
-   that parses the SQL `{name:'…', type:'…', dropDownPopulation:{…}}` placeholders into **`FieldControl`**
-   objects. It also records, in a `field → [queries]` map, **every** query that declares that field — this is
+1. **Harvest** — each chart, on init, announces its query to the page for every **QUERY** replacement
+   (§4.3). The params panel listens and for each query asks the query service for its field controls — the engine
+   that parses the SQL `{name:'…', type:'…', dropDownPopulation:{…}}` placeholders into field
+   controls. It also records, in a `field → [queries]` map, **every** query that declares that field — this is
    how ONE control drives ALL charts sharing the param name (§4.2).
-2. **Render one control per distinct `FieldControl`**, chosen by its **`FieldType`**:
+2. **Render one control per distinct field control**, chosen by its field type:
 
-   | `FieldType` | Rendered control | Notes |
+   | Field type | Rendered control | Notes |
    |---|---|---|
-   | `dropdown-*` (name starts `dropdown`) | `DropDownChoice` | choices from `dropDownPopulation` (§3.1); a null **"— All —"** option (`param.filter.all` bundle) clears the param → **show all** (incl. NULL-column rows). Empty choices → the control is hidden |
-   | `STRING` | `TextField` | free text |
-   | `INTEGER` `LONG` `SHORT` `DOUBLE` `FLOAT` `BIG_DECIMAL` | `NumberTextField` | `type` attr from `FieldType.getControlType()` |
-   | `DATE` | `DatePickerField` | |
-   | `DATE_RANGE` | `DateRangePickerField` | a from/to pair → SQL `BETWEEN` (doc 12 §9) |
-   | `TIME` | `TimePickerField` | |
-   | `DATE_TIME` | `DateTimePickerField` | |
-   | `DATE_TIME_RANGE` | `DateTimeRangePickerField` | |
-   | `CHECKBOX` (alias `boolean`) | `CheckBox` | |
+   | `dropdown-*` (name starts `dropdown`) | dropdown | choices from `dropDownPopulation` (§3.1); a null **"— All —"** option (`param.filter.all` bundle) clears the param → **show all** (incl. NULL-column rows). Empty choices → the control is hidden |
+   | `STRING` | text field | free text |
+   | `INTEGER` `LONG` `SHORT` `DOUBLE` `FLOAT` `BIG_DECIMAL` | number input | numeric-only input |
+   | `DATE` | date picker | |
+   | `DATE_RANGE` | date-range picker | a from/to pair → SQL `BETWEEN` (doc 12 §9) |
+   | `TIME` | time picker | |
+   | `DATE_TIME` | date-time picker | |
+   | `DATE_TIME_RANGE` | date-time range picker | |
+   | `CHECKBOX` (alias `boolean`) | checkbox | |
 
    Every control gets a **`param-control-name`** attribute = the param name with spaces→`_`.
    That attribute is the hook the JS cross-filter badge reads (`DokieActiveFilters`, §5) to show which fields are
    filtered — so a control and its badge stay in sync regardless of whether the value came from the bar or a click.
-3. **On edit** — the control writes the value into **every** bound `QueryDto.parameters[field]`, marks those
+3. **On edit** — the control writes the value into **every** bound query's `parameters[field]`, marks those
    queries changed, and persists the value into the **session** under the per-project param key. On **submit**
-   the shell fires page-wide `parametersOfQueryHasBeenChanged(changedQueries)` (§4.3) → every affected chart re-runs.
+   the shell fires the page-wide "parameters changed" event (§4.3) → every affected chart re-runs.
 4. **Session restore** — on (re)render each control seeds its value from that session slot, so a filter survives
    chart refreshes and page redraws; a deliberately-cleared (`— All —`, value `null`) param is **not** snapped
    back to the first choice.
@@ -1267,7 +1266,7 @@ click to do, and the neighbouring charts keep their marks.
 > param) — never in the chart JS. `>=` degenerates to `=` at the newest period, so that state is always the
 > thinnest: read it first. Not machine-checkable — `validate` never runs your SQL (Gotcha 10).
 
-> ⛔ **The silent partial-coverage trap — declare the SAME `<P>` in EVERY chart's SQL on the page.** `ParamsPanel`
+> ⛔ **The silent partial-coverage trap — declare the SAME `<P>` in EVERY chart's SQL on the page.** The filter bar
 > builds its `field → [queries]` map out of what the charts *harvested* (§4.5 step 1) and pushes an edited value
 > into exactly those queries. A chart whose SQL does not declare `<P>` is simply **not in that list**: it never
 > re-runs, it keeps showing whole-dataset numbers while its neighbours filter, and **nothing reports it** — no
@@ -1284,9 +1283,9 @@ click to do, and the neighbouring charts keep their marks.
 
 **The GROUP-BY exemption — the chart you filter FROM must not filter on itself.** A chart that `GROUP BY`s a
 dimension must **not** declare that dimension as one of its own params; its omission is deliberate, not the
-coverage hole above. The mechanics leave no choice: `ParamsPanel` harvests every chart's query into the
+coverage hole above. The mechanics leave no choice: the filter bar harvests every chart's query into the
 `field → [queries]` map (§4.5 step 1) — the harvesting chart's own query included — and a pick, from the bar or
-from a click, fans the value into **every** query in that list (`applyFilterFromChart`, §5.2 step 2), after which
+from a click, fans the value into **every** query in that list (§5.2 step 2), after which
 each chart holding a changed replacement query re-runs and redraws (§4.3). So a selector that declared `<P>`
 would come back as `WHERE <col> = '<picked>' GROUP BY <col>`: exactly one group — a doughnut that is one solid
 ring, a bar chart with one bar — and the only way back is clicking that single surviving mark again (the toggle,
@@ -1344,7 +1343,7 @@ Four ways this fails, and all four make the control **vanish** rather than raise
   `value`, and `dropDownPopulation:{value:'Value'}` matches nothing (the same trap as Gotcha 2 for `columnName`).
   The mapping then fails, is swallowed, and the choices come back empty;
 - **empty choices → no control** — a lookup returning zero rows (or whose columns did not match) makes
-  `ParamsPanel` drop that field: the bar renders one filter fewer, silently (§4.5);
+  the filter bar drop that field: the bar renders one filter fewer, silently (§4.5);
 - **a name that resolves to no query** fails the whole field-control fetch for that chart's query — an
   *"Error occurred on params panel"* toast, and **none** of that query's params get a control.
 
@@ -1383,10 +1382,10 @@ ordinary filter bar (no parallel mechanism).
    - **Plotly:** bind `plotly_click` → `this.crossFilter('<P>', p.x != null ? p.x : p.label)`.
 2. `crossFilter(field, value)` posts `{field, value}` to the server (and drives the top-of-page progress bar
    until the response lands).
-3. The chart panel re-broadcasts it as the page-wide `applyChartFilter` event.
-4. The filter bar listens for `applyChartFilter` → `ParamsPanel.applyFilterFromChart(field, value)` sets param
+3. The chart panel re-broadcasts it page-wide.
+4. The filter bar picks it up and sets param
    `<P>` on **every page query declaring `<P>`**, writes the session slot, then fires
-   `parametersOfQueryHasBeenChanged` → §4.3 → all matching charts refresh **in the same round-trip**.
+   the "parameters changed" event → §4.3 → all matching charts refresh **in the same round-trip**.
 
 **Toggle/clear:** clicking the same value again (or an empty area → `value = null`) clears the filter. `<P>`
 in the snippet is the same parameter name as in the SQL placeholder (§4.2).
@@ -1577,20 +1576,20 @@ How the chain is actually built, so you can recognise the shape in an export:
   `futureReplacements` chain is not recommended; build "category → subcategory → detail" as **two screens** (or a
   cross-filtered dashboard) rather than a drill chain.
 
-### 5.2 The server side of a click — `applyFilterFromChart` (toggle · fan-out · sync)
+### 5.2 The server side of a click (toggle · fan-out · sync)
 
 When the chart's `onClick` calls `this.crossFilter(field, value)`, the value round-trips to
-`ParamsPanel.applyFilterFromChart(field, value)` (via the `applyChartFilter` event, §5 step 4). What it
+the filter bar (§5 step 4). What it
 does, exactly:
 
 1. **Toggle** — reads the current session value for `field`; `newVal = (value blank OR value == current) ? null :
    value`. So clicking the **same** slice again, or clicking empty space (`value=null`), **clears** the filter.
-2. **Fan-out** — for **every** query registered under `field` in `fieldQueryDtoMap` (i.e. every chart whose SQL
+2. **Fan-out** — for **every** query registered under `field` (i.e. every chart whose SQL
    declares `{name:'field'}`), it sets `query.parameters[field].value = newVal` and collects the ones that actually
    changed. This is why one click filters **all** charts that share the param name.
-3. **Persist + re-run** — writes the session slot `paramKey(field)`, returns the changed queries →
-   `GlobalReplacementPlugin` fires `parametersOfQueryHasBeenChanged(changed)` (§4.3) → each affected chart re-runs its
-   query with the new param and redraws; then `refreshFromChart()` re-renders the bar so the dropdown reflects the
+3. **Persist + re-run** — writes the session slot for the field's param key, collects the changed queries →
+   the filter bar fires the "parameters changed" event (§4.3) → each affected chart re-runs its
+   query with the new param and redraws; then the bar re-renders so the dropdown reflects the
    click, and `DokieActiveFilters.refresh()` (JS) updates every badge's `Field: Value` / clear-(×) state.
 
 > ⚠️ **The clicked VALUE must equal the DB value the param filters on.** `crossFilter('status', label)` sends the
@@ -1607,27 +1606,22 @@ does, exactly:
 reached from a click — and what the platform does and does not give you for it.
 
 **What a chart's JS can ask the SERVER to do — the complete list.** The chart panel's constructor registers
-exactly **two** ajax handlers — `showFutureQuery` and `crossFilter` (two `AjaxEventListener`s in `ChartJsPanel`,
-and nothing else). A `this.ajax({handler:'…'})` under any **other** name still reaches the server, finds no entry
+exactly **two** ajax handlers — `showFutureQuery` and `crossFilter` — and nothing else. A `this.ajax({handler:'…'})` under any **other** name still reaches the server, finds no entry
 in that component's listener map, and is **dropped with a server-side
-`log.warn("No handler for event <name> in component …")`** — no browser error, no toast, no visible effect (the
-ajax-post callback in `ResourceUtils`). And author JS **cannot register a handler**: that map is built in Java
-when the panel is constructed, so nothing you write in `js` can add one.
+warning in the log (`No handler for event <name> in component …`)** — no browser error, no toast, no visible effect.
+And author JS **cannot register a handler**: that map is fixed when the panel is constructed, so nothing you write in `js` can add one.
 
 ⇒ **There is no navigation API. Drilling to another page is ordinary client-side navigation from the chart's own
 `onClick`** — `window.location.href = …`. The rest of this section is about getting the URL and the value right.
 
 **How a content-page URL is formed.** `/<realm>/<alias>/<content-alias path>` ([21](21-homepage-and-redirect.md),
 [01](01-content-model-and-pages.md)), where the alias path is the chain of `alias`es from the root's **children**
-down to the page — the root's own alias is not in it, because matching starts at the root's children
-(`ContentDbServiceImpl.getContentDomain`). It is the same string `Redirect` takes.
+down to the page — the root's own alias is not in it, because matching starts at the root's children. It is the same string `Redirect` takes.
 
 > ⛔ **Never hardcode the `/<realm>/<alias>` prefix into chart JS.** It is not a constant: it is added only when
-> the request arrived on the platform's main project URL — on a custom domain `MrjunCmsViewUtil.retrieveAlias`
-> returns `""` and the pages live at `/<content-alias path>` (the mirror-image strip in
-> `ContentDbServiceImpl.findPageContent` is conditional on the same comparison) — and it is **one** segment, not
-> two, when the tenant's `alias` equals its `realmName` (`PluginPage`, which passes 1 instead of 2 prefix segments
-> for that case). A pasted absolute URL works on your machine and 404s after the first domain change. Derive it
+> the request arrived on the platform's main project URL — on a custom domain the
+> prefix is empty and the pages live at `/<content-alias path>` — and it is **one** segment, not
+> two, when the tenant's `alias` equals its `realmName`. A pasted absolute URL works on your machine and 404s after the first domain change. Derive it
 > from the page you are already on:
 >
 > ```js
@@ -1644,10 +1638,9 @@ down to the page — the root's own alias is not in it, because matching starts 
 **Carrying the clicked value across.** Three routes, only the first of which needs no code on the target page:
 
 1. ✅ **The session param slot — the supported carrier, and it is what makes a drill land pre-filtered.** A
-   cross-filter click does not only touch the current page: `ParamsPanel.applyFilterFromChart` writes the value
-   into the report session under the per-project param key (`NctParamUtils.paramKey(field, project)`), and
-   **every chart seeds each of its query params from that same slot when it initialises**
-   (`ChartJsPanel.onInitialize`). So a chart on **another page** whose SQL declares the **same `<P>`** comes up
+   cross-filter click does not only touch the current page: the filter bar writes the value
+   into the report session under the per-project param key, and
+   **every chart seeds each of its query params from that same slot when it initialises**. So a chart on **another page** whose SQL declares the **same `<P>`** comes up
    already filtered by the click. The drill is therefore "filter, then navigate":
    ```js
    cfg.options.onClick = function (e, els) {
@@ -1676,13 +1669,12 @@ down to the page — the root's own alias is not in it, because matching starts 
      rendered `js` for the literal `.crossFilter(` (§5), and `validate`'s field check greps the same literal, so
      neither the pill nor the lint sees it. Author the cursor + title yourself, as above.
 2. ⛔ **A query string you invent is read by nobody.** `?<P>=<value>` does **not** preset a chart filter: neither
-   `ParamsPanel` nor any chart class ever touches `PageParameters` (no `PageParameters`/`ParameterUtils` reference
-   exists in either). The platform's own page-to-page hand-offs use **fixed** names its own plugins are built to
+   the filter bar nor any chart ever reads URL query parameters. The platform's own page-to-page hand-offs use **fixed** names its own plugins are built to
    read — `group`, `settingsName`, `caller`, `actionId`, `crudId` ([04](04-crud-table-plugin.md),
    [06](06-form-groups-and-mapping.md)). A name of your own only works if a plugin on the target page reads it.
 3. Trailing path segments (`aliasParams`) are collected for a page that declares `aliasParamsMaxCount`
    ([01](01-content-model-and-pages.md) "`siteMapPage` properties") — the platform keeps the unmatched tail
-   instead of 404-ing (`ContentDbServiceImpl.findPageContent`) — but **consuming** them is again up to the target
+   instead of 404-ing — but **consuming** them is again up to the target
    page's plugin. Not a chart mechanism; do not build a drill on it.
 
 **Not supported — do not attempt.** A runtime drill-down via `futureReplacements`/`showFutureQuery`: that opens
@@ -1718,7 +1710,7 @@ background hex. (See also doc 14 §2.2 and — for the full theming model —
   already inherits the theme. ⛔ **But its text and gridlines are NOT theme-aware — you must set them.** The
   bundled build (`chartjs/chart.min.js`, v3.9.1 — the core the plugin injects, §2.5) hardcodes
   `Chart.defaults.color = '#666'` and `Chart.defaults.borderColor = 'rgba(0,0,0,0.1)'`, and **nothing in the
-  platform re-points them per skin** (no `Chart.defaults` assignment exists anywhere in the UI's Java or its own
+  platform re-points them per skin** (no `Chart.defaults` assignment exists anywhere in the UI's code or its own
   static JS). Those two feed everything on the frame: the bundle routes `scale.ticks.color` and `scale.title.color`
   to `color`, `scale.grid.color`/`scale.grid.borderColor` to `borderColor`. `#666` is a comfortable **5.7:1** on
   the light skin and only **2.2–3.1:1** on the four dark ones, and a gridline that is *black at 10 %* is invisible
@@ -1982,7 +1974,7 @@ none of them is visible in a query result — only on screen:
   The header is a `nct.label.plugin`, never text in the markup: it is the one sentence on the dashboard
   a reader actually reads, so it needs a per-locale map ([20](20-localization.md)), which inline html has
   not. Set its **`tagName` to `span`**: the plugin's default tag is `p`
-  (`LocalizedHeaderPropertiesBuilder.withDefault("p")`, and a blank `tagName` also renders `p` —
+  (a blank `tagName` also renders `p` —
   [14](14-plugin-catalog-all.md) §1.4), and the theme's `p{margin-bottom:1rem}` inside a
   `.card-header{padding:.5rem 1rem}` leaves the title sitting on a rem of dead space. The row card's own
   `mb-3` then carries the vertical rhythm, which is strictly better than a page-wide gutter while the page
@@ -2159,7 +2151,7 @@ mrjun.py page add --parent root --name "<Entity> Dashboard" --alias <entity>-das
 ```
 
 **2 — the lookup query for the filter**, before any chart, because the placeholder references it **by name**
-(Gotcha 8). It must be able to return **≥ 3** options or `ParamsPanel` renders a control nobody can use
+(Gotcha 8). It must be able to return **≥ 3** options or the filter bar renders a control nobody can use
 (§2.6 Rule 2, §4.6):
 ```
 mrjun.py query add --name "<P> Lookup" --source <source> --sql \
@@ -2224,7 +2216,7 @@ renders (doc [23](23-distribution-and-known-gaps.md)).
 ## 8. The chart EDITOR — the UI authoring surface (and what each tab writes)
 
 The chart editor opens in a **95 % modal** from the chart node's edit action. **You hand-author the exact same
-`ChartJsModel` it saves** — there is no hidden state. This section maps its UI to the model fields, so it's
+chart model it saves** — there is no hidden state. This section maps its UI to the model fields, so it's
 unambiguous what a complete chart node must contain.
 
 **Layout:**
@@ -2234,8 +2226,7 @@ unambiguous what a complete chart node must contain.
   card sets `model.js` + `model.html` from the starter (its `js` already carries `$$('Name', <single-default>,
   'Type')` markers) and jumps to the JS tab. A brand-new chart (blank `js`) opens on the gallery. **This is the
   fastest correct start: copy a starter's `js`/`html` for your engine, then bind the placeholders.**
-- **Five tabs**, captioned on screen **Html · Javascript · Css · Replacements · Caching** (the config names
-  behind them are `HTML`/`JS`/`CSS`/`REPLACEMENTS`/`CACHING`, each tab can be hidden and one can be preselected;
+- **Five tabs**, captioned on screen **Html · Javascript · Css · Replacements · Caching** (each tab can be hidden and one can be preselected;
   the default is the JS tab, and the §5.1 drill view reuses the same editor with Html/Javascript/Caching hidden).
   Each tab edits exactly one model field:
 
@@ -2267,14 +2258,14 @@ unambiguous what a complete chart node must contain.
   snippet; by hand you just write the `onClick` yourself.
 - **"Show"** — a live preview: renders a real chart from the current model in a popover.
 
-**The Replacements tab in detail** — this is where a `$$()` placeholder becomes a bound `ChartJsReplacement`:
+**The Replacements tab in detail** — this is where a `$$()` placeholder becomes a bound replacement:
 
 - **Every row** shows: the placeholder **`name`** (read-only — it comes from the `$$()`), a **strategy** toggle
   **QUERY**/**LABEL**, and then either the LABEL **`value`** field or the query chooser + a **Configure** link.
   (`type` is not shown — it is taken from arg3 of the `$$()`.) Above the list, a small input + **set max count of
   items** button writes `maxItemsCount` on **every** replacement at once.
 - **QUERY** row → **Configure** opens the **query-configuration pane** beside the list (not a modal), which writes
-  into `replacement.query` (a whole embedded `QueryDto` copy) + `queryIdentifier`, and also holds this
+  into `replacement.query` (a whole embedded query copy) + `queryIdentifier`, and also holds this
   replacement's **`maxItemsCount`**:
   - **Query** — choose/edit the saved query the placeholder pulls from (plus *merge linked source/query* actions
     that re-sync the embedded copy with the saved one).
@@ -2294,7 +2285,7 @@ replacement has `{name, group, type, replaceStrategy, queryIdentifier, query, co
 futureReplacements}` and:
 1. every `$$('name',…)` in `js` has a matching replacement whose `name` equals arg1 **and** whose `group` is the
    `$$(...)` text **byte-for-byte** (the editor keeps these synced live; by hand it's on you — Gotcha 1);
-2. `type` (arg3) equals the replacement's `type` and a real `ReplacementType` (§2.3);
+2. `type` (arg3) equals the replacement's `type` and a real replacement type (§2.3);
 3. QUERY replacements carry the embedded `query` + `queryIdentifier` + `columnName`; LABEL ones carry `value`;
 4. the mount in `html` matches the engine used in `js` (§2.5), and the engine's libraries are the loaded core (⚠ box in §2.5);
 5. any container styling lives in **`cssByTheme`** — keys `"*"` and/or exact theme names, plain selectors, theme
@@ -2520,7 +2511,7 @@ Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line
 11. **Config lives in `properties.Javascript`, never `model`/`settings`.** `node add --plugin chart.js.plugin`
     auto-routes; `node set-model` would write the wrong slot.
 12. **The Caching tab works — but it is result CACHING, not a refresh schedule.** Setting a cron on the tab
-    writes `model.schedule` **and copies that same `ScheduleDto` onto every replacement's embedded
+    writes `model.schedule` **and copies that same schedule onto every replacement's embedded
     `query.schedule`**. That copy is what does the work: when the query service runs a query that carries a
     schedule expression, it **stores the result** and serves every later identical run from that store instead of
     hitting the database. So the observable effect is: **the first render pays for the SQL, subsequent renders are
@@ -2548,7 +2539,7 @@ Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line
     `html` MUST be a **`position:relative` div with an explicit height** (`<div style="position:relative;height:320px;">
     <canvas></canvas></div>`). Omit the height and the chart collapses to **0 px and shows blank** — a layout bug that
     looks exactly like a data/binding failure but isn't.
-15. **The chart type is not a field.** There is no `type`/`engine`/`chartType` on `ChartJsModel` (§2.5); what draws is
+15. **The chart type is not a field.** There is no `type`/`engine`/`chartType` on the chart model (§2.5); what draws is
     decided by the JS you write (`new Chart(ctx,{type:'…'})` / `Plotly.newPlot` / `echarts.init`). To change a chart's
     type you edit its `js`, not a setting.
 16. ⛔ **Chart text is a LOCALIZATION DEAD ZONE.** A chart's config is **one non-localized string** in the node's
@@ -2582,7 +2573,7 @@ Nested Doughnut, Scatter with Trendline, Multi-Series Radar, Stacked Bars + Line
 
 21. **⛔ What must be valid JavaScript is the SUBSTITUTED `js`, not the text you authored.** The panel does
     `js.replace(group, value)` for every replacement and then hands the result to **`new Function(js)`**
-    (`ChartJsServiceImpl.replaceJs` → `ChartJsPanel.renderChartConfig`). So a config assembled by string
+    So a config assembled by string
     concatenation — the normal way a generator builds `var cfg = { … };` — can be **one brace short** and still
     pass every offline gate: the JSON is valid, `group` is a byte-for-byte substring (Gotcha 1 is happy), the
     export imports **0 errors**, the page loads, the query runs. The only symptom is in the browser console:

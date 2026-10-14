@@ -13,7 +13,7 @@ Namely:
 | `queries` | Saved SQL queries (used by dynamic-CRUD SQL methods, dropdown/tree-picker rules, charts) | `admin.query.plugin` / `admin.queries.plugin` | [Queries](#1-queries) |
 | `sources` | DB connection config (host/port/db/schema/user/password) | `admin.sources.plugin` | [Sources](#2-sources) |
 | `schedulers` | Cron jobs: "check predicate → run rule" — the action rule may write rows, notify, or OPEN A CASE (§3.2c) | `admin.schedulers.plugin` | [Schedulers](#3-schedulers) |
-| `roleGroups` | Role groups (a set of `ReportRole`) | `admin.rolegroup.management.plugin` | [Role groups](#4-rolegroups) |
+| `roleGroups` | Role groups (a set of roles) | `admin.rolegroup.management.plugin` | [Role groups](#4-rolegroups) |
 | `userRoleGroupAssignments` | "user ↔ role group" binding | `admin.user.management.plugin` | [User assignments](#5-userrolegroupassignments) |
 | `settings` | Mirror of CRUD-table / CRUD-tree / Process-table configs (keyed by node `uniqueIdentifier`) | (no separate plugin — written from CrudTable/CrudTree/ProcessTable) | [Settings](#6-settings) |
 | `mailTemplates` | HTML email templates (GrapesJS) | `messaging.mail.templates.plugin` | [Mail templates](#7-mailtemplates) |
@@ -43,7 +43,7 @@ much smaller tail points at the **RIMM** source: the default platform lookups sh
 
 ### 1.1 Export shape
 
-`rep-objects.json → .queries` is an **array** of `QueryDto`. Schema (every key the exporter emits):
+`rep-objects.json → .queries` is an **array** of query objects. Schema (every key the exporter emits):
 
 ```
 {
@@ -62,13 +62,13 @@ much smaller tail points at the **RIMM** source: the default platform lookups sh
   "aggregations": { "aggregations": null, "groupByList": [], "orderByList": [] },
   "wrapInPaging": null,                       // Boolean — whether to auto-wrap in LIMIT/OFFSET
   "statementTimeoutSeconds": null,            // Integer — SQL timeout
-  "schedule": null,                           // ScheduleDto — schedule for running the query (see §3)
+  "schedule": null,                           // schedule object — schedule for running the query (see §3)
   "lastScheduledTime": null,                  // Instant — runtime state
   "hidden": null                              // Boolean
 }
 ```
 
-`QueryEntity` (`nct-query/.../entity/QueryEntity.java`) stores this in the `rep_query` table: `name` (NOT NULL),
+The platform stores this in the `rep_query` table: `name` (NOT NULL),
 `query` (column `r_query TEXT`, NOT NULL), `sourceIdentifier` (column `source_identifier`, NOT NULL),
 `hidden`. Unique indexes on `(realm,client,name)` and `(realm,client,identifier)` — **the query name is unique
 within a project** (important for the `crud_<alias>_<method>` convention).
@@ -130,25 +130,25 @@ An example query running against a RIMM source (from `empty/rep-objects.json`, t
 
 ### 1.3 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `identifier` | String (UUID) | Stable query ID. This is exactly what goes into the CRUD SQL method's `queryIdentifier` | yes | — | `AbstractSecuredDto.identifier` |
-| `name` | String | Name. `@NotBlank`, **unique** in the project. For CRUD methods it is generated as `crud_<alias>_<method>` (see gotcha) | yes | — | `QueryDto.name` |
-| `query` | String | SQL. `@NotBlank`. Placeholders of the form `{name: 'x', type: 'y'}` (see §1.4, §9) | yes | — | `QueryDto.query` |
-| `sourceIdentifier` | String (UUID) | `identifier` of the source to run the SQL on | yes (otherwise nowhere to send it) | null | `QueryDto.sourceIdentifier` |
-| `offset` | Long | Default paging offset | no | `0` | `QueryDto.getOffset()` |
-| `itemsPerPage` | Long | Default page size | no | `20` | `QueryDto.getItemsPerPage()` |
-| `parameters` | Map<String,{`value`:Object}> | Saved query parameter values (for preview/charts). For CRUD methods it is **always `{}`** — values arrive at runtime | no | `{}` (`LinkedHashMap`) | `QueryDto.getParameters()`, `QueryDto.Parameter` |
-| `attributes` | Map<String,String> | Arbitrary string attributes | no | `{}` (`HashMap`) | `QueryDto.getAttributes()` |
-| `aggregations` | `QueryAggregationsDto` | Group-by / order-by / aggregations (for charts). For CRUD an **empty skeleton**. See §11 | no | `{aggregations:null, groupByList:[], orderByList:[]}` | `QueryDto.getAggregations()` |
-| `aggregations.aggregations` | List<`Aggregation`>\|null | List of aggregations (`{aggCol,as,aggType}`) | no | `null` | `QueryAggregationsDto.aggregations` |
-| `aggregations.groupByList` | List<`GroupBy`> | GROUP BY (`{col}`) | no | `[]` | `QueryAggregationsDto.groupByList` |
-| `aggregations.orderByList` | List<`OrderBy`> | ORDER BY (`{col}`) | no | `[]` | `QueryAggregationsDto.orderByList` |
-| `wrapInPaging` | Boolean\|null | Wrap SQL in auto LIMIT/OFFSET. In exports always `null` (paging is set manually inside the SQL) | no | `null` | `QueryDto.wrapInPaging` |
-| `statementTimeoutSeconds` | Integer\|null | SQL execution timeout, sec | no | `null` | `QueryDto.statementTimeoutSeconds` |
-| `schedule` | `ScheduleDto`\|null | Auto-run schedule of the query itself (structure — see §3) | no | `null` | `QueryDto.schedule` |
-| `lastScheduledTime` | Instant\|null | Runtime: last scheduled run | no | `null` | `QueryDto.lastScheduledTime` |
-| `hidden` | Boolean\|null | Hide from the UI list | no | `null` | `QueryDto.hidden` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `identifier` | String (UUID) | Stable query ID. This is exactly what goes into the CRUD SQL method's `queryIdentifier` | yes | — |
+| `name` | String | Name. Must not be blank, **unique** in the project. For CRUD methods it is generated as `crud_<alias>_<method>` (see gotcha) | yes | — |
+| `query` | String | SQL. Must not be blank. Placeholders of the form `{name: 'x', type: 'y'}` (see §1.4, §9) | yes | — |
+| `sourceIdentifier` | String (UUID) | `identifier` of the source to run the SQL on | yes (otherwise nowhere to send it) | null |
+| `offset` | Long | Default paging offset | no | `0` |
+| `itemsPerPage` | Long | Default page size | no | `20` |
+| `parameters` | Map<String,{`value`:Object}> | Saved query parameter values (for preview/charts). For CRUD methods it is **always `{}`** — values arrive at runtime | no | `{}` |
+| `attributes` | Map<String,String> | Arbitrary string attributes | no | `{}` |
+| `aggregations` | object | Group-by / order-by / aggregations (for charts). For CRUD an **empty skeleton**. See §11 | no | `{aggregations:null, groupByList:[], orderByList:[]}` |
+| `aggregations.aggregations` | List<object>\|null | List of aggregations (`{aggCol,as,aggType}`) | no | `null` |
+| `aggregations.groupByList` | List<object> | GROUP BY (`{col}`) | no | `[]` |
+| `aggregations.orderByList` | List<object> | ORDER BY (`{col}`) | no | `[]` |
+| `wrapInPaging` | Boolean\|null | Wrap SQL in auto LIMIT/OFFSET. In exports always `null` (paging is set manually inside the SQL) | no | `null` |
+| `statementTimeoutSeconds` | Integer\|null | SQL execution timeout, sec | no | `null` |
+| `schedule` | object\|null | Auto-run schedule of the query itself (structure — see §3) | no | `null` |
+| `lastScheduledTime` | Instant\|null | Runtime: last scheduled run | no | `null` |
+| `hidden` | Boolean\|null | Hide from the UI list | no | `null` |
 
 > **Important:** for generated CRUD queries these fields never vary — `parameters == {}`, `attributes == {}`,
 > `wrapInPaging == null`, `schedule == null`, `statementTimeoutSeconds == null`, `itemsPerPage == 20`,
@@ -160,7 +160,7 @@ An example query running against a RIMM source (from `empty/rep-objects.json`, t
 ### 1.4 Placeholders in SQL — not in `parameters`, but right in the text
 
 Query parameters are **embedded in the SQL text** as `{name: 'paramName', type: 'sqlType'}`, NOT in the
-`parameters` field (which is for saved preview values). Full Replacement syntax (`Replacement.java`):
+`parameters` field (which is for saved preview values). Full placeholder syntax:
 
 ```
 {name: 'paramName', type: 'sqlType', defaultValue: '...', dropDownPopulation: {...}}
@@ -173,11 +173,10 @@ integer   string   jsonb   boolean   instant   bigdecimal   date
 ```
 
 ⚠️ Note: `jsonb`, `instant`, `bigdecimal` are **raw SQL types from the CRUD generator**; they are
-NOT `FieldType.name` names (there is no `FieldType` constant named `jsonb`; the closest to `instant` is
+NOT `FieldType` names (there is no `FieldType` constant named `jsonb`; the closest to `instant` is
 `dropdown-instant`). They are resolved by the dynamic-CRUD generation path, not by the report parametric
-`FieldType.findByName`. For CRUD methods, write exactly the raw column types. The full `FieldType` reference
-(for report/chart parameters) — see [§9](#9-placeholders--fieldtype-reference). Placeholder processing —
-`PlaceholderProcessorServiceImpl` in `nct-query` (see §15). The correspondence "placeholder name ↔ CRUD-method
+`FieldType` lookup by name. For CRUD methods, write exactly the raw column types. The full `FieldType` reference
+(for report/chart parameters) — see [§9](#9-placeholders--fieldtype-reference). Placeholder processing — see §15. The correspondence "placeholder name ↔ CRUD-method
 parameter" is described in [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md)
 (method `parameters[].parameterName` = placeholder name; `rowsInPage`/`pageNumber` for paging are
 standard names).
@@ -202,7 +201,7 @@ RIMM, so its six `crud_users_*` queries carry the RIMM `sourceIdentifier`, not t
 
 ### 2.1 Export shape
 
-`rep-objects.json → .sources` is an **array** of `SourceDto`:
+`rep-objects.json → .sources` is an **array** of source objects:
 
 ```
 {
@@ -260,24 +259,24 @@ This `identifier` is what nearly every query's `sourceIdentifier` points at, as 
 
 ### 2.3 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `identifier` | String (UUID) | Stable source ID. Referenced by query.`sourceIdentifier` and CRUD.`sourceIdentifier` | yes | — | `AbstractSecuredDto.identifier` |
-| `name` | String | Source name. `@NotBlank`. For an internal schema = the schema name (`app_schema`). RIMM sources are named with a `RIMM_` prefix | yes | — | `SourceDto.name` |
-| `description` | String | Description | no | null | `SourceDto.description` |
-| `hostName` | String | Postgres host. `@NotBlank`. Overwritten on import (see §2.4) | yes | — | `SourceDto.hostName` |
-| `port` | Integer | Port. `@NotBlank` (validator on Integer) | yes | — | `SourceDto.port` |
-| `dbName` | String | DB name. `@NotBlank`. Remapped to the new project DB on import (see §2.4) | yes | — | `SourceDto.dbName` |
-| `schemaName` | String | Schema within the DB. `@NotBlank` | yes | — | `SourceDto.schemaName` |
-| `userName` | String | DB user. `@NotBlank`. Overwritten on import for INTERNAL | yes | — | `SourceDto.userName` |
-| `password` | String | Password (hex-encrypted). Overwritten on import for INTERNAL | no | null | `SourceDto.password` |
-| `dbType` | enum `DbType` | DB type. `@NotNull`. The only value — `POISTGRESQL` (the typo in the enum name is canonical!) | yes | — | `SourceDto.dbType`, `DbType.java` |
-| `sourceType` | enum `SourceType` | `INTERNAL` \| `EXTERNAL` \| `INTEGRATION` \| `SYSTEM` | no | `INTERNAL` | `SourceDto.sourceType`, `SourceType.java` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `identifier` | String (UUID) | Stable source ID. Referenced by query.`sourceIdentifier` and CRUD.`sourceIdentifier` | yes | — |
+| `name` | String | Source name. Must not be blank. For an internal schema = the schema name (`app_schema`). RIMM sources are named with a `RIMM_` prefix | yes | — |
+| `description` | String | Description | no | null |
+| `hostName` | String | Postgres host. Must not be blank. Overwritten on import (see §2.4) | yes | — |
+| `port` | Integer | Port. Required | yes | — |
+| `dbName` | String | DB name. Must not be blank. Remapped to the new project DB on import (see §2.4) | yes | — |
+| `schemaName` | String | Schema within the DB. Must not be blank | yes | — |
+| `userName` | String | DB user. Must not be blank. Overwritten on import for INTERNAL | yes | — |
+| `password` | String | Password (hex-encrypted). Overwritten on import for INTERNAL | no | null |
+| `dbType` | enum | DB type. Required. The only value — `POISTGRESQL` (the typo in the enum name is canonical!) | yes | — |
+| `sourceType` | enum | `INTERNAL` \| `EXTERNAL` \| `INTEGRATION` \| `SYSTEM` | no | `INTERNAL` |
 
-`DbType.POISTGRESQL` (`DbType.java`): displayName `"Postgresql"`, id `"postgresql_database"`, JDBC url
+`dbType` = `POISTGRESQL`: displayName `"Postgresql"`, id `"postgresql_database"`, JDBC url
 `jdbc:postgresql://<host>:<port>/<db>`. This is the **only** enum constant — no MySQL/Oracle/etc.
 
-`SourceType` (`nct-transfer/.../dto/SourceType.java`):
+`sourceType` values:
 - `INTERNAL` — the project schema with user data; credentials are overwritten/synced on import.
 - `EXTERNAL` — an external third-party DB; the credentials belong to the user and are **never rotated**.
 - `INTEGRATION` — the integration-container schema (Liquibase pod); **excluded from the export** (recreated when the integration is deployed). A project whose CHARTS read that schema declares the source in `integrations.json.dataSourceIdentifiers`, and the import binds it to the target's own integration schema — see point 6 below and [00 §9](00-export-format-and-import.md).
@@ -285,14 +284,14 @@ This `identifier` is what nearly every query's `sourceIdentifier` points at, as 
 
 ### 2.4 What happens to sources on import (critical for building)
 
-`CmsProjectServiceImpl` (import, `nct-ui/.../CmsProjectServiceImpl.java`):
+On import:
 
-1. **RIMM sources are excluded**: `sourcesToImport = qss.getSources().filter(name == null || !name.startsWith("RIMM_"))`. So the RIMM source **must not be put in the export** — it is recreated, and `project-db-meta.json` has a `rimmSourceIdentifier`, while queries reference the old RIMM `identifier` (see gotcha).
+1. **RIMM sources are excluded**: any source whose name starts with `RIMM_` is skipped. So the RIMM source **must not be put in the export** — it is recreated, and `project-db-meta.json` has a `rimmSourceIdentifier`, while queries reference the old RIMM `identifier` (see gotcha).
 2. **dbName is remapped**: the old `dbName` (from `project-db-meta.json.databaseName`) is replaced by the name of the new project DB.
-3. **INTERNAL credentials are rewritten**: `userName`/`password` of INTERNAL sources are replaced with the assigned project-level role (`s.getSourceType()==INTERNAL ? toBuilder().userName(un).password(pw) : s`). Whatever password string sits in the export is **ignored** on import. `EXTERNAL` — credentials are kept as-is.
+3. **INTERNAL credentials are rewritten**: `userName`/`password` of INTERNAL sources are replaced with the assigned project-level role. Whatever password string sits in the export is **ignored** on import. `EXTERNAL` — credentials are kept as-is.
 4. **hostName** is normalized by the execution platform after import.
 5. **SYSTEM/INTEGRATION sources** are created in place (filter them out on export), they are not in the export.
-6. **Integration data sources are rebound** (`bindIntegrationDataSources`, after the integrations are RUNNING):
+6. **Integration data sources are rebound** (after the integrations are RUNNING):
    every source identifier listed in `integrations.json.dataSourceIdentifiers` is pointed at THIS tenant's
    `int_<realm>_<client>_<id>` schema — the imported row is repointed (host/port/db/schema/user/password), or
    recreated under the same identifier if the donor's row was an `INTEGRATION` one. Queries and chart embeds
@@ -312,18 +311,17 @@ anyway. Only `identifier`, `name`, `schemaName`, `sourceType=INTERNAL`, `dbType=
 > `schedulers`, `pluginName:"siteMapPage"`, `uniqueIdentifier` `befacaf8-19b6-4c63-aca3-128265e78d9e` in
 > `empty/branches.json`) — a canonical typo to preserve (cross-ref [01-content-model-and-pages.md](01-content-model-and-pages.md)
 > / [14-plugin-catalog-all.md](14-plugin-catalog-all.md)). It is **only** a content-tree page-node display name; there
-> is **zero** `Scheduelr` in any Java identifier
-> (grep = 0 hits). Do not confuse it with the rep-object `schedulers[]` described here.
+> is **zero** `Scheduelr` anywhere else in the platform. Do not confuse it with the rep-object `schedulers[]` described here.
 
 ### 3.1 Export shape
 
-`rep-objects.json → .schedulers` is an **array** of `ScheduleDto` (persisted as `ScheduleEntity`, table
+`rep-objects.json → .schedulers` is an **array** of schedule objects (stored in the table
 `rep_schedule`). **Most projects export it empty (`[]`)** — cron triggers are rare, so you will seldom see a
-live example. The schema below is nonetheless **confirmed field-for-field** against `ScheduleEntity`
-(`nct-schedule/.../entity/ScheduleEntity.java`) and `ScheduleDto` (`nct-transfer/.../ScheduleDto.java`):
-`job` and `cooldownJob` are stored as **`jsonb`** columns (`ScheduleEntity.java`), so in the export
-they really are the nested `{expression,explanation,cronType}` objects shown here. (The entity also carries a
-**vestigial** top-level `expression` String column, `ScheduleEntity.java`, that the DTO does NOT have and
+live example. The schema below is nonetheless **confirmed field-for-field** against the platform's stored schedule row and
+the export object:
+`job` and `cooldownJob` are stored as **`jsonb`** columns, so in the export
+they really are the nested `{expression,explanation,cronType}` objects shown here. (The stored row also carries a
+**vestigial** top-level `expression` String column that the export object does NOT have and
 that never appears in the export — registration reads `job.expression`, not it.)
 
 ```
@@ -348,22 +346,22 @@ that never appears in the export — registration reads `job.expression`, not it
 ```
 
 > ⛔ **COPY THIS BLOCK FIELD FOR FIELD. Every wrong name fails SILENTLY.** The import deserialises
-> with `FAIL_ON_UNKNOWN_PROPERTIES=false` (`nct-ui JacksonConfig`), and this is the one export object
+> with `FAIL_ON_UNKNOWN_PROPERTIES=false`, and this is the one export object
 > with **no live reference to check yourself against** — every shipped `.mrjun` carries
 > `schedulers: []`. So a plausible-looking invented key is simply dropped, the scheduler imports, it
 > appears in the list with its name and its two rules, and only the field it was meant to fill is
 > empty. Observed for real on a live build (2026-08), all four at once:
 >
-> | written | what ScheduleDto actually has | consequence of getting it wrong |
+> | written | what the schedule object actually has | consequence of getting it wrong |
 > |---|---|---|
-> | `cronExpression: "0 0 8 * * ?"` | `job: {expression, explanation, cronType}` | `job` stays null → `CronServiceImpl.registerSchedule` logs *"has no cron expression, skipping cron registration"* → **the schedule never fires, ever** |
+> | `cronExpression: "0 0 8 * * ?"` | `job: {expression, explanation, cronType}` | `job` stays null → registration logs *"has no cron expression, skipping cron registration"* → **the schedule never fires, ever** |
 > | *(omitted)* | `actionType: "RUN_RULE"` | the editor's Action Type dropdown is `setNullValid(false)` → renders **empty**, and the scheduler cannot be saved from the UI without re-picking it |
 > | `description: "…"` | — (no such field) | the description is gone |
-> | `contextIdentifiers: [...]` | — (no such field) | harmless, but it signals a real misunderstanding: a scheduler rule runs HEADLESS. `SchedulerExecutionServiceImpl` builds `ExecuteRequest` from the rule id + service user only, so **the context is attached to the RULE**, never to the schedule |
+> | `contextIdentifiers: [...]` | — (no such field) | harmless, but it signals a real misunderstanding: a scheduler rule runs HEADLESS. The scheduler builds the rule execution request from the rule id + service user only, so **the context is attached to the RULE**, never to the schedule |
 > | `lastRunTime: null` | `lastActionTime` / `lastPredicateCheckTime` | nothing |
 >
-> And the cron above is doubly wrong: `?` is a **Quartz** token and this runtime is Spring
-> `CronTrigger` — see the dialect note below. `mrjun.py validate` now ERRORs on all of it: an unknown
+> And the cron above is doubly wrong: `?` is a **Quartz** token and this runtime uses the Spring
+> cron dialect — see the dialect note below. `mrjun.py validate` now ERRORs on all of it: an unknown
 > key, a missing `job.expression`, and an `actionType` that is not `RUN_RULE`.
 
 > ⚠️ The obsolete concept doc `scheduled-jobs.md` describes a scheduler as cron→`ruleIdentifier`/
@@ -374,45 +372,42 @@ that never appears in the export — registration reads `job.expression`, not it
 
 ### 3.2 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `identifier` | String (UUID) | Schedule ID | yes | — | `AbstractSecuredDto.identifier` |
-| `name` | String | Name. **UNIQUE per project** — a unique index on realm+client+name (`ScheduleEntity`). Two schedulers carrying the same non-null `name` in one export make the second save throw on import, and schedulers are saved BEFORE workflows/rules/contexts/forms/settings/templates, so everything after them is silently skipped | no (null is legal; if set, must be unique) | null | `ScheduleDto.name` |
-| `job` | `CronJob` | Main run schedule | yes | `new CronJob()` (getter lazy) | `ScheduleDto.job` |
-| `job.expression` | String | Cron string, **Spring `SPRING53` 6-field** `sec min hour dom mon dow` (see cron-dialect note below) | yes (blank → not registered) | null | `CronJob.expression` |
-| `job.explanation` | String | Human-readable description | no | null | `CronJob.explanation` |
-| `job.cronType` | enum `CronType` | Preset (see below) | no | null | `CronJob.cronType` |
-| `predicateIdentifier` | String (UUID) | Predicate rule: if true → run the action. **Must be a `PREDICATE`-type rule** (UI restricts to `RuleType.PREDICATE`, `SchedulerFormEditorPanel.java`; its result is read via `response.extractBooleanResult()`, `SchedulerExecutionServiceImpl.java`). Point it at a non-`PREDICATE` rule and the result is non-boolean/blank → predicate false → the action silently never fires. **Blank/null ⇒ defaults to `true`** (`evaluatePredicate`) → action fires on EVERY tick (subject to cooldown), NOT "never" | no | null | `ScheduleDto.predicateIdentifier` |
-| `actionType` | enum `ActionType` | The only value — `RUN_RULE` | no | null | `ScheduleDto.actionType`, `ActionType.java` |
-| `actionRuleIdentifier` | String (UUID) | Execution rule to run. **Must be an `EXECUTION_RULE`** (UI restricts to `RuleType.EXECUTION_RULE`, `SchedulerFormEditorPanel.java`) | no | null | `ScheduleDto.actionRuleIdentifier` |
-| `cooldownJob` | `CronJob` | Cooldown. `cooldownJob.expression` is a CRON whose **next fire time** becomes `cooldownUntil` (`computeCooldownUntil`) — a next-fire timestamp, **not a duration**. Blank ⇒ no cooldown | no | `new CronJob()` | `ScheduleDto.cooldownJob` |
-| `enabled` | boolean | Whether it is enabled | no | `false` | `ScheduleDto.enabled` |
-| `cooldownUntil` | Instant | Runtime | no | null | `ScheduleDto.cooldownUntil` |
-| `lastActionTime` | Instant | Runtime | no | null | `ScheduleDto.lastActionTime` |
-| `lastPredicateCheckTime` | Instant | Runtime | no | null | `ScheduleDto.lastPredicateCheckTime` |
-| `serviceUserId` | String | **Execution identity for BOTH hops** — copied into `ExecuteRequest.userId` for the predicate REST call (`SchedulerExecutionServiceImpl.java`) and forwarded in the Kafka `SchedulerActionMessage` → executor `ExecuteRequest.userId` (`KafkaConsumer.java`). If the action/predicate rule calls `service.security.user()` or any user-scoped context, set this — blank ⇒ null principal | no | null | `ScheduleDto.serviceUserId` |
-| `serviceUserEmail` | String | Execution-identity email (same two hops, `SchedulerExecutionServiceImpl.java`, `KafkaConsumer.java`) | no | null | `ScheduleDto.serviceUserEmail` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `identifier` | String (UUID) | Schedule ID | yes | — |
+| `name` | String | Name. **UNIQUE per project** — a unique index on realm+client+name. Two schedulers carrying the same non-null `name` in one export make the second save throw on import, and schedulers are saved BEFORE workflows/rules/contexts/forms/settings/templates, so everything after them is silently skipped | no (null is legal; if set, must be unique) | null |
+| `job` | object | Main run schedule | yes | empty `{expression,explanation,cronType}` object |
+| `job.expression` | String | Cron string, **Spring `SPRING53` 6-field** `sec min hour dom mon dow` (see cron-dialect note below) | yes (blank → not registered) | null |
+| `job.explanation` | String | Human-readable description | no | null |
+| `job.cronType` | enum | Preset (see below) | no | null |
+| `predicateIdentifier` | String (UUID) | Predicate rule: if true → run the action. **Must be a `PREDICATE`-type rule** (the UI restricts the picker to `PREDICATE` rules; its result is read as a boolean). Point it at a non-`PREDICATE` rule and the result is non-boolean/blank → predicate false → the action silently never fires. **Blank/null ⇒ defaults to `true`** → action fires on EVERY tick (subject to cooldown), NOT "never" | no | null |
+| `actionType` | enum | The only value — `RUN_RULE` | no | null |
+| `actionRuleIdentifier` | String (UUID) | Execution rule to run. **Must be an `EXECUTION_RULE`** (the UI restricts the picker to `EXECUTION_RULE` rules) | no | null |
+| `cooldownJob` | object | Cooldown. `cooldownJob.expression` is a CRON whose **next fire time** becomes `cooldownUntil` — a next-fire timestamp, **not a duration**. Blank ⇒ no cooldown | no | empty `{expression,explanation,cronType}` object |
+| `enabled` | boolean | Whether it is enabled | no | `false` |
+| `cooldownUntil` | Instant | Runtime | no | null |
+| `lastActionTime` | Instant | Runtime | no | null |
+| `lastPredicateCheckTime` | Instant | Runtime | no | null |
+| `serviceUserId` | String | **Execution identity for BOTH hops** — copied into the execution request's user id for the predicate call and forwarded in the Kafka action message → the executor's execution request. If the action/predicate rule calls `service.security.user()` or any user-scoped context, set this — blank ⇒ null principal | no | null |
+| `serviceUserEmail` | String | Execution-identity email (same two hops) | no | null |
 
 > **⚠️ Cron dialect — Spring `SPRING53`, NOT Quartz.** The runtime parses cron with cron-utils
-> `CronType.SPRING53` (`nct-schedule SchedulerExecutionServiceImpl.computeCooldownUntil`) and registers
-> `job.expression` via `org.springframework.scheduling.support.CronTrigger` (**`nct-schedule`** `CronServiceImpl`
-> — there is ALSO an `nct-ui` `CronServiceImpl`, so always name the module). 6-field `sec min hour dom mon dow`; use
+> type `SPRING53` and registers
+> `job.expression` through the Spring cron trigger. 6-field `sec min hour dom mon dow`; use
 > `*` and named days (`MON-FRI`). Quartz-only tokens `?` and `L` **fail**.
 > **Ignore the platform's own scheduler notes** — its Quartz examples (`0 0 2 * * ?`, `L`, "Quartz format") are wrong for this
 > path, and it invents `taskType`/`TaskExecutor`/`CronValidator`/`ScheduleExecution`/`/api/schedules` — none of which exist.
 >
-> **Registration gate** (correcting any "scheduled()" notion — no such method exists): a schedule is registered only
-> if `enabled==true` AND `job.expression` is non-blank (`nct-schedule CronServiceImpl.registerSchedule` skips
-> disabled OR blank, then wires a `CronTask`); on startup only `enabled==true` schedules are loaded
-> (`BootstrapComponent.init` `@PostConstruct` → `registerAllEnabled` → `findAllByEnabled(true)`).
+> **Registration gate** (there is no "scheduled()" hook): a schedule is registered only
+> if `enabled==true` AND `job.expression` is non-blank (registration skips
+> disabled OR blank schedules); on startup only `enabled==true` schedules are loaded.
 
-`CronType` (`nct-transfer/.../dto/chart/CronType.java`) — 6 presets, each building a cron string
+`cronType` — 6 presets, each building a cron string
 (`sec min hour dom mon dow`) from a single number with min/max validation. These are a **coarse wildcarded UI
 convenience**: e.g. `MINUTE_OF_EVERY_HOUR = "* %s * * * *"` leaves the `sec` field `*`, so it fires **every second
 of that minute**. When hand-authoring, write the full 6-field cron in `job.expression` and leave `cronType=null`.
-`cronType` is only a **UI convenience**: at runtime registration reads `job.getExpression()` directly
-(`CronServiceImpl.registerSchedule`), never `cronType`. (The one method that would apply it,
-`CronJob.init(int)` → `expression = cronType.expression(val)`, `CronJob.java`, has **zero callers** anywhere —
+`cronType` is only a **UI convenience**: at runtime registration reads `job.expression` directly,
+never `cronType`. (Nothing in the platform applies a preset to `expression` —
 so a non-null `cronType` does NOT overwrite a hand-written `expression`. Still, leave it null to avoid confusion.)
 
 | Constant | Template | min | max |
@@ -424,62 +419,58 @@ so a non-null `cronType` does NOT overwrite a hand-written `expression`. Still, 
 | `EVERY_MONTH` | `"* * * * %s *"` | 1 | 12 |
 | `SOME_OTHER` | `"* * * * * %s"` | 0 | 6 |
 
-`ActionType` (`ActionType.java`): the only value `RUN_RULE`.
+`actionType`: the only value `RUN_RULE`.
 
 The scheduler model: "on cron `job.expression` check `predicateIdentifier`; if true — run
-`actionRuleIdentifier` (`actionType=RUN_RULE`); honor `cooldownJob`". Authoring is via `SchedulerPlugin`
-(`admin.schedulers.plugin`) in nct-ui, not via the content tree. About rules (predicate/execution) —
+`actionRuleIdentifier` (`actionType=RUN_RULE`); honor `cooldownJob`". Authoring is via the
+`admin.schedulers.plugin` admin plugin, not via the content tree. About rules (predicate/execution) —
 [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md).
 
 ### 3.2b How a scheduler fires — the two-hop pipeline
 
-The doc-level model "check predicate → run rule" hides a **two-hop, two-transport** pipeline in `nct-schedule` +
-`nct-executor`. A builder debugging "my scheduler doesn't fire" needs the whole path:
+The doc-level model "check predicate → run rule" hides a **two-hop, two-transport** pipeline (scheduler service +
+executor). A builder debugging "my scheduler doesn't fire" needs the whole path:
 
-1. **Startup** — `BootstrapComponent.init()` (`@PostConstruct`) calls `cronService.registerAllEnabled()`
-   which loads only `findAllByEnabled(true)` (`CronServiceImpl.java`).
-2. **Registration gate** — `CronServiceImpl.registerSchedule` skips if `!enabled` OR `job.expression` is
-   blank, else wires a Spring `CronTask(() -> executeSchedule(id), new CronTrigger(expression))`
+1. **Startup** — the scheduler service registers all schedules with `enabled==true` (and only those).
+2. **Registration gate** — registration skips if `!enabled` OR `job.expression` is
+   blank, else wires a Spring cron task for the expression
    — a **live cron trigger**.
-3. **Tick** — `SchedulerExecutionServiceImpl.executeSchedule(id)`: reload → skip if disabled
+3. **Tick** — reload the schedule → skip if disabled
    → skip if `cooldownUntil` is in the future.
-4. **Predicate = SYNCHRONOUS REST to the executor.** `evaluatePredicate` builds an `ExecuteRequest`
-   (`ruleIdentifier=predicateIdentifier`, realm/client, `userId=serviceUserId`, `userEmail=serviceUserEmail`) and
-   calls `executorFeignClient.executeInternal(request)`, then `response.extractBooleanResult()`.
+4. **Predicate = SYNCHRONOUS REST to the executor.** The predicate evaluation builds an execution request
+   (`ruleIdentifier=predicateIdentifier`, realm/client, `userId=serviceUserId`, `userEmail=serviceUserEmail`),
+   sends it to the executor, and reads the boolean result.
    Blank `predicateIdentifier` ⇒ returns `true`; any exception ⇒ `false`.
-5. **Action = ASYNCHRONOUS via Kafka.** If the predicate is true, `fireAction` publishes a `SchedulerActionMessage`
+5. **Action = ASYNCHRONOUS via Kafka.** If the predicate is true, the scheduler publishes an action message
    (`scheduleIdentifier`, `ruleIdentifier=actionRuleIdentifier`, realm/client, `userId`/`userEmail`, `triggerTime`)
-   to topic **`scheduler-execute-action`** = `MessageTopics.Scheduler.EXECUTE_ACTION`
-   (`SchedulerExecutionServiceImpl.java` → `MessageBrokerServiceImpl.sendAction` → `MessageTopics.java`).
-6. **Executor runs the rule.** `nct-executor` `KafkaConsumer.handleSchedulerAction` consumes the topic, rebuilds an
-   `ExecuteRequest` (same rule id + realm/client + `serviceUser*`), and calls `executionService.execute(request)`
-   (`nct-executor/.../kafka/KafkaConsumer.java`). This is the actual "run the `EXECUTION_RULE`" step.
+   to topic **`scheduler-execute-action`**.
+6. **Executor runs the rule.** The executor consumes the topic, rebuilds an
+   execution request (same rule id + realm/client + `serviceUser*`), and executes it. This is the actual "run the `EXECUTION_RULE`" step.
 7. **Cooldown & persist** — sets `lastActionTime=now`, `cooldownUntil = next fire of cooldownJob.expression`
-   (cron-utils `SPRING53`, `computeCooldownUntil`; blank ⇒ null), then saves.
+   (cron-utils `SPRING53`; blank ⇒ null), then saves.
 
-So: **predicate = sync REST (executor Feign)**, **action = async Kafka (executor consumer)** — the action is
-**fire-and-forget** (no result surfaced back to the schedule; success/failure only logged in `nct-executor`). The
+So: **predicate = sync REST (to the executor)**, **action = async Kafka (executor consumer)** — the action is
+**fire-and-forget** (no result surfaced back to the schedule; success/failure only logged in the executor). The
 security identity for BOTH hops is `serviceUserId`/`serviceUserEmail`. Debug checklist: executor reachable (predicate),
 Kafka up and topic consumed (action), predicate returns a real boolean.
 
 ### 3.2c What the action rule receives — and what it may do
 
 The tick carries **no data**, and no user beyond the `serviceUserId`/`serviceUserEmail` stamped on the schedule
-row itself. `KafkaConsumer.handleSchedulerAction` rebuilds the `ExecuteRequest` from `ruleIdentifier` +
-realm/client + `userId`/`userEmail` and **never calls `.contextData(...)`** (`nct-executor/.../kafka/KafkaConsumer.java`),
-so the executor builds a fresh document (`ContextDataDto.builder().attrs(executionVariables).build()`,
-`RuleExecutorReactor.java`) whose `contextDataMap` stays **null**. That one fact dictates the whole shape of the
+row itself. The executor rebuilds the execution request from `ruleIdentifier` +
+realm/client + `userId`/`userEmail` and **never attaches context data**,
+so it builds a fresh document (only `attrs`, taken from the execution variables) whose `contextDataMap` stays **null**. That one fact dictates the whole shape of the
 rule:
 
-| Inside the action rule | State at tick time | Backing |
+| Inside the action rule | State at tick time | Why |
 |---|---|---|
-| `attrs` | **empty map, never null** — `attrs.get('x')` returns null instead of throwing | `ExecuteRequest.executionVariables` defaults to an empty map; `ContextDataDto.getAttrs()` creates one lazily |
-| `param` | empty map — method parameters exist only on the CRUD-GROOVY-method path | `GroovyExecutionRule` builds `paramMap` unconditionally and fills it only from the `__methodParams` marker |
-| `contextDataMap` | **null**, and the binding is never made | `GroovyExecutionRule` puts it in only `if (contextData != null && contextData.getContextDataMap() != null)`; the template's `def contextDataMap` field stays null (`ExecutionRuleTemplate.groovy`), so `contextDataMap['x']` is an NPE on line 1 |
-| `context.<ctx>.data`, `context.<ctx>.<alias>.data` | **throw** — `No context data available for context: <alias>` / `No CRUD data available for CRUD: <alias>` | the empty envelopes are created only when a document exists (`RuleExecutorReactor.enhanceContextDataWithCrudInfo` returns early on a null map; throw sites in `DynamicRuleContext.groovy`) |
-| `service.crud.<alias>.<m>(...)`, `context.<ctx>.<alias>.service.<m>(...)` | **work** — the only way in to business logic | neither one reads the document: `context.<ctx>.<alias>.service` is a `ServiceWrapper` created on demand from the ATTACHED CONTEXT's `crudAliases` (`DynamicRuleContext.groovy`), which is why it still resolves while `.data` on the same chain throws; `service.crud.<alias>` is a separate pair, `ServiceCrudLookup`/`ServiceCrudInvoker`, gated the same way — with NO context attached it resolves against the whole realm/client CRUD registry, with ANY context attached only to that context's `crudAliases` |
-| `service.security.user()`, `hasAnyRole*` / `hasAnyRoleGroup(...)` | all-null user, **every check false** and no error — unless the schedule carries `serviceUserId` | `SecurityHelper` short-circuits to `false` when `userId` is null |
-| the rule's return value | **discarded** | fire-and-forget (§3.2b); an exception is caught into a FAILURE response (`ExecutionServiceImpl.java`), so the tick is consumed — no retry, no dead letter |
+| `attrs` | **empty map, never null** — `attrs.get('x')` returns null instead of throwing | the execution variables default to an empty map, and `attrs` is created lazily |
+| `param` | empty map — method parameters exist only on the CRUD-GROOVY-method path | the parameter map is built unconditionally and filled only from the `__methodParams` marker |
+| `contextDataMap` | **null**, and the binding is never made | the binding is made only when a context data map exists; otherwise the `contextDataMap` variable stays null, so `contextDataMap['x']` is an NPE on line 1 |
+| `context.<ctx>.data`, `context.<ctx>.<alias>.data` | **throw** — `No context data available for context: <alias>` / `No CRUD data available for CRUD: <alias>` | the empty envelopes are created only when a document exists (the enrichment step returns early on a null map) |
+| `service.crud.<alias>.<m>(...)`, `context.<ctx>.<alias>.service.<m>(...)` | **work** — the only way in to business logic | neither one reads the document: `context.<ctx>.<alias>.service` is a service wrapper created on demand from the ATTACHED CONTEXT's `crudAliases`, which is why it still resolves while `.data` on the same chain throws; `service.crud.<alias>` is a separate lookup, gated the same way — with NO context attached it resolves against the whole realm/client CRUD registry, with ANY context attached only to that context's `crudAliases` |
+| `service.security.user()`, `hasAnyRole*` / `hasAnyRoleGroup(...)` | all-null user, **every check false** and no error — unless the schedule carries `serviceUserId` | every check short-circuits to `false` when `userId` is null |
+| the rule's return value | **discarded** | fire-and-forget (§3.2b); an exception is caught into a FAILURE response, so the tick is consumed — no retry, no dead letter |
 
 So the action rule **fetches everything it works on itself**, and it has no caller to report to: its only outputs
 are the ones it takes deliberately — write rows through `service.crud.*`, notify (`service.notification.*` §13, or
@@ -494,7 +485,7 @@ mail arrives, the schedule logs a success, and no worklist ever shows the item.
 <contextDataDocument>[, <options>])` is available in an `EXECUTION_RULE`, which is what makes "the system opens the
 case by itself" a scheduler job: sweep for candidate rows → shape them into a context data document → start the
 workflow → mark the rows so the next tick skips them. It is deliberately **refused in a `PREDICATE`**
-(`WorkflowProxy.unavailableIn("predicates")` → *"service.workflow.start is not available in predicates - they are
+(the error reads *"service.workflow.start is not available in predicates - they are
 evaluated for their answer and must not create work"*), so the gate can never be the rule that starts anything:
 trigger, gate and action stay three separate objects.
 
@@ -525,34 +516,32 @@ are [16-groovy-service-api.md](16-groovy-service-api.md) §2.12.
    OPENS A CASE, the workflow, its `processGroups[]` entry and the method that marks a claimed row must exist before
    the rule quotes their identifiers — build order in
    [27-event-driven-process-start.md](27-event-driven-process-start.md) §3.
-2. Hand-add one `ScheduleDto` to `rep-objects.json → .schedulers[]`: fresh `identifier` UUID; all runtime fields
+2. Hand-add one schedule object to `rep-objects.json → .schedulers[]`: fresh `identifier` UUID; all runtime fields
    `null` (`cooldownUntil`/`lastActionTime`/`lastPredicateCheckTime` — the server nulls these on save anyway,
-   `SchedulerServiceImpl.java`, so a stray value is harmless); point `predicateIdentifier`
+   so a stray value is harmless); point `predicateIdentifier`
    `actionRuleIdentifier` at the rule UUIDs. Remember blank `predicateIdentifier` ⇒ fires every tick (§3.2).
    **Set `enabled=false` unless the trigger is meant to be live the instant the project is imported** — see the
    build-safety warning below.
 
 > ⚠️ **BUILD SAFETY — an imported `enabled:true` scheduler starts firing immediately.** On import each scheduler is
-> saved via `schedulerService.saveBackend`/`save` (`CmsProjectServiceImpl.java`) → `nct-schedule`
-> `SchedulerServiceImpl.save` → `cronService.registerSchedule(saved)` (`SchedulerServiceImpl.java`).
-> `registerSchedule` activates a **live `CronTrigger` whenever `enabled==true` AND `job.expression` is non-blank**
-> (`CronServiceImpl.java`). So a scheduler authored "for later" or "for testing" with a valid cron will run its
+> saved through the scheduler service, which registers it on save.
+> Registration activates a **live cron trigger whenever `enabled==true` AND `job.expression` is non-blank**. So a scheduler authored "for later" or "for testing" with a valid cron will run its
 > action `EXECUTION_RULE` **on the real project, on the configured schedule, the moment the `.mrjun` is imported** — a
 > side-effecting rule (create/update/notify) fires in prod with no further action. Author `enabled=false` unless you
 > intend the trigger to be live on import; the registration gate is `enabled` AND non-blank `job.expression`.
 >
 > **Turning it on afterwards is one click, and it takes effect immediately.** The schedulers screen shows each row's
-> state as an `Enabled` / `Disabled` badge and carries a power button that flips it (`SchedulerPlugin.java`); the flip
-> goes through the ordinary save, and `SchedulerServiceImpl.save → CronServiceImpl.registerSchedule` builds the live
-> `CronTrigger` right there — no restart. Flipping the column directly in the database does NOT work the same way:
+> state as an `Enabled` / `Disabled` badge and carries a power button that flips it; the flip
+> goes through the ordinary save, and the save registers the live
+> cron trigger right there — no restart. Flipping the column directly in the database does NOT work the same way:
 > cron tasks live in an in-memory map inside the scheduler service, so a hand-edited row is only picked up at the next
-> restart of `nct-schedule`. Until it is enabled, nothing is logged and nothing runs — the predicate is never even
+> restart of the scheduler service. Until it is enabled, nothing is logged and nothing runs — the predicate is never even
 > evaluated (`lastPredicateCheckTime` stays `null`), which is exactly what an imported project looks like.
 >
 > ⛔ **A scheduler is the ONLY object in a `.mrjun` whose import leaves the CMS process.** Everything else —
 > pages, rules, CRUDs, queries, forms, workflows, templates, the DB dump — is written by the CMS itself;
-> a schedule goes `CmsProjectServiceImpl → schedulerService.saveBackend/save` → **over the wire to
-> `nct-schedule`**. So when that service is unreachable the import reports exactly the schedulers as rejected
+> a schedule goes through the scheduler client → **over the wire to
+> the scheduler service**. So when that service is unreachable the import reports exactly the schedulers as rejected
 > and nothing else, with a **socket** message rather than a validation one:
 >
 > ```
@@ -561,26 +550,24 @@ are [16-groovy-service-api.md](16-groovy-service-api.md) §2.12.
 >   • scheduler — Can't assign requested address "…" (uuid), …
 > ```
 >
-> `Can't assign requested address` is `EADDRNOTAVAIL` — `nct-schedule` is down, its URL points at a host the
+> `Can't assign requested address` is `EADDRNOTAVAIL` — the scheduler service is down, its URL points at a host the
 > CMS container cannot reach, or the name resolves to an IPv6 address on a host without IPv6. **It is not a
-> defect in the export**, and no edit to the `ScheduleDto` changes it: the same message on every scheduler in
+> defect in the export**, and no edit to the schedule object changes it: the same message on every scheduler in
 > the archive is the signature of an unreachable endpoint, while a per-object fault (a duplicate `name`, a
 > quota) names itself. Fix the connectivity and re-import the same archive — `schedulers[]` is independent, so
 > a second import only adds them — or enter them by hand on the Schedulers screen. **Check first that
 > everything saved AFTER the schedulers actually landed** (workflows, rules, contexts, forms, settings,
 > templates — see the `name` row above), then compare object counts against the archive.
 >
-> On export, schedulers leave via `.schedulers(schedulers.stream().map(it -> it.toBuilder().id(null).build())…)`
-> (`CmsProjectServiceImpl.java`; the list is fetched by `schedulerService.findAllBackend`). A project
-> cap `QuotaConfig.maxSchedulersPerProject` (`nct-transfer/.../dto/QuotaConfig.java`) is enforced on **create** in
-> `SchedulerServiceImpl.checkSchedulerQuota` (→ `ServiceException "quota.max.schedulers.exceeded"`), so
+> On export, schedulers leave with `id` nulled. A project
+> cap `maxSchedulersPerProject` (a quota) is enforced on **create** (error `quota.max.schedulers.exceeded`), so
 > bulk-importing many schedulers into a quota'd project can be rejected.
 
-**MODIFY-FILLED:** to add a scheduler to a working dynamic `.mrjun`, **append one `ScheduleDto`** to `.schedulers[]`
+**MODIFY-FILLED:** to add a scheduler to a working dynamic `.mrjun`, **append one schedule object** to `.schedulers[]`
 without touching existing entries — the array is independent of every other object; nothing references a schedule by
 back-pointer, so no re-wiring is needed.
 
-> Note: a query also has a `schedule` field (`QueryDto.schedule`) of the same `ScheduleDto` structure — this
+> Note: a query also has a `schedule` field of the same schedule-object structure — this
 > is a separate mechanism for auto-running the query itself. In exports it is always `null`.
 
 ---
@@ -589,12 +576,12 @@ back-pointer, so no re-wiring is needed.
 
 ### 4.1 Export shape
 
-`rep-objects.json → .roleGroups` is an **array** of `RoleGroupDto`. This is the only DTO in the section that
-does **NOT** inherit `AbstractSecuredDto` (`RoleGroupDto.java` implements `Serializable`) — it has just three
-fields:
+`rep-objects.json → .roleGroups` is an **array** of role-group objects. This is the only object in the section that
+does **NOT** carry the common envelope fields (`identifier`, `realmName`, `clientName`, `creationTime`,
+`modificationTime`) — it has just three fields:
 
 ```json
-{ "id": "<numeric string>", "name": "<string>", "roles": ["<ReportRole>", ...] }
+{ "id": "<numeric string>", "name": "<string>", "roles": ["<role>", ...] }
 ```
 
 ### 4.2 Worked example — a `Manager` group
@@ -618,13 +605,13 @@ A project-defined group in `rep-objects.json → .roleGroups[]`:
 
 ### 4.3 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `id` | String (numeric) | Internal group ID (Keycloak/RDBMS). Referenced by `userRoleGroupAssignments.roleGroupId` | yes | — | `RoleGroupDto.id` |
-| `name` | String | Group name. `@NotBlank`. Import matches groups **by name** (`findGroupByName`), not by `id` | yes | — | `RoleGroupDto.name` |
-| `roles` | List<enum `ReportRole`> | Set of roles. `@NotNull` | yes | — | `RoleGroupDto.roles` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `id` | String (numeric) | Internal group ID (Keycloak/RDBMS). Referenced by `userRoleGroupAssignments.roleGroupId` | yes | — |
+| `name` | String | Group name. Must not be blank. Import matches groups **by name**, not by `id` | yes | — |
+| `roles` | List<enum> | Set of roles (see §4.4). Required | yes | — |
 
-### 4.4 `ReportRole` — the full list of canonical role constants (31 values)
+### 4.4 The full list of canonical role constants (31 values)
 
 ```
 ADMIN, NCT_AUTHOR,
@@ -640,15 +627,15 @@ USER_VIEW, USER_CREATE, USER_EDIT, USER_DELETE,
 OYO_PROJECT_CONFIGURATION
 ```
 
-Each constant is bound to one or more `ProjectType` (`ORGANIZATION_MANAGER`,
+Each constant is bound to one or more project types (`ORGANIZATION_MANAGER`,
 `PRODUCTS_MANAGER`, `REPORT`) — e.g. `REPORT_VIEW` only for `REPORT`, `USER_VIEW` for all three.
 
 ### 4.5 Default groups
 
 `empty` carries 2 groups: **`Author`** (26 roles: `NCT_AUTHOR` + REPORT/SCHEDULER/SOURCE/STORE/FILE +
 ROLE_GROUP_* + USER_* + `OYO_PROJECT_CONFIGURATION`, but **without** `ADMIN`) and **`Developer`** (the same + `ADMIN`).
-They are created automatically on import if they do not already exist
-(`CmsProjectServiceImpl.createRoleGroupIfNotExists("Author"/"Developer", …)`), so they need not be put in the
+They are created automatically on import if they do not already exist,
+so they need not be put in the
 export — but it is safer to include them. On top of those two, a project adds
 one group per business role it needs to gate on — e.g. `Front Office Employee`, `Credit Analyst`,
 `Warehouse Clerk`, `Customs Declarant`, `Approver` — and the same names are then used in
@@ -702,8 +689,7 @@ account carried every role. `mrjun.py validate` now reports both as ERRORs.
 
 ### 5.1 Export shape
 
-`rep-objects.json → .userRoleGroupAssignments` is an **array** of three-field objects
-(`CmsProjectServiceImpl.UserRoleGroupAssignment`, static class):
+`rep-objects.json → .userRoleGroupAssignments` is an **array** of three-field objects:
 
 ```json
 { "userId": "<user external id (uuid)>", "roleGroupId": "<group id>", "roleGroupName": "<group name>" }
@@ -725,18 +711,16 @@ One row per (user, group) pair — a user who belongs to several groups appears 
 
 ### 5.3 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `userId` | String (UUID) | User external ID. On import, looked up via `userClient.getByExtIdBackend(userId)` | yes | — | `UserRoleGroupAssignment.userId` |
-| `roleGroupId` | String | Group ID (for reference; **not used** for matching on import) | yes | — | `UserRoleGroupAssignment.roleGroupId` |
-| `roleGroupName` | String | Group name. Import finds the target group **by this** (`findGroupByName`) | yes | — | `UserRoleGroupAssignment.roleGroupName` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `userId` | String (UUID) | User external ID. On import, looked up by external ID | yes | — |
+| `roleGroupId` | String | Group ID (for reference; **not used** for matching on import) | yes | — |
+| `roleGroupName` | String | Group name. Import finds the target group **by this** | yes | — |
 
-### 5.4 Import (`CmsProjectServiceImpl.java`)
+### 5.4 Import
 
-Import groups assignments by `userId`, for each user looks it up by external ID
-(`userClient.getByExtIdBackend`), then each group by **name**
-(`nctRoleGroupService.findGroupByName(roleGroupName)`), collects a list of `RoleGroupDto` and calls
-`userClient.updateByBackend(...)`. If the user is not in the target realm or no group with that
+Import groups assignments by `userId`, for each user looks it up by external ID,
+then each group by **name**, collects the list of groups and updates the user. If the user is not in the target realm or no group with that
 name is found — the assignment is silently skipped (log `warn`). So:
 - The user must **already exist** in the target organization/project (users are not created via `.mrjun` — only
   bindings are transferred).
@@ -749,18 +733,16 @@ name is found — the assignment is silently skipped (log `warn`). So:
 
 ### 6.1 What it is
 
-`rep-objects.json → .settings` is an **array** of `SettingsDto`. This is the **external** (extracted from the
+`rep-objects.json → .settings` is an **array** of settings objects. This is the **external** (extracted from the
 content tree) configuration store for the table-shaped plugins — one `type` literal per plugin:
 `crud.table.plugin` → `"CrudTable"`, `crud.tree.plugin` → `"CrudTree"`, `process.table.pluin` → `"ProcessTable"`.
-The mechanism: the plugin on saving settings takes `settingsName = getContent().getUniqueIdentifier()` (the unique
-ID of its own content-tree node) and writes `SettingsDto{ name = uniqueIdentifier, type = "CrudTable", content = {...} }`
-(`CrudTablePlugin.java`).
+The mechanism: the plugin on saving settings takes the unique
+ID of its own content-tree node (`uniqueIdentifier`) as the settings name and writes `{ name: <uniqueIdentifier>, type: "CrudTable", content: {...} }`.
 
 **The settings entry is a MIRROR, not the render source.** On render each table plugin
-(`CrudTablePlugin`/`CrudTreePlugin`/`ProcessTablePlugin`) reads its config from its OWN node — the
+(`crud.table.plugin`/`crud.tree.plugin`/`process.table.pluin`) reads its config from its OWN node — the
 `properties.model` slot — never from `settings[]`. The mirror holds the same JSON, written on save, and is read
-only by (a) the author-side settings panels and (b) the form-navigation path (`FormPlugin` +
-`SettingsNavigationHelper` + `SettingsActionLoader` + `FormGroupLandingPlugin`), which resolves the action and
+only by (a) the author-side settings panels and (b) the form-navigation path (opening a form from the table), which resolves the action and
 breadcrumb of a form opened from that table by `settings[].name == node.uniqueIdentifier`. **Author BOTH:** with no
 `properties.model` the table renders unconfigured; with no mirror it renders fine, but a form opened from one of its
 row/create actions gets no action context (no entity load, no create/edit mode, no `onBeforeStart`/`onBeforeComplete`
@@ -773,7 +755,7 @@ it, and the baseline ships some) — do not "repair" it by inventing nodes.
 
 The full semantics of the `content` fields for CrudTable — in [04-crud-table-plugin.md](04-crud-table-plugin.md);
 for CrudTree and ProcessTable — in [05-crud-tree-and-process-table.md](05-crud-tree-and-process-table.md). Here we
-describe only the `SettingsDto` **envelope**.
+describe only the settings **envelope**.
 
 ### 6.2 Export shape
 
@@ -838,13 +820,13 @@ A `ProcessTable` envelope looks the same from the outside — see `empty/rep-obj
 
 ### 6.4 Field-by-field (envelope)
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `identifier` | String (UUID) | ID of the settings object itself | yes | — | `AbstractSecuredDto.identifier` |
-| `name` | String (UUID) | The **`uniqueIdentifier` of the** CrudTable/CrudTree/ProcessTable node whose config it stores | yes | — | `SettingsDto.name`; written as `getContent().getUniqueIdentifier()` (`CrudTablePlugin.java`) |
-| `type` | String | `"CrudTable"` \| `"CrudTree"` \| `"ProcessTable"` (string literal, not enum) — must match the plugin, or the form-navigation lookup and the settings panel miss it | yes | — | `SettingsDto.type`; literal `.type("CrudTable")` (`CrudTablePlugin.java`), `.type("CrudTree")` (`CrudTreePlugin.java`) |
-| `content` | ObjectNode (JSON) | Plugin-specific config (columns/actions/filters/…) | yes | — | `SettingsDto.content` |
-| `deleted` | Boolean | Soft-delete flag | no | `false` | `SettingsDto.deleted` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `identifier` | String (UUID) | ID of the settings object itself | yes | — |
+| `name` | String (UUID) | The **`uniqueIdentifier` of the** CrudTable/CrudTree/ProcessTable node whose config it stores | yes | — |
+| `type` | String | `"CrudTable"` \| `"CrudTree"` \| `"ProcessTable"` (string literal, not enum) — must match the plugin, or the form-navigation lookup and the settings panel miss it | yes | — |
+| `content` | object (JSON) | Plugin-specific config (columns/actions/filters/…) | yes | — |
+| `deleted` | Boolean | Soft-delete flag | no | `false` |
 
 ### 6.5 How many settings objects to expect
 
@@ -867,7 +849,7 @@ mirror warning — which is deliberately silent about baseline-inherited nodes a
 
 ### 7.1 Export shape
 
-`rep-objects.json → .mailTemplates` is an **array** of `MailTemplateDto`:
+`rep-objects.json → .mailTemplates` is an **array** of mail-template objects:
 
 ```
 {
@@ -915,23 +897,23 @@ editor model). The canonical example is the system template **`sendIntakeInit`**
 `id` attributes (`ico2`, `ilwgt`, …) and `style="box-sizing: border-box;"`. Assets (images) are referenced as
 `t/<tenant-slug>/mail-templates/<uuid>.png` — a path
 in `tenant-files/`. ⚠️ The middle segment is the slug of the **source** tenant, which is **not** simply
-`<realm>-<client>`: a template can carry one realm/client pair in its DTO fields while its asset path spells a
+`<realm>-<client>`: a template can carry one realm/client pair in its fields while its asset path spells a
 different tenant slug. Copy the path exactly as it appears; do not "reconstruct" it from realm and client.
 
 ### 7.3 Field-by-field
 
-| Field | Type | Meaning | Required | Default | Backing |
-|---|---|---|---|---|---|
-| `identifier` | String (UUID) | Template ID | yes | — | `AbstractSecuredDto.identifier` |
-| `name` | String | Display name | yes | — | `MailTemplateDto.name` |
-| `alias` | String | Programmatic key by which the template is invoked from a rule/integration (`companyInvitation`, `passwordRecover`, `userRegistration`, `sendIntakeInit`) | yes | — | `MailTemplateDto.alias` |
-| `subject` | String | Email subject; supports `{{placeholder}}` | yes | — | `MailTemplateDto.subject` |
-| `htmlContent` | String | Full HTML of the body; `{{placeholder}}` substituted at runtime | yes | — | `MailTemplateDto.htmlContent` |
-| `cssContent` | String\|null | Separate CSS (if the template is from the GrapesJS editor) | no | null | `MailTemplateDto.cssContent` |
-| `gjsData` | String\|null | JSON string of the GrapesJS model (component/style/asset tree). Needed only for editing, not for sending | no | null | `MailTemplateDto.gjsData` |
-| `placeholders` | List<String> | Names of available placeholders (without curly braces) | no | null | `MailTemplateDto.placeholders` |
-| `active` | Boolean | Whether the template is active | no | null | `MailTemplateDto.active` |
-| `description` | String | Description | no | null | `MailTemplateDto.description` |
+| Field | Type | Meaning | Required | Default |
+|---|---|---|---|---|
+| `identifier` | String (UUID) | Template ID | yes | — |
+| `name` | String | Display name | yes | — |
+| `alias` | String | Programmatic key by which the template is invoked from a rule/integration (`companyInvitation`, `passwordRecover`, `userRegistration`, `sendIntakeInit`) | yes | — |
+| `subject` | String | Email subject; supports `{{placeholder}}` | yes | — |
+| `htmlContent` | String | Full HTML of the body; `{{placeholder}}` substituted at runtime | yes | — |
+| `cssContent` | String\|null | Separate CSS (if the template is from the GrapesJS editor) | no | null |
+| `gjsData` | String\|null | JSON string of the GrapesJS model (component/style/asset tree). Needed only for editing, not for sending | no | null |
+| `placeholders` | List<String> | Names of available placeholders (without curly braces) | no | null |
+| `active` | Boolean | Whether the template is active | no | null |
+| `description` | String | Description | no | null |
 
 ### 7.4 Default templates
 
@@ -946,7 +928,7 @@ Placeholders of the system templates: `{{firstName}}`, `{{lastName}}`, `{{compan
 `{{resetLink}}`, `{{activationLink}}`.
 
 > ⚠️ The obsolete concept doc `notification.md` describes email as `service.mail.send([to,subject,content])`
-> with a raw `MailDto` — this does NOT match the code. The real mail system is **template-driven**: templates in
+> with a raw mail object — this does NOT match the code. The real mail system is **template-driven**: templates in
 > `mailTemplates[]` + `{{placeholder}}` substitution + GrapesJS. There is no confirmed `service.mail.send` API with a
 > map argument in the code.
 
@@ -954,7 +936,7 @@ Placeholders of the system templates: `{{firstName}}`, `{{lastName}}`, `{{compan
 
 ## 8. project.settings.plugin (NOT a rep-object)
 
-The content-tree node `project.settings.plugin` (`branches.json`, `ProjectSettingsPlugin.java`) is a
+The content-tree node `project.settings.plugin` (`branches.json`) is a
 **project-settings UI panel**, not a configuration store. Its `properties` contain only
 the standard slots `className` / `styleName` / `tagProperties`, and for all three the `stringValue` is empty (`""`) —
 **the node stores no project config**. At runtime the panel reads/writes tenant-level config (branding, layout,
@@ -971,11 +953,10 @@ localization, import/export, appearance, AI) via services, not via the node:
   } }
 ```
 
-Panel sections (`ProjectSettingsPlugin.createSectionPanel`): `BRANDING`, `IMPORT_EXPORT`, `LAYOUT`,
+Panel sections: `BRANDING`, `IMPORT_EXPORT`, `LAYOUT`,
 `ACCESSES`, `TEMPLATE_MANAGEMENT`, `GENERAL`, `LOCALIZATION`, `INTEGRATIONS`, `ZOMBIE_INTEGRATIONS`,
 `APPEARANCE`, `AI`, `DEVELOPER`. It is from here that
-the `.mrjun` export itself is launched (the Import/Export button, `AJAXDownloadBehaviour` →
-`projectService.exportProjectOrTemplate(tenant())`, `ProjectSettingsPlugin.java`). For building a project
+the `.mrjun` export itself is launched (the Import/Export button). For building a project
 via export files, **this node is simply copied as-is** (empty config) — there is nothing
 to construct in it. How to build pages in general — see [01-content-model-and-pages.md](01-content-model-and-pages.md).
 
@@ -987,8 +968,8 @@ to construct in it. How to build pages in general — see [01-content-model-and-
 > [29-global-resources.md](29-global-resources.md). (The tab's other section, MCP access
 > tokens, genuinely stores nothing in an export — a token is a credential and is never exported.)
 
-> **Tenant-level project quotas — `QuotaConfig`.** Separate from this UI node, a project carries a tenant-level
-> `QuotaConfig` (`nct-transfer/.../dto/QuotaConfig.java`) with four caps: `maxEmailsPerDay`, `maxActiveProcesses`
+> **Tenant-level project quotas.** Separate from this UI node, a project carries a tenant-level
+> quota configuration with four caps: `maxEmailsPerDay`, `maxActiveProcesses`
 > `maxUsersPerProject`, `maxSchedulersPerProject`. It is **not** part of the `.mrjun` export, but it is
 > enforced at runtime — e.g. the scheduler cap rejects a create/import once reached (§3.3).
 
@@ -996,13 +977,13 @@ to construct in it. How to build pages in general — see [01-content-model-and-
 
 ## 9. Placeholders / FieldType reference
 
-A placeholder in SQL is a JSON fragment that `PlaceholderProcessorServiceImpl` parses into a `Replacement`:
+A placeholder in SQL is a JSON fragment that the query service parses:
 
 ```
 {name: 'paramName', type: 'sqlType', defaultValue: '...', dropDownPopulation: {...}}
 ```
 
-`Replacement` (`Replacement.java`): `name`, `defaultValue`, `type`
+Its keys: `name`, `defaultValue`, `type`,
 `dropDownPopulation`. Of the four keys, only `name`+`type` actually appear in generated-CRUD SQL
 (the rest are for report/chart parameter UI).
 
@@ -1010,12 +991,12 @@ A placeholder in SQL is a JSON fragment that `PlaceholderProcessorServiceImpl` p
 
 **(A) Raw SQL types of the dynamic-CRUD generator** (what you write in `crud_*` queries):
 `integer`, `string`, `jsonb`, `boolean`, `instant`, `bigdecimal`, `date`. Resolved by the CRUD path, NOT by
-`FieldType.findByName`.
+the `FieldType` name lookup.
 
-**(B) `FieldType` enum** (`FieldType.java`) — for report/chart parameters. Each constant =
-`ENUM(name, controlType, javaClass[, initialModelClass])`:
+**(B) `FieldType` enum** — for report/chart parameters. Each constant has a
+`name`, a `controlType` and a `javaClass`:
 
-| Constant | name | controlType | javaClass | findByName aliases |
+| Constant | name | controlType | javaClass | name aliases |
 |---|---|---|---|---|
 | `STRING` | `string` | text | String | — |
 | `INTEGER` | `number` | number | Integer | `integer`, `int` |
@@ -1033,18 +1014,18 @@ A placeholder in SQL is a JSON fragment that `PlaceholderProcessorServiceImpl` p
 | `DROPDOWN_INSTANT` | `dropdown-instant` | text | Instant | — |
 | `CHECKBOX` | `checkbox` | checkbox | Boolean | `bool`, `boolean` |
 
-`findByName(name)` (`FieldType.java`): first an exact match on `name`, then a switch on aliases,
+The name lookup: first an exact match on `name`, then a switch on aliases,
 otherwise `null`. The commented-out ones (**do NOT document as available**): `TIME_RANGE`, `TIME_INTERVAL`,
 `DATE_INTERVAL`, `DATE_TIME_INTERVAL`.
 
-> ⚠️ `jsonb`/`instant`/`bigdecimal` from set (A) are **not** `FieldType.name` values — in
+> ⚠️ `jsonb`/`instant`/`bigdecimal` from set (A) are **not** `FieldType` `name` values — in
 > generated-CRUD SQL they are raw SQL types. Do not confuse the two sets.
 
 ---
 
 ## 10. dropDownPopulation & cascading dropdowns
 
-`DropDownPopulation` (`DropDownPopulation.java`) populates a report/chart dropdown parameter from one of
+`dropDownPopulation` populates a report/chart dropdown parameter from one of
 three sources:
 
 | Field | Type | Mode |
@@ -1052,7 +1033,7 @@ three sources:
 | `query` | String | Populate from a **named query** (by `name`) |
 | `rest` | String | Populate from a **REST endpoint** |
 | `restKey` | String | Key in the REST response from which to take values |
-| `choices` | List<`DropDownValDto`> | **Static** list of `{name, value}` |
+| `choices` | List<object> | **Static** list of `{name, value}` |
 | `name` | String | Display name |
 | `value` | Object | Current/default value |
 
@@ -1068,7 +1049,7 @@ parameter is passed as a parameter into the next dropdown's query.
 
 ## 11. Aggregations
 
-`QueryAggregationsDto` (`QueryAggregationsDto.java`) — three fields:
+The aggregations object has three fields:
 
 ```json
 { "aggregations": [ { "aggCol": "amount", "as": "total", "aggType": "SUM" } ],
@@ -1076,13 +1057,13 @@ parameter is passed as a parameter into the next dropdown's query.
   "orderByList": [ { "col": "total" } ] }
 ```
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `aggregations` | List<`Aggregation`>\|null | Aggregate functions. `Aggregation = {aggCol, as, aggType}` | `QueryAggregationsDto.aggregations` |
-| `groupByList` | List<`GroupBy`> | GROUP BY. `GroupBy = {col}` | `QueryAggregationsDto.groupByList` |
-| `orderByList` | List<`OrderBy`> | ORDER BY. `OrderBy = {col}` | `QueryAggregationsDto.orderByList` |
+| Field | Type | Meaning |
+|---|---|---|
+| `aggregations` | List<object>\|null | Aggregate functions: items `{aggCol, as, aggType}` |
+| `groupByList` | List<object> | GROUP BY: items `{col}` |
+| `orderByList` | List<object> | ORDER BY: items `{col}` |
 
-`AggregationType` (`AggregationType.java`) — **exactly five** values: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+`aggType` — **exactly five** values: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
 
 > ⚠️ The obsolete `query-system.md` uses the form `[type:"SUM", field:"amount"]` and the type `GROUP_BY` — **neither
 > exists**. The keys are `aggCol`/`as`/`aggType` (not `type`/`field`); GROUP BY is a separate
@@ -1093,34 +1074,32 @@ parameter is passed as a parameter into the next dropdown's query.
 
 ## 12. RIMM & service.rimm (lookup tables)
 
-**RIMM** (Runtime Information Management Module, `nct-rimm`) — dynamically created PostgreSQL
+**RIMM** (Runtime Information Management Module) — dynamically created PostgreSQL
 lookup tables (`rimm_*`) powering fast dropdown/reference lookups. Example: the query `Countries`
 (`empty`) = `select * from rimm_country;` (in the export with newlines). Besides the shared lookups, a project's
 dump can also contain a per-project RIMM table named `rimm_<realm>_<client>`.
 The RIMM source is stored in `project-db-meta.json.rimmSourceIdentifier` and **is not put in the `.sources` export**
 (see §2.4). Table operations (doc-claimed, endpoints `⚠️ UNVERIFIED`):
 `POST /api/rimm/create-table`, `/upsert-row`, `/delete-row`; upsert = `INSERT … ON CONFLICT (key) DO UPDATE`.
-Confirmed services: `RimmTableService(Impl)`, `RimmSchemaService(Impl)`, `RimmSecurityTableService(Impl)`,
-`RimmDatabaseUserService(Impl)`, `SecuritySyncService(Impl)` in `nct-rimm`.
 
-**Calling from rules** — via `service.rimm` = `RimmServiceProxy` (`RimmServiceProxy.java`; realm+client
+**Calling from rules** — via `service.rimm` (realm+client
 are injected internally, they are NOT passed in the script):
 
 ```groovy
 service.rimm.query("Rimm User Start With")
 service.rimm.query("Rimm User Start With", [term: 'ann'])
 service.rimm.query([name: 'Countries'])   // map form
-service.rimm.run(request)   // QueryByNameRequest
+service.rimm.run(request)   // request object
 service.rimm.run([name: 'Countries', parameters: [:], itemsPerPage: 100, offset: 0, aggregations: null])
 ```
 
-They return `List<Object>` (each = a key/val row). `QueryByNameRequest`
-(`nct-transfer/.../dto/QueryByNameRequest.java`): `name` (`@NotBlank`), `offset` (default `0L`),
-`itemsPerPage` (default `100L`, getter fallback `20L` if null), `parameters` (Map),
-`aggregations` (`QueryAggregationsDto`). **No top-level `limit`** — pagination via `offset`+`itemsPerPage`.
+They return `List<Object>` (each = a key/val row). The request object:
+`name` (required, not blank), `offset` (default `0L`),
+`itemsPerPage` (default `100L`, falls back to `20L` if null), `parameters` (Map),
+`aggregations` (the aggregations object). **No top-level `limit`** — pagination via `offset`+`itemsPerPage`.
 
 > ⚠️ The obsolete `07-query-and-rimm.md` shows `rimmService.run(realm, client, [...])` with realm/client —
-> that is the signature of the **raw** `RimmService`, not the Groovy-facing `service.rimm`. In rules, do NOT
+> that is the signature of the **raw** RIMM service, not the Groovy-facing `service.rimm`. In rules, do NOT
 > pass realm/client. The rule-side operator DSL (`$eq/$ne/$gt/$gte/$lt/$lte/$in/$nin/$regex`) is `⚠️ UNVERIFIED`
 > against the RIMM impl; verify before using.
 
@@ -1128,33 +1107,31 @@ They return `List<Object>` (each = a key/val row). `QueryByNameRequest`
 
 ## 13. Notifications (service.notification)
 
-`service.notification` in Groovy = `PushNotificationProxy` (`PushNotificationProxy.java`; realm+client
+`service.notification` in Groovy (realm+client
 are injected, they are NOT passed in the script). Full set of methods:
 
-| Method | Returns | Signature (Groovy) | Line |
-|---|---|---|---|
-| `sendText` | void | `(userEmail, message)` | |
-| `sendDownloadable` | void | `(userEmail, message, fileName, downloadUrl)` | |
-| `sendAlert` | void | `(userEmail, title, message)` | |
-| `sendWarning` | void | `(userEmail, title, message)` | |
-| `sendError` | void | `(userEmail, title, message)` | |
-| `sendReminder` | void | `(userEmail, title, description, dueDate)` | |
-| `sendTextToRoleGroup` | int | `(roleGroupName, message)` | |
-| `sendAlertToRoleGroup` | int | `(roleGroupName, title, message)` | |
-| `sendWarningToRoleGroup` | int | `(roleGroupName, title, message)` | |
-| `sendErrorToRoleGroup` | int | `(roleGroupName, title, message)` | |
-| `sendReminderToRoleGroup` | int | `(roleGroupName, title, description, dueDate)` | |
-| `sendTextToRole` | int | `(roleName, message)` | |
-| `sendAlertToRole` | int | `(roleName, title, message)` | |
-| `sendWarningToRole` | int | `(roleName, title, message)` | |
-| `sendErrorToRole` | int | `(roleName, title, message)` | |
-| `sendReminderToRole` | int | `(roleName, title, description, dueDate)` | |
+| Method | Returns | Signature (Groovy) |
+|---|---|---|
+| `sendText` | void | `(userEmail, message)` |
+| `sendDownloadable` | void | `(userEmail, message, fileName, downloadUrl)` |
+| `sendAlert` | void | `(userEmail, title, message)` |
+| `sendWarning` | void | `(userEmail, title, message)` |
+| `sendError` | void | `(userEmail, title, message)` |
+| `sendReminder` | void | `(userEmail, title, description, dueDate)` |
+| `sendTextToRoleGroup` | int | `(roleGroupName, message)` |
+| `sendAlertToRoleGroup` | int | `(roleGroupName, title, message)` |
+| `sendWarningToRoleGroup` | int | `(roleGroupName, title, message)` |
+| `sendErrorToRoleGroup` | int | `(roleGroupName, title, message)` |
+| `sendReminderToRoleGroup` | int | `(roleGroupName, title, description, dueDate)` |
+| `sendTextToRole` | int | `(roleName, message)` |
+| `sendAlertToRole` | int | `(roleName, title, message)` |
+| `sendWarningToRole` | int | `(roleName, title, message)` |
+| `sendErrorToRole` | int | `(roleName, title, message)` |
+| `sendReminderToRole` | int | `(roleName, title, description, dueDate)` |
 
-The bulk variants (`…ToRole`/`…ToRoleGroup`) return `int` — the number of recipients. The raw interface —
-`PushNotificationService` (`nct-executor/.../service/PushNotificationService.java`), where each signature
+The bulk variants (`…ToRole`/`…ToRoleGroup`) return `int` — the number of recipients. In the raw service each signature
 starts with `(realm, client, …)`. Notification types: TEXT / ALERT / REMINDER; alert severities:
-INFO / WARNING / ERROR / CRITICAL. The Groovy binding `notification` is registered in
-`HintsService.java` (`serviceMap.put("notification", …)`).
+INFO / WARNING / ERROR / CRITICAL.
 
 > ⚠️ The fluent chain `.correlationId(...)` from `notification.md` is `⚠️ UNVERIFIED`: the methods return
 > `void`/`int`, such a chain would not compile.
@@ -1163,7 +1140,7 @@ INFO / WARNING / ERROR / CRITICAL. The Groovy binding `notification` is register
 
 ## 14. REST endpoints
 
-`QueryController` (`nct-query/.../controller/QueryController.java`, `@RequestMapping("/api/reports/query")`):
+Query endpoints (base path `/api/reports/query`):
 
 ```
 POST /tenant/{realm}/{client}/save
@@ -1183,8 +1160,6 @@ POST /tenant/{realm}/{client}/deleteAll
 POST /internal/tenant/{realm}/{client}/deleteAll
 ```
 
-Neighboring controllers for source/schema discovery: `SourceDatabaseController`, `DatabaseController`,
-`DatabaseInternalController`, `SchemaInternalController`, `ChartReplacementController` (in `nct-query`).
 For a DYNAMIC-CRUD build via export files, REST is not needed — it is for runtime/UI; the list is given for completeness.
 
 ⛔ **These are the platform's own endpoints, not an integration surface** — they take a user's session or the
@@ -1197,17 +1172,17 @@ system to read the project's lists or press its buttons, that is the project's *
 
 ## 15. findControls → replaceParams pipeline
 
-`PlaceholderProcessorServiceImpl` (`nct-query/.../service/`) processes placeholders in two phases:
+The query service processes placeholders in two phases:
 
-1. **`findControls(QueryDto)`** → `List<FieldControl>` for the UI: parses each `{…}` fragment into a
-   `Replacement{name, defaultValue, type, dropDownPopulation}`, from which a parameter-input form is built.
-2. **`replaceParams(QueryDto)`** → substitutes values into the SQL: numbers — raw; strings — in single
+1. **`findControls`** → the list of controls for the UI: parses each `{…}` fragment into a
+   placeholder `{name, defaultValue, type, dropDownPopulation}`, from which a parameter-input form is built.
+2. **`replaceParams`** → substitutes values into the SQL: numbers — raw; strings — in single
    quotes; `null` → an always-true sentinel comparison (a fixed literal compared against itself, so the
    predicate neutralises itself rather than becoming `= NULL`); range (DATE_RANGE/…) → `BETWEEN`.
-   Before running through the JSQLParser AST, placeholders are replaced with temporary RAND+sequence tokens (so
+   Before running through the SQL parser, placeholders are replaced with temporary RAND+sequence tokens (so
    the parser does not trip over `{…}`).
 
-There is no literal regex Pattern constant in `PlaceholderProcessorServiceImpl` — the syntax `{name:'…',type:'…'}`
+There is no literal regex pattern constant for placeholders — the syntax `{name:'…',type:'…'}`
 is parsed in code; the types/syntax documented here match what the platform actually emits (see §1.4, §9).
 
 ---
@@ -1352,29 +1327,28 @@ duplicate them; a second template with the same `alias` is dropped on import wit
 
 Usually not needed. If you need a cron trigger for a rule, add an object to `rep-objects.json → .schedulers` per
 the §3.1 schema (live examples are rare, but the shape is **confirmed field-for-field**
-against `ScheduleEntity`/`ScheduleDto` — see §3.1). Remember: a scheduler runs a **rule** (`actionType=RUN_RULE`),
+against the platform's schedule model — see §3.1). Remember: a scheduler runs a **rule** (`actionType=RUN_RULE`),
 not a query; the predicate must be a `PREDICATE` rule and the action an `EXECUTION_RULE` (§3.2). What that action
 rule receives at tick time — and why it must fetch its own rows — is §3.2c; if it starts a process, the whole chain
 plus the mandatory idempotency guard is [27-event-driven-process-start.md](27-event-driven-process-start.md).
 
 > ⚠️ **Build safety:** if you set `enabled:true` and a valid `job.expression`, the import **auto-registers a live
-> `CronTrigger` and starts firing the action rule immediately** (`CmsProjectServiceImpl.java` →
-> `SchedulerServiceImpl.save` → `cronService.registerSchedule`). Author `enabled:false` unless the trigger is
+> cron trigger and starts firing the action rule immediately**. Author `enabled:false` unless the trigger is
 > meant to be live on import — see §3.3.
 
 ---
 
 ## Gotchas
 
-1. **`DbType.POISTGRESQL` — the typo is canonical.** The enum constant is named exactly `POISTGRESQL`
-   (with "I" after "PO"), see `DbType.java`. In JSON it is always `"dbType": "POISTGRESQL"`. Do not "fix" it —
+1. **`dbType` `POISTGRESQL` — the typo is canonical.** The enum value is spelled exactly `POISTGRESQL`
+   (with "I" after "PO"). In JSON it is always `"dbType": "POISTGRESQL"`. Do not "fix" it —
    the import will fail. There is no MySQL/Oracle/SQLServer/Snowflake (the obsolete `data-source.md` made them up).
-2. **`ORGANIZARIONS_VIEW` — also a canonical typo** in `ReportRole` (`ORGANIZARIONS_VIEW`, but
+2. **`ORGANIZARIONS_VIEW` — also a canonical typo** in the role names (`ORGANIZARIONS_VIEW`, but
    `ORGANIZATIONS_EDIT`). Write it verbatim.
 3. **`process.table.pluin` — a typo in the plugin name** (`pluin`, not `plugin`). But the settings.`type` for
    it is the correct `"ProcessTable"`.
-4. **The RIMM source is not put in the export.** Import filters sources by `!name.startsWith("RIMM_")`
-   (`CmsProjectServiceImpl.java`) and recreates RIMM with a new `identifier`. Meanwhile the default RIMM queries
+4. **The RIMM source is not put in the export.** Import skips sources whose name starts with `RIMM_`
+   and recreates RIMM with a new `identifier`. Meanwhile the default RIMM queries
    in the export still reference the **old** RIMM `identifier` — so in `empty` the query `sourceIdentifier`
    (`b814d61d…`) and `project-db-meta.json.rimmSourceIdentifier` legitimately **differ**, which is exactly what
    demonstrates the remapping on import. This works thanks to `rimmSourceIdentifier` + the import logic. Do not
@@ -1390,26 +1364,26 @@ plus the mandatory idempotency guard is [27-event-driven-process-start.md](27-ev
    `uniqueIdentifier` of the CrudTable/CrudTree/ProcessTable node in `branches.json`, otherwise the mirror is inert:
    the table still renders (it renders from `properties.model`), but forms opened from its actions lose their
    action/breadcrumb context and the author-side settings panel opens empty (§6.1).
-8. **`RoleGroupDto` does not inherit `AbstractSecuredDto`** — it has only `id`/`name`/`roles`, without
+8. **A role-group object does not carry the common envelope fields** — it has only `id`/`name`/`roles`, without
    `identifier`/`realmName`/creationTime. Do not add extra fields.
 9. **`userRoleGroupAssignments` does not create users.** Via `.mrjun` only the bindings are transferred;
    the user itself must already be in the target organization, otherwise the assignment is silently skipped.
    Group matching is by `roleGroupName`, not by `roleGroupId`.
 10. **`schedulers` is empty in most exports**, but the §3.1 schema is **confirmed field-for-field**
-    against `ScheduleEntity` (`rep_schedule`; `job`/`cooldownJob` are `jsonb`) and `ScheduleDto` — not a guess. Query
+    against the stored schedule row (`rep_schedule`; `job`/`cooldownJob` are `jsonb`) and the export object — not a guess. Query
     `schedule` is also always `null`. A scheduler runs a rule, not a query (there is no `queryIdentifier`). **Importing
     an `enabled:true` scheduler with a valid cron starts firing its action rule immediately** (§3.3).
 11. **`id` is always `null` in the export**, `identifier` is a stable UUID. Do not fill in `id` when building
-    (`CmsProjectServiceImpl.java` resets it before export).
+    (the export resets it).
 12. **`project.settings.plugin` stores nothing** — it is only a UI panel. When building, copy its node
     as-is (empty `properties`).
 13. **The 5 mail templates already exist in `empty`.** `Company Invitation`/`Password Recovery`/`User Registration`/
     `sendIntakeInit`/`Event Reminder` come with the baseline — do not construct them again, add only your own.
-14. **Aggregations: only `COUNT/SUM/AVG/MIN/MAX`.** The form is `Aggregation={aggCol,as,aggType}`; GROUP BY is a
+14. **Aggregations: only `COUNT/SUM/AVG/MIN/MAX`.** The form is `{aggCol,as,aggType}`; GROUP BY is a
     separate `groupByList:[{col}]`, not `aggType`. No `{type,field}`/`GROUP_BY` (the obsolete
     `query-system.md`).
 15. **Do not pass realm/client from rules.** `service.rimm.*` and `service.notification.*` inject
-    realm+client inside the proxy. Signatures with realm/client from the old `07-query-and-rimm.md` are the raw
+    realm+client automatically. Signatures with realm/client from the old `07-query-and-rimm.md` are the raw
     services, not the Groovy binding.
 16. **The audit API (`service.audit.*`) is `⚠️ UNVERIFIED`.** No binding was found in the code; `audit-logging.md`
     describes it as aspirational. Do not rely on it when building.

@@ -37,7 +37,7 @@ describes only the DELTA** — what differs — and points to 04 for the shared 
   `filterExpression` (a filter language over those indexes).
 
 > ⚠️ The process plugin name is spelled **`process.table.pluin`** — this is a typo in
-> `@PluginConfig(pluginName = "process.table.pluin", ...)` (`ProcessTablePlugin.java`). In the export
+> the platform's plugin registry key. In the export
 > `pluginName` must be exactly this, otherwise the node won't render.
 
 > **🔧 Tooling.** For these entities, run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of hand-editing JSON:
@@ -58,9 +58,7 @@ Both plugins **serialize the entire configuration into `properties.model.stringV
 backing node (leftovers of deleted nodes) and the importer
 tolerates them; the required invariant is node→setting, not the reverse.
 This is the key difference from the form controls in
-[02](02-form-controls-reference.md): the node is read via `getContent().getJsonProperty("model", ...)`
-(`CrudTreePlugin.java`, `ProcessTablePlugin.java`) and written via
-`getContent().setJsonProperty("model", ...)` (`ProcessTablePlugin.java`).
+[02](02-form-controls-reference.md): the node is read from and written to its `model` property (a JSON string).
 
 **When the two disagree, `properties.model` wins.** That is not a convention you may choose differently — the
 mirror's key carries no branch, and a branch clone keeps node unique identifiers, so a draft and the published
@@ -71,18 +69,17 @@ platform refreshes the mirror from it on every save. See
 [28-support-mode-over-mcp.md](28-support-mode-over-mcp.md) §4a for what that means when you edit a live project.
 
 > ⛔⛔ **The MIRROR is read at RUNTIME, not just by the editor — keep it IN SYNC with the model.** The node, its
-> columns and its rows render from `properties.model.stringValue` (`ProcessTablePlugin.java`), and so do **direct**
+> columns and its rows render from `properties.model.stringValue`, and so do **direct**
 > actions (they execute inside the table plugin). But the **FORM that every NON-direct action opens is configured
-> from the `rep-objects.settings[]` mirror**, never from the node: the platform loads the setting by
-> `settingsService.findByName(node.uniqueIdentifier)` and reads `settings.content` (`SettingsNavigationHelper`,
-> consumed by `FormPlugin` and `FormGroupLandingPlugin`) to obtain that action's `crudAlias`/`contextIdentifier`/
+> from the `rep-objects.settings[]` mirror**, never from the node: the platform loads the setting whose `name` is the node's
+> `uniqueIdentifier` and reads `settings.content` to obtain that action's `crudAlias`/`contextIdentifier`/
 > `formGroupIdentifier`, its `onBeforeStart`/`onBeforeComplete` rule ids, its `predicateIdentifier`, and — for
 > `process.table.pluin` — the `indexSettings` that get written into `paramsToFilter`. **There is no fallback to
 > `properties.model` on that path.** So a generator/script that rewrites a node's `model` and leaves the mirror
 > untouched ships a page that **renders the NEW config while the form runs the OLD one** — silently; and a
 > *missing* mirror row leaves the form with no crud metadata at all, so it opens, fills, submits and writes
 > NOTHING (server-side there is only a log warning). The author-side settings dialog reads the same row
-> (`ProcessTableSettingsControlPanel.java`; the CrudTable/Tree panels do the same), which is why a stale mirror
+> (all three table plugins' settings panels do), which is why a stale mirror
 > **also** shows the OLD config in the editor — for a `process.table.pluin` inherited from a starting-point
 > baseline that means its **placeholder junk**: `filterExpression: "like(cusromerName, %{customer_name}%) && assigned=={assigned}
 > && createdDate > {created_date}"` over non-existent fields, and a dangling `globalAction`. **Whenever you set a
@@ -194,47 +191,43 @@ The process node additionally carries a boolean `isParsis` property (participati
 }
 ```
 
-## Field-by-field: `CrudTreePluginModel`
+## Field-by-field: CRUD tree settings
 
-Backing: `CrudTreePluginModel.java`.
-
-| Field | Type | Meaning | Req. | Default | Backing |
-|---|---|---|---|---|---|
-| `contextIdentifier` | String | Context for Groovy rules to access other CRUDs; when empty — falls back to `crudAlias` when computing action visibility predicates (`CrudTreePlugin.java`). | no | — | `CrudTreePluginModel.java` |
-| `crudAlias` | String | Alias of the main CRUD shown by the tree. **Without it the node renders the placeholder** "CRUD Tree (not configured)" (`CrudTreePlugin.java`). | yes (for data) | — | |
-| `parentFieldExpression` | String | **DTO-side** of the parent reference, e.g. `"parent.id"` — a path in the data row. Used as a fallback filter key if `parentFilterFieldExpression` is empty. | yes¹ | — | |
-| `parentFilterFieldExpression` | String | **FILTER-side** — the field name in the filter class, e.g. `"parentId"`. It is exactly this that the provider puts into the filter map when calling `findByParent` (`CrudTreeDataProvider.java`). | yes¹ | — | |
-| `columnSettings[]` | `CrudTableColumnSettings[]` | Columns. The **first** becomes the tree column (expand icon + value), the rest are ordinary. See [04](04-crud-table-plugin.md) — the type is fully shared. | no | `[]` | |
-| `filterSettings[]` | `CrudTableFilterSettings[]` | CRUD filters (the same as the table's). Their `defaultValue` is mixed into every `findByParent` call (`CrudTreeDataProvider.java`). | no | `[]` | |
-| `createActions` | `CrudTableActionsDto` | **Create** actions — rendered as breadcrumb buttons (`CrudTreePlugin.breadcrumbButtons`; loop over `createActions`). | no | — | |
-| `editActions` | `CrudTableActionsDto` | **Row** actions — dropdown in the last column (`CrudTreePlugin.java`). | no | — | |
-| `rowsPerPage` | int | **DEAD FIELD on a tree — never read.** `CrudTreePlugin.java` hardcodes `Long.MAX_VALUE` as the page size instead of the model value, so a tree **has no pagination at all** and setting this to 15 changes nothing. (Contrast `CrudTablePlugin.java`, which passes `getModelObject().getRowsPerPage()`.) Keep the `2147483647` default so the JSON does not imply a setting that works. | no | `2147483647` | |
-| `findRuleIdentifier` | String | Identifier of the EXECUTION rule the tree runs to fetch a node's children (`service.crud.<alias>.findByParent(...)`). Auto-created on render if empty (see below). | yes² | — | |
+| Field | Type | Meaning | Req. | Default |
+|---|---|---|---|---|
+| `contextIdentifier` | String | Context for Groovy rules to access other CRUDs; when empty — falls back to `crudAlias` when computing action visibility predicates. | no | — |
+| `crudAlias` | String | Alias of the main CRUD shown by the tree. **Without it the node renders the placeholder** "CRUD Tree (not configured)". | yes (for data) | — |
+| `parentFieldExpression` | String | **DTO-side** of the parent reference, e.g. `"parent.id"` — a path in the data row. Used as a fallback filter key if `parentFilterFieldExpression` is empty. | yes¹ | — |
+| `parentFilterFieldExpression` | String | **FILTER-side** — the field name in the filter class, e.g. `"parentId"`. It is exactly this that the provider puts into the filter map when calling `findByParent`. | yes¹ | — |
+| `columnSettings[]` | column object[] | Columns. The **first** becomes the tree column (expand icon + value), the rest are ordinary. See [04](04-crud-table-plugin.md) — the type is fully shared. | no | `[]` |
+| `filterSettings[]` | filter object[] | CRUD filters (the same as the table's). Their `defaultValue` is mixed into every `findByParent` call. | no | `[]` |
+| `createActions` | object `{ actions: action[] }` | **Create** actions — rendered as breadcrumb buttons. | no | — |
+| `editActions` | object `{ actions: action[] }` | **Row** actions — dropdown in the last column. | no | — |
+| `rowsPerPage` | int | **DEAD FIELD on a tree — never read.** The tree hardcodes the maximum page size instead of using the model value, so a tree **has no pagination at all** and setting this to 15 changes nothing. (Contrast the CRUD table, which uses its `rowsPerPage`.) Keep the `2147483647` default so the JSON does not imply a setting that works. | no | `2147483647` |
+| `findRuleIdentifier` | String | Identifier of the EXECUTION rule the tree runs to fetch a node's children (`service.crud.<alias>.findByParent(...)`). Auto-created on render if empty (see below). | yes² | — |
 
 
-> **The tree's FIRST column is rendered by a different code path.** `CrudTreePlugin.newContentComponent`
-> draws it as a bare `Label` next to the expand/collapse junction, so it never reaches the shared cell
+> **The tree's FIRST column is rendered differently.** The tree
+> draws it as a bare label next to the expand/collapse junction, so it never reaches the shared cell
 > factory: **boolean icons and right-alignment do NOT apply to column 0** (they do to every other
 > column). `money` and `dateFormat` DO apply to it, because those are resolved inside
-> `extractColumnValue`, which the first column does call. If you need a boolean icon on the first
+> the shared value extraction, which the first column does call. If you need a boolean icon on the first
 > column, move that column down and put a text column first.
 
 ¹ **Either one** of `parentFieldExpression` / `parentFilterFieldExpression` is enough for the tree
-to start rendering (`CrudTreePlugin.java`). The data provider prefers
-`parentFilterFieldExpression`, and in its absence falls back to `parentFieldExpression`
-(`CrudTreeDataProvider.effectiveFilterKey`). In practice specify **both**: the DTO path and
+to start rendering. The data provider prefers
+`parentFilterFieldExpression`, and in its absence falls back to `parentFieldExpression`. In practice specify **both**: the DTO path and
 the filter name often differ (`parent.id` vs `parentId`).
 
-² On render, if `crudAlias` is set but `findRuleIdentifier` is empty, the plugin calls
-`crudDataRuleService.ensureFindByParentRule(...)` and writes the resulting id back into the model
-(`CrudTreePlugin.java`). So you can OMIT it from the export — the rule will be created on first
+² On render, if `crudAlias` is set but `findRuleIdentifier` is empty, the plugin creates the `findByParent` rule itself and writes the resulting id back into the model.
+So you can OMIT it from the export — the rule will be created on first
 render. But for a fully self-contained export it's better to specify both the rule and `findRuleIdentifier`.
 
 ## Tree fetch-rule (`findRuleIdentifier`) — the key difference from the table
 
 The table (04) runs `find(filter)`; the tree runs **`findByParent(...)`** to fetch a node's children
 (`null` parent = the root nodes). The rule is an `EXECUTION_RULE` / `GroovyExecutionRule`, **context-free**
-(context-free `service.crud.<alias>`), auto-named `"Find children — <CrudName>"` (`CrudDataRuleServiceImpl.java`).
+(context-free `service.crud.<alias>`), auto-named `"Find children — <CrudName>"`.
 
 > ⭐ **CANONICAL, LIVE-VERIFIED recipe — COPY THIS.** It is the shape that drives a real tree end-to-end,
 > TWO pieces and nothing else:
@@ -259,15 +252,14 @@ The table (04) runs `find(filter)`; the tree runs **`findByParent(...)`** to fet
 >
 > 🧭 **META-RULE, learned the hard way (two failed attempts): for a tree / any dynamic-CRUD method, TRANSCRIBE the
 > method + rule from a KNOWN-WORKING tree** (the shape above, or `jq` a working project's `dynamic-cruds.json` +
-> its `Find children — X` rule), byte-for-byte. **Do NOT hand-derive the SQL from platform source** — both failure modes in TRAP #1/#2 below came
+> its `Find children — X` rule), byte-for-byte. **Do NOT hand-derive the SQL** — both failure modes in TRAP #1/#2 below came
 > from deriving (`:parentId::uuid` raw cast; a paginated `:pageNumber * :rowsInPage`; a filter-map arg whose null
 > parent unpacks to `{}`).
 
 **The platform's auto-gen variant (also valid, but subtler — prefer the recipe above).** When `findRuleIdentifier`
-is blank, `CrudTreePlugin` calls `ensureFindByParentRule` → `buildFindByParentScript`
-(`CrudDataRuleServiceImpl.java`), which builds a rule that forwards a filter **MAP** and calls
+is blank, the plugin creates a rule that forwards a filter **MAP** and calls
 `findByParent(filter)`; its paired method uses the **type-aware query-DSL** placeholder
-`IS NOT DISTINCT FROM {name:'parentId', type:'uuid'}` (`CrudTreeMethodService.buildFindByParentSql`), which binds
+`IS NOT DISTINCT FROM {name:'parentId', type:'uuid'}`, which binds
 null-safely. This works in the auto-gen path — but ONLY because the method SQL uses that DSL (not a raw
 `:parentId::uuid`) and tolerates the map's null→`{}` unpacking. Here it is for reference, as generated for a
 `category` tree (rule `da08c1ea-17a9-4a69-abce-fcfe7d8e825a`):
@@ -319,7 +311,7 @@ return service.crud.category.findByParent(filter)
 >   the executor binds it as TEXT; a null/empty parentId → `NULL` → `IS NOT DISTINCT FROM NULL` → the **root** rows; a
 >   real uuid string casts cleanly. **Never `... IS NOT DISTINCT FROM :parentId::uuid`** (raw cast → uuid bind →
 >   crashes on the empty root value). (Platform equivalent: the type-aware query-DSL placeholder
->   `IS NOT DISTINCT FROM {name: 'parentId', type: 'uuid'}`, `CrudTreeMethodService.buildFindByParentSql`.)
+>   `IS NOT DISTINCT FROM {name: 'parentId', type: 'uuid'}`.)
 >
 > `validate` WARNs on a tree parent-method that uses a raw `:<param>::uuid` cast OR multiplies two bind params
 > (`_check_tree_config`).
@@ -333,14 +325,13 @@ return service.crud.category.findByParent(filter)
 > pipeline, or the unbound `:col` first appears as `$1 IS NULL` → Postgres "could not determine data type of
 > parameter $1". Full recipe + naming table: [02-form-controls-reference.md §4a](02-form-controls-reference.md).
 
-The provider (`CrudTreeDataProvider.fetchNodes`) puts into `filterMap`: `pageNumber=0`
-`rowsInPage=Integer.MAX_VALUE`, `<filterKey>=parentId`, plus the `filterSettings` defaults; and passes them as
-additional-params into `workflowExecutionService.execute(...)`. The result is accepted either as a **List**
+For each node the tree puts into the filter map: `pageNumber=0`
+`rowsInPage=2147483647`, `<filterKey>=parentId`, plus the `filterSettings` defaults; and passes them to the fetch rule as `attrs`. The result is accepted either as a **List**
 (preferred — `findByParent` returns a list directly), or as a **Map with the key
 `content`** (legacy page wrapper of `find`). Otherwise — an empty list + a warn log.
 
 > For a **dynamic** CRUD, the target CRUD must have a `findByParent` method (a GROOVY wrapper over
-> `findAllByParent`, constant `CrudTreeDataProvider.FIND_BY_PARENT_METHOD = "findByParent"`),
+> `findAllByParent`),
 > or the rule must be rewritten to fit an existing method. See [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md).
 
 ### ⛔ Who sees which rows (tree)
@@ -353,23 +344,23 @@ ownership applies to the branch or to the leaf.
 
 ## Tree actions vs table actions
 
-Actions use **the same type** `CrudTableActionsDto.ActionDto` as the CRUD table (see
-`CrudTableActionsDto.java`). Field annotations (shared for create/edit):
+Actions use **the same shape** (action shape) as the CRUD table (see
+[04](04-crud-table-plugin.md)). Field annotations (shared for create/edit):
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `id` | String | Unique action id (UUID). | `CrudTableActionsDto.java` (`private String id`) |
-| `localizedNames` | Map<locale,String> | Name in the dropdown/button/audit. Key — full locale `"en_US"`. | (`private Map<String,String> localizedNames`) |
-| `localizedButtonNames` | Map<locale,String> | Label of the form's submit button (non-direct). Default — falls back to `localizedNames` via `getLocalizedButtonName()`. | (`private Map<String,String> localizedButtonNames`) |
-| `icon` | String | Icon CSS class (`pe-7s-plus`, `pe-7s-pen`, `pe-7s-trash`). | (`private String icon`) |
-| `formGroupIdentifier` | String | Form group to navigate to (non-direct). The form receives `crud`+`crudId`. | (`private String formGroupIdentifier`) |
-| `direct` | **boolean** | `true` → execute without a form (for tree edit: a direct action via rule + confirm dialog). In JSON — `true`/`false`. | (`private boolean direct`) |
-| `predicateIdentifier` | String | Optional visibility predicate; the action is shown only if the predicate is `true` for this node (`CrudTreePlugin.evaluatePredicates`). | (`private String predicateIdentifier`) |
-| `onBeforeStartRuleIdentifier` | String | Optional rule before showing the form / start. | (`private String onBeforeStartRuleIdentifier`) |
-| `onBeforeCompleteRuleIdentifier` | String | Optional rule before the CRUD operation. | (`private String onBeforeCompleteRuleIdentifier`) |
-| `submitForm` | Boolean | Non-direct: whether to submit the form on the action's button. `null` = `true` (`shouldSubmitForm()`). | (`private Boolean submitForm`) |
-| `formInModal` | Boolean | Non-direct: `true` → the form opens in a DIALOG over the tree; submit refreshes the tree in place instead of navigating back. `null`=`false`. | (`private Boolean formInModal`, `shouldOpenInModal()`) |
-| `modalWidth` | String | Width of that dialog — any CSS length (`"90%"`, `"400px"`). Blank → `80%`. Only read when `formInModal:true`. | (`private String modalWidth`) |
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | String | Unique action id (UUID). |
+| `localizedNames` | Map<locale,String> | Name in the dropdown/button/audit. Key — full locale `"en_US"`. |
+| `localizedButtonNames` | Map<locale,String> | Label of the form's submit button (non-direct). Default — falls back to `localizedNames`. |
+| `icon` | String | Icon CSS class (`pe-7s-plus`, `pe-7s-pen`, `pe-7s-trash`). |
+| `formGroupIdentifier` | String | Form group to navigate to (non-direct). The form receives `crud`+`crudId`. |
+| `direct` | **boolean** | `true` → execute without a form (for tree edit: a direct action via rule + confirm dialog). In JSON — `true`/`false`. |
+| `predicateIdentifier` | String | Optional visibility predicate; the action is shown only if the predicate is `true` for this node. |
+| `onBeforeStartRuleIdentifier` | String | Optional rule before showing the form / start. |
+| `onBeforeCompleteRuleIdentifier` | String | Optional rule before the CRUD operation. |
+| `submitForm` | Boolean | Non-direct: whether to submit the form on the action's button. `null` = `true`. |
+| `formInModal` | Boolean | Non-direct: `true` → the form opens in a DIALOG over the tree; submit refreshes the tree in place instead of navigating back. `null`=`false`. |
+| `modalWidth` | String | Width of that dialog — any CSS length (`"90%"`, `"400px"`). Blank → `80%`. Only read when `formInModal:true`. |
 
 > The dialog behaves exactly as for the CRUD table — the form's breadcrumb buttons move to the bottom of the
 > dialog and a successful submit closes it and refreshes the tree in place; see the `formInModal` note in
@@ -383,33 +374,31 @@ Actions use **the same type** `CrudTableActionsDto.ActionDto` as the CRUD table 
 > [02-form-controls-reference.md](02-form-controls-reference.md) §Where the value LANDS.
 >
 > A **process.table** start or global action is the other case: like a workflow user task it opens its form
-> WITHOUT a row, so `initCrudMode()` never runs and every control keeps its persisted scope: a `GLOBAL`/`CONTEXT`
+> WITHOUT a row, so the form never enters CRUD mode and every control keeps its persisted scope: a `GLOBAL`/`CONTEXT`
 > control lands in the attrs the rule reads with `context.data.getAttr`, while a `CRUD`-scoped control on a START
 > form still writes into `crudDataMap[<alias>]` — which is how a start form seeds the case's entity
-> ([07-workflows-and-tasks.md](07-workflows-and-tasks.md)) — see the ⛔ note under §"Process actions: `UserTaskActionsDto.ActionDto`" below.
+> ([07-workflows-and-tasks.md](07-workflows-and-tasks.md)) — see the ⛔ note under §"Process actions" below.
 > Wiring one form group to both kinds of action is normal (decide it from the worklist or straight from the row)
 > — then the rule must read both, attrs first
 > ([08-groovy-rules-and-context.md](08-groovy-rules-and-context.md)).
 
 Differences from the table:
 - The tree's **create actions** are `createActions` (breadcrumb buttons), exactly like the table's; they navigate to
-  a form group without `crudId` (create mode, `navigateToForm(..., entityId=null, ...)`,
-  `CrudTreePlugin.java`).
+  a form group without `crudId` (create mode).
 - ⚠️ **A `direct:true` CREATE action on the tree still performs a BUILT-IN create** — unlike the CRUD table (where a
   direct action is rules-only), a tree runs the `onBefore*` rules and then calls the built-in
-  `reactorCrudService.executeCrudMethod(realm, client, crudAlias, "create", [ {} ])` + logs a create
-  (`CrudTreePlugin.java`, → nct-executor `/api/crud` → RSocket → the dynamic-integration BL pod). So a direct
+  CRUD `create` with an empty object `{}` + logs a create (routed to the dynamic-integration BL pod). So a direct
   tree-create inserts a blank node (usually then renamed), it does not merely run a rule.
-- The tree's **edit actions** (`editActions`) are rendered in the **last column of the tree** as a dropdown
-  (`CrudTreeActionsPanel`), not as a separate set. Each node lazily requests its visible
-  actions (`fetchActions`, the JS sends `entityIds` of visible nodes, the server returns `{rowActions:{<id>:[...]}}`
-  accounting for predicates, `CrudTreePlugin.java`).
+- The tree's **edit actions** (`editActions`) are rendered in the **last column of the tree** as a dropdown,
+  not as a separate set. Each node lazily requests its visible
+  actions (the JS sends `entityIds` of visible nodes, the server returns `{rowActions:{<id>:[...]}}`
+  accounting for predicates).
 - "Create Child" is an ordinary **edit action** with `onBeforeStartRule` that navigates to the same
   create form, but in the context of the selected parent (see the `70e51d09-...` example above).
 
 ## Tree HTML (render)
 
-The plugin (`CrudTreePlugin.html`):
+The plugin renders:
 
 ```html
 <div class="row crud-tree-plugin">
@@ -420,8 +409,8 @@ The plugin (`CrudTreePlugin.html`):
 </div>
 ```
 
-The row actions dropdown (`CrudTreeActionsPanel.html`) — a placeholder `action-loading-item` with a spinner,
-which the JS replaces with real actions after `fetchActions`:
+The row actions dropdown — a placeholder `action-loading-item` with a spinner,
+which the JS replaces with real actions once they are fetched:
 
 ```html
 <div class="dropdown d-inline-block crud-tree-actions-cell">
@@ -507,19 +496,17 @@ older nodes use a **legacy single `"name"`**, newer ones `localizedNames`/
 `localizedButtonNames`. Both forms parse (see below on the mixed
 reality of names) — author the localized one.
 
-## Field-by-field: `ProcessTablePluginModel`
+## Field-by-field: process table settings
 
-Backing: `nct-ui/.../process/ProcessTablePluginModel.java`.
-
-| Field | Type | Meaning | Req. | Default | Backing |
-|---|---|---|---|---|---|
-| `workflowIdentifier` | String | Identifier of the workflow (Flowable) whose instances we show and start. Resolved via `flowableWorkflowService.findByIdentifier` (`ProcessTablePlugin.java`). Without it, start-actions error out. | yes | — | `ProcessTablePluginModel.java` |
-| `processGroupIdentifier` | String | Process group — the row filter (`ProcessFilter.processGroupIdentifier`). If empty/invalid — the plugin **auto-creates** a group named = `content.uniqueIdentifier` and saves the model (`ProcessTablePlugin.java`). | yes¹ | auto | |
-| `columnSettings[]` | `ProcessTableFormControlSettings[]` | Table columns. They differ from CRUD columns by having a `scope` (see below). | no | `[]` | |
-| `indexSettings[]` | `ProcessIndexSettings[]` | Indexable process context values — what `filterExpression` works over. Forwarded into start/actions as `ProcessIndexSettingsDto` (`ProcessTablePlugin.java`). | no | `[]` | |
-| `filterExpression` | String | A filter expression string over the `indexName`s (grammar below). Placed into `ProcessFilter.expression` (`ProcessTablePlugin.java`). | no | — | |
-| `userStartProcessActions` | `UserTaskActionsDto` | Process **start** actions — breadcrumb buttons (`ProcessTablePlugin.java`). | no | — | |
-| `globalActions` | `UserTaskActionsDto` | Actions over an **existing** process (in addition to the workflow's task-actions). Shown in the row dropdown, only if their predicate is `true` (`ProcessTablePlugin.java`). | no | — | |
+| Field | Type | Meaning | Req. | Default |
+|---|---|---|---|---|
+| `workflowIdentifier` | String | Identifier of the workflow (Flowable) whose instances we show and start. Without it, start-actions error out. | yes | — |
+| `processGroupIdentifier` | String | Process group — the row filter. If empty/invalid — the plugin **auto-creates** a group named = `content.uniqueIdentifier` and saves the model. | yes¹ | auto |
+| `columnSettings[]` | column object[] | Table columns. They differ from CRUD columns by having a `scope` (see below). | no | `[]` |
+| `indexSettings[]` | index object[] | Indexable process context values — what `filterExpression` works over. Forwarded into start/actions. | no | `[]` |
+| `filterExpression` | String | A filter expression string over the `indexName`s (grammar below). | no | — |
+| `userStartProcessActions` | object `{ actions: [...], errors: [] }` | Process **start** actions — breadcrumb buttons. | no | — |
+| `globalActions` | object `{ actions: [...], errors: [] }` | Actions over an **existing** process (in addition to the workflow's task-actions). Shown in the row dropdown, only if their predicate is `true`. | no | — |
 
 ¹ Technically not required in the export: on render the plugin will create the group itself and rewrite the
 model. But for a self-contained export, set `processGroupIdentifier` and add the corresponding object to
@@ -576,18 +563,17 @@ model. But for a self-contained export, set `processGroupIdentifier` and add the
 > exists. Only pressing the button on an empty form does.
 
 > **The THREE action origins on a process table** — the row action menu is assembled from three sources, but
-> only **two** live in this node (`ProcessTablePlugin.fetchBulkActions`):
+> only **two** live in this node:
 > 1. **`userStartProcessActions`** — "start a new process" breadcrumb buttons.
 > 2. **`globalActions`** — row actions the plugin defines itself, available on **every** row regardless of the
 >    process's current task.
 > 3. **per-userTask actions** — **NOT in the node/settings**: they live in the workflow BPMN as
->    `flowable:userActions` ([07](07-workflows-and-tasks.md)) and are fetched at runtime
-> (`flowableTaskService.getAvailableActionsBulk`, `ProcessTablePlugin.java`); each only shows while the
+>    `flowable:userActions` ([07](07-workflows-and-tasks.md)) and are fetched at runtime; each only shows while the
 >    case is parked at that task. So don't look for task actions in the node — author always-available ones as
 >    `globalActions`.
 >
-> **`direct` on a PROCESS action is a STRING `"on"`/`"off"`, not a boolean** (`UserTaskActionsDto.isDirect() =
-> StringUtils.equals(direct,"on")`, `UserTaskActionsDto.java`; writing `true`/`false` silently
+> **`direct` on a PROCESS action is a STRING `"on"`/`"off"`, not a boolean** (only the exact string `"on"`
+> means direct; writing `true`/`false` silently
 > disables it — contrast the **tree** action's boolean `direct` in the section above). A **DIRECT** global
 > action runs a rule with no form; a **NON-DIRECT** one navigates to a form group:
 > ```json
@@ -602,53 +588,52 @@ model. But for a self-contained export, set `processGroupIdentifier` and add the
 > `completeUserTask` is `"on"`/`"off"` (`"off"` runs the rule without advancing the task). `validationRuleIdentifiers`
 > is a valid export field even though the settings UI doesn't surface it.
 >
-> ⚠️ **Platform prerequisite — global actions need nct-workflow ≥ the 2026-08-28 fix.** Executing a
-> globalAction takes the *no-taskId* branch of `FlowableProcessServiceImpl.executeAction`, which ended in
-> `runtimeService.createExecutionQuery().processInstanceId(id).singleResult()`. That query matches EVERY
-> execution of the instance — the root execution PLUS one child per active token — so any case parked at an
-> activity (every live case) returned 2 and the click failed with Flowable's
+> ⚠️ **Platform prerequisite — global actions need a workflow service with the 2026-08-28 fix.** Executing a
+> globalAction takes the *no-taskId* branch, which looked up the instance's execution with a query that
+> matches EVERY execution of the instance — the root execution PLUS one child per active token — so any case
+> parked at an activity (every live case) returned 2 and the click failed with Flowable's
 > `Query return 2 results instead of max 1`, surfaced as *"Failed to execute action: Failed to execute
-> action: …"*. The task branch never showed it (it goes through `updateProcessVariables`), so per-task
-> buttons worked while every global action failed. Fixed by adding `.onlyProcessInstanceExecutions()`. If you
-> meet that error on a tenant, the export is not at fault — the deployed `nct-workflow` is stale.
+> action: …"*. The task branch never showed it, so per-task
+> buttons worked while every global action failed. Fixed in the platform. If you
+> meet that error on a tenant, the export is not at fault — the deployed workflow service is stale.
 >
 > ⛔ **Every `globalAction` MUST carry a non-blank `predicateIdentifier`** — a blank one is **skipped and never
-> shown** (fail-closed, `ProcessTablePlugin.java`), the #1 reason a hand-authored global action "does
+> shown** (fail-closed), the #1 reason a hand-authored global action "does
 > nothing." Use a `return true` PREDICATE rule for always-visible. (Start actions differ: a blank predicate
 > there means always-allowed.)
 
-## Field-by-field: `ProcessTableFormControlSettings` (column) — DIFFERENT from a CRUD column
+## Field-by-field: process-table column settings (column) — DIFFERENT from a CRUD column
 
-Backing: `nct-ui/.../process/ProcessTableFormControlSettings.java`. The key difference from
-`CrudTableColumnSettings` (04) is the **`scope`** field: the column value is taken not from a flat row, but
+The key difference from
+table column settings (04) is the **`scope`** field: the column value is taken not from a flat row, but
 from the process context data via one of three sources.
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `id` | String | Unique column id. | `ProcessTableFormControlSettings.java` |
-| `name` | String | ⚠️ Legacy header name (fallback). Marked `@Deprecated`. | |
-| `localizedNames` | Map<locale,String> | Localized headers. Resolved via `getLocalizedName(Locale)`. | |
-| `dataClass` | String | FQCN of the value type, e.g. `java.lang.String`, `java.time.LocalDateTime`. Mapped to `ValueType` for conversion (`ProcessTablePlugin.java`). | |
-| `scope` | `FormControlScope` enum | **`GLOBAL` / `CONTEXT` / `CRUD`** — where to read the value from (see the source table below). | |
-| `contextIdentifier` | String | Context identifier for `CONTEXT`/`CRUD` scope. | |
-| `crudAlias` | String | CRUD alias for `CRUD` scope. | |
-| `fieldExpression` | String | Path to the value (e.g. `customerName`, `createdDate`; for GLOBAL — special keys, see below). | |
-| `enumDisplayField` | String | For enum columns: the enum property to display (semantics as for a CRUD column). | |
-| `enumValues` | Map<String,Map<String,String>> | Snapshot of the enum's property table. | |
-| `enumName` | String | Registry name of the project Enumeration. | |
-| `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** raw `true` text; blank → raw text. Same helper as the CRUD table. | |
-| `falseIcon` | String | Boolean columns only: Pe-7s CSS class for a `false` value; blank on this side → raw text. | |
-| `money` | boolean | **Numeric columns only**: render the cell as money. Same semantics and same helper as the CRUD table. | |
-| `currency` | String | Money columns: symbol (`$`, `€`, `֏`) or ISO code (`USD`); free text. | |
-| `moneyFormat` | String | Money columns: `US` / `EUROPEAN` / `SPACE_COMMA` / `SPACE_DOT` / `SWISS` / `INDIAN` / `PLAIN`. Blank → `US`. | |
-| `moneyDecimals` | Integer | Money columns: decimal places `0`–`6`; null → `2`. | |
-| `dateFormat` | String | **Temporal columns only** (`java.time.LocalDate` / `LocalDateTime` / `Instant`): moment.js display pattern, e.g. `DD/MM/YYYY HH:mm`. Blank → the raw ISO value. | |
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | String | Unique column id. |
+| `name` | String | ⚠️ Legacy header name (fallback). Deprecated. |
+| `localizedNames` | Map<locale,String> | Localized headers. |
+| `dataClass` | String | FQCN of the value type, e.g. `java.lang.String`, `java.time.LocalDateTime`. |
+| `scope` | enum | **`GLOBAL` / `CONTEXT` / `CRUD`** — where to read the value from (see the source table below). |
+| `contextIdentifier` | String | Context identifier for `CONTEXT`/`CRUD` scope. |
+| `crudAlias` | String | CRUD alias for `CRUD` scope. |
+| `fieldExpression` | String | Path to the value (e.g. `customerName`, `createdDate`; for GLOBAL — special keys, see below). |
+| `enumDisplayField` | String | For enum columns: the enum property to display (semantics as for a CRUD column). |
+| `enumValues` | Map<String,Map<String,String>> | Snapshot of the enum's property table. |
+| `enumName` | String | Registry name of the project Enumeration. |
+| `trueIcon` | String | **Boolean columns only** (`dataClass == java.lang.Boolean`): Pe-7s CSS class rendered **instead of** raw `true` text; blank → raw text. Same helper as the CRUD table. |
+| `falseIcon` | String | Boolean columns only: Pe-7s CSS class for a `false` value; blank on this side → raw text. |
+| `money` | boolean | **Numeric columns only**: render the cell as money. Same semantics and same helper as the CRUD table. |
+| `currency` | String | Money columns: symbol (`$`, `€`, `֏`) or ISO code (`USD`); free text. |
+| `moneyFormat` | String | Money columns: `US` / `EUROPEAN` / `SPACE_COMMA` / `SPACE_DOT` / `SWISS` / `INDIAN` / `PLAIN`. Blank → `US`. |
+| `moneyDecimals` | Integer | Money columns: decimal places `0`–`6`; null → `2`. |
+| `dateFormat` | String | **Temporal columns only** (`java.time.LocalDate` / `LocalDateTime` / `Instant`): moment.js display pattern, e.g. `DD/MM/YYYY HH:mm`. Blank → the raw ISO value. |
 
-> **Boolean icons + alignment** apply here identically to the CRUD table via the shared `BooleanIconColumnUtils`,
-> called at `ProcessTablePlugin.java`: a boolean column with `trueIcon`/`falseIcon` renders the Pe-7s icon
+> **Boolean icons + alignment** apply here identically to the CRUD table via the shared cell formatting:
+> a boolean column with `trueIcon`/`falseIcon` renders the Pe-7s icon
 > (defaults `pe-7s-check`/`pe-7s-close`) instead of raw `true`/`false`, and numeric/boolean cells are
-> right-aligned (CSS `text-end`, `isRightAligned`). Full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
-> §`CrudTableColumnSettings`. Note the sibling `ProcessIndexSettings` (below) has **no** `trueIcon`/`falseIcon` —
+> right-aligned (CSS `text-end`). Full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
+> the table-column section (04). Note the sibling process index settings (below) has **no** `trueIcon`/`falseIcon` —
 > only columns do.
 
 > ⛔ **A `GLOBAL` money or date column is authored `java.lang.String` by default, and that makes both
@@ -659,15 +644,15 @@ from the process context data via one of three sources.
 > [10-database-management.md](10-database-management.md) §*Money is `NUMERIC`*.
 >
 > **Money + date format** apply here identically too, through the same
-> `ColumnCellFormatUtils` seam — full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
-> §`CrudTableColumnSettings`. One thing is specific to the process table: the controls work in
+> cell formatting — full semantics in [04-crud-table-plugin.md](04-crud-table-plugin.md)
+> the table-column section (04). One thing is specific to the process table: the controls work in
 > **every scope** — `GLOBAL`/`CONTEXT` columns pick their type in the "Field Expression" type
 > dropdown, `CRUD` columns get it from the picked field. (In `CRUD` scope the value reaching the
 > formatter is typed only for **dotted** expressions; a flat one goes through the localization
 > lookup, which returns text. Both formatters read either, so it makes no difference to the output.)
-> `ProcessIndexSettings` has none of these keys — only columns do.
+> process index settings has none of these keys — only columns do.
 
-How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`):
+How `scope` determines the value source:
 
 | `scope` | Where the value comes from | Special cases |
 |---|---|---|
@@ -676,13 +661,13 @@ How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`
 | `CRUD` | `contextDataMap[contextIdentifier].crudDataMap[crudAlias]` → field `fieldExpression`. | Renders whatever the process's stored document holds under that alias — **and nothing refreshes it**; see below. |
 
 > ⚠️ **All three scopes DO resolve. A `CRUD`-scoped column is blank only when nothing seeded that alias.**
-> `extractColumnValue` switches on the column's `scope` and reads the process's **stored context-data
+> The table switches on the column's `scope` and reads the process's **stored context-data
 > document** (bulk-prefetched by the data provider, one call per page): `GLOBAL` → the document's root
 > `attrs`, except for five names intercepted before your attrs are ever consulted (`businessKey`,
 > `workflowName`, `status`, `identifier`, `id` — those come off the process row itself); `CONTEXT` →
 > `contextDataMap[ctx].attrs`; `CRUD` → `contextDataMap[ctx].crudDataMap[alias]` → `value`. Whoever filled
 > that document decides what renders:
-> * a **start FORM with CRUD-scoped controls** (shape A) — `collectContextDataFromForm` writes those values
+> * a **start FORM with CRUD-scoped controls** (shape A) — the platform writes those values
 >   into `crudDataMap` even with no row bound, so the CRUD columns render. ⚠️ It writes only the controls the
 >   user actually FILLED (a null value returns early), so a column over a control the user left empty is blank
 >   even though the offline check counts that control as seeding the alias
@@ -699,7 +684,7 @@ How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`
 >
 > | The value is… | Use | Because |
 > |---|---|---|
-> | a **field of a document the case carries** (`requestNo`, `title`, `amount`, `category.name`) | `CRUD` over that alias, with the same `fieldExpression`s the entity's own crud table uses | it is the ONLY branch that localizes (`localizedValueUtil.getLocalizedValue`) and projects enums, the only one that honours `dataClass` per field, and `crudDataMap` is rewritten by every CRUD-mode task form — so it needs no maintenance |
+> | a **field of a document the case carries** (`requestNo`, `title`, `amount`, `category.name`) | `CRUD` over that alias, with the same `fieldExpression`s the entity's own crud table uses | it is the ONLY branch that localizes and projects enums, the only one that honours `dataClass` per field, and `crudDataMap` is rewritten by every CRUD-mode task form — so it needs no maintenance |
 > | **derived or computed for the worklist** (a stage label, an SLA countdown, a name assembled from three records) | `GLOBAL` over an attr — **plus a bind rule that RE-PUBLISHES it** | there is no record to read it from; one bind rule can feed the worklist, the case card and the index at once |
 >
 > ⛔ **`GLOBAL` is only correct WITH the bind rule, and the bind rule must run on more than one step.** A bind
@@ -716,7 +701,7 @@ How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`
 > `setAttr` it); **WARN** when a `CRUD` column's field is in no `crudDataMap` literal for that alias.
 >
 > **`indexSettings` resolve the same three scopes**, one step removed: `paramsToFilter` is extracted from the
-> document by `IndexValueExtractor` (nct-workflow) **when the process starts and again after each action
+> document by the platform **when the process starts and again after each action
 > execution** — so a CRUD-scoped index is filled exactly when the document carried that alias at that moment,
 > and a rule-started case passes no index settings at all and stays unfilterable by `filterExpression` until
 > its first user-task submission backfills it.
@@ -729,9 +714,8 @@ How `scope` determines the value source (`ProcessTablePlugin.extractColumnValue`
 > An **index** is judged more strictly: only a start form's seeding clears it, because a rule-started case
 > passes no index settings at all, so a rule-seeded alias buys a column but leaves the index empty.
 
-`FormControlScope` — the same enum as for form controls (see [02](02-form-controls-reference.md)),
-with exactly three values: **`GLOBAL`** (displayName "Global"), **`CONTEXT`** ("Context"), **`CRUD`** ("CRUD");
-package `com.devsegment.nctui.plugin.dynaform.form.controls.config.FormControlScope`. In JSON it serializes
+`scope` — the same enum as for form controls (see [02](02-form-controls-reference.md)),
+with exactly three values: **`GLOBAL`** (displayName "Global"), **`CONTEXT`** ("Context"), **`CRUD`** ("CRUD"). In JSON it serializes
 **by the constant name** — `"GLOBAL"`/`"CONTEXT"`/`"CRUD"`, NOT the displayName.
 
 Required fields by scope (matches form controls):
@@ -742,42 +726,40 @@ Required fields by scope (matches form controls):
 | `CONTEXT` | `contextIdentifier`, `fieldExpression` |
 | `CRUD` | `contextIdentifier`, `crudAlias`, `fieldExpression` |
 
-> ⛔ **A `scope:"CRUD"` entry with NO `crudAlias` carries nothing at all.** `extractColumnValue` takes the CRUD
-> branch only when `contextIdentifier`, `crudAlias` and `fieldExpression` are all non-blank, so such an entry is
+> ⛔ **A `scope:"CRUD"` entry with NO `crudAlias` carries nothing at all.** The CRUD
+> branch is taken only when `contextIdentifier`, `crudAlias` and `fieldExpression` are all non-blank, so such an entry is
 > blank in every row whatever the case holds. Real exports ship them — the JSON above is one, and the reference
 > bundles each carry two — so `validate` now names them separately from the seeded/unseeded case. Set the alias,
 > or move the entry to `GLOBAL` over an attribute a serviceTask publishes.
 >
 > ⚠️ **`crudAlias` is ignored for a `CONTEXT`/`GLOBAL` column, but is present in real exports.**
 > In the example above the `Created Date` column has `scope:"CONTEXT"`, yet still carries
-> `crudAlias:"ticket"` (the settings UI writes the alias into all columns, while `extractColumnValue` reads it only
+> `crudAlias:"ticket"` (the settings UI writes the alias into all columns, while it is read only
 > when `scope==CRUD`). When generating manually, you can omit `crudAlias` for non-CRUD scope — the node will
 > render identically; when diffing against a real export, this is an expected discrepancy, not a bug.
 
 > **Mixed reality of names.** In process columns and actions you will meet **both** forms of the
 > header: a legacy single `"name"` and a localized `localizedNames` (`{"en_US":...,"hy_AM":...}`).
 > Columns most often still carry the legacy `"name"`; actions come both ways depending on when the node was
-> authored. The resolver `getLocalizedName(Locale)`
-> (`ProcessTableFormControlSettings.java`) tries `localizedNames` first, then falls back to `name`.
+> authored. The resolver tries `localizedNames` first, then falls back to `name`.
 > Both forms are valid in the export; prefer `localizedNames`.
 
-## Field-by-field: `ProcessIndexSettings` (index)
+## Field-by-field: process index settings (index)
 
-Backing: `nct-ui/.../process/ProcessIndexSettings.java`. Indexes are **named values extracted
+Indexes are **named values extracted
 from the process context** over which `filterExpression` later filters. On process start
-and action execution, the index list is forwarded to the backend as `ProcessIndexSettingsDto`
-(`ProcessTablePlugin.getIndexSettingsDtoList`).
+and action execution, the index list is forwarded to the backend.
 
-| Field | Type | Meaning | Backing |
-|---|---|---|---|
-| `id` | String | Unique index id. | `ProcessIndexSettings.java` |
-| `indexName` | String | Index name — used **on the left-hand side of `filterExpression`** (e.g. `customerName`). | |
-| `scope` | `FormControlScope` | `GLOBAL` / `CONTEXT` / `CRUD` — where to extract the value from. | |
-| `contextIdentifier` | String | Context for `CONTEXT`/`CRUD` scope. | |
-| `crudAlias` | String | CRUD alias for `CRUD` scope. | |
-| `fieldExpression` | String | Path to the value in the context. | |
-| `dataClass` | String | FQCN of the value type. | |
-| `enumDisplayField` / `enumValues` / `enumName` | — | Enum support (as for a column). | |
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | String | Unique index id. |
+| `indexName` | String | Index name — used **on the left-hand side of `filterExpression`** (e.g. `customerName`). |
+| `scope` | enum | `GLOBAL` / `CONTEXT` / `CRUD` — where to extract the value from. |
+| `contextIdentifier` | String | Context for `CONTEXT`/`CRUD` scope. |
+| `crudAlias` | String | CRUD alias for `CRUD` scope. |
+| `fieldExpression` | String | Path to the value in the context. |
+| `dataClass` | String | FQCN of the value type. |
+| `enumDisplayField` / `enumValues` / `enumName` | — | Enum support (as for a column). |
 
 > ⚠️ `indexName` in the example above is `"cusromerName"` — a typo made by whoever authored that node. In the export
 > write exactly what stands on the left-hand side of `filterExpression` — placeholders are matched by
@@ -808,28 +790,26 @@ JSONB column `paramsToFilter`). To the left of the operator is an **`indexName`*
 Literals: `"string"`, integer, decimal, `true`/`false`, `null`. `{name}` can be a dot-path
 (`{customer.address.city}`). ValueType of values: `STRING`, `INTEGER`, `LONG`, `DOUBLE`, `FLOAT`, `BOOLEAN`.
 
-`{name}` values are resolved from `ProcessFilter.filterValues` (a Map coming from the filter form of the
-`onFilterSubmit` event, `ProcessTablePlugin.java`). In the full example above:
+`{name}` values are resolved from the filter values (a Map coming from the filter form of the
+`onFilterSubmit` event). In the full example above:
 `like(cusromerName, %{customer_name}%) && assigned=={assigned} && createdDate > {created_date}` —
 three placeholders over three indexes.
 
-> ⛔ **A `filterExpression` does NOTHING without a filter form on the same page.** `ProcessFilterSpecification.fromExpression`
-> returns `Specification.allOf()` (no filtering) whenever `filterValues` is null **or empty**; combined
+> ⛔ **A `filterExpression` does NOTHING without a filter form on the same page.** The filter
+> is not applied (no filtering) whenever `filterValues` is null **or empty**; combined
 > with `ignoreNull()` this is a **silent no-op** — no error, the table just shows every row. Always pair a
 > non-empty `filterExpression` with a `dynaform.filter.form.plugin` on the page (see [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table)).
 >
 > ⛔ **The `{token}` is looked up VERBATIM in `filterValues` — the `filter_` prefix is NOT stripped**
-> (`FilterExpressionLexer.readFilterRef` keeps the whole brace content; `ProcessFilterSpecification.java`
-> does `filterValues.get(path)`). So the filter control feeding `{filter_branch}` must have
+> (the whole brace content is the lookup key). So the filter control feeding `{filter_branch}` must have
 > **`filterKey:"filter_branch"`** — character-for-character, prefix included. This is the OPPOSITE convention
 > from crud tables, where `filterKey` is the raw filter-class field name (`branch`). A common trap: copying a
 > crud table's `branch`/`status` filter form onto a process page filters nothing because `branch` ≠ `{filter_branch}`.
 
-> ℹ️ **The grammar above IS the parser's own grammar.** `FilterExpressionParser` is a recursive-descent parser
-> (its productions are exactly the ones listed here), `FilterExpressionLexer` tokenises exactly
-> `ignoreNull`/`contains`/`anyMatch`/`like`/`true`/`false`/`null` plus the six comparison operators, and
-> `ProcessFilterSpecification.fromExpression` compiles the AST into a JPA `Specification` over the JSONB
-> `paramsToFilter`. Concretely: `!` binds tighter than `&&`, which binds tighter than `||`, and `()` groups;
+> ℹ️ **The grammar above IS the platform's complete grammar.** The expression is parsed by a recursive-descent
+> parser (its productions are exactly the ones listed here) whose only keywords are
+> `ignoreNull`/`contains`/`anyMatch`/`like`/`true`/`false`/`null` plus the six comparison operators, and it is
+> compiled into a query over the JSONB `paramsToFilter`. Concretely: `!` binds tighter than `&&`, which binds tighter than `||`, and `()` groups;
 > inside `like(...)` a `%` is recognised only immediately before/after the value ref and matching is
 > case-insensitive. One behaviour worth knowing: a comparison/`like`/`contains`/`anyMatch` whose `{ref}` resolves
 > to null is **already** dropped (the condition evaluates TRUE), so `ignoreNull(...)` largely restates that —
@@ -872,9 +852,9 @@ intake monitor:
    }
    ```
    > ⛔ **`userStartProcessActions`/`globalActions` MUST use `localizedNames` (a Map), NOT a flat `name`.** The
-   > UserTask `ActionDto` `@JsonIgnoreProperties` a legacy `name` (`UserTaskActionsDto`), so a `{"name":"Intake",…}`
+   > process-action object ignores a legacy `name`, so a `{"name":"Intake",…}`
    > start button renders with a **BLANK label**. And `direct:"off"` + `formGroupIdentifier` is what makes the
-   > button OPEN the start form (the intake form group) — `direct:"on"` runs with no form (see [06](06-form-groups-and-mapping.md) ActionDto).
+   > button OPEN the start form (the intake form group) — `direct:"on"` runs with no form (see [06](06-form-groups-and-mapping.md) action shape).
 
 2. **A `dynaform.filter.form.plugin`** as a **sibling BEFORE** the process-table, inside the same content parsis
    (`… → html "Layout" → nct.parsis.plugin "parsis" → [ dynaform.filter.form.plugin, process.table.pluin ]`):
@@ -895,10 +875,10 @@ intake monitor:
    [07](07-workflows-and-tasks.md) §"Step 5 — the worklist page (NOT optional)".
 
    > ⛔ **A process table parked in a secondary TAB behind a crud table is NOT a worklist page — neither the user
-   > nor the unlinked-page check finds it.** `TabPlugin` opens the FIRST tab by `order` and materialises **only**
-   > the active pane (`getActiveTab()` = the first item after `getItems().sort(comparingInt(getOrder))`, cached in
-   > a session attribute; every inactive pane gets a `BlockPanel` instead of its parsis — `TabPlugin.java`), and
-   > the switch is an `AjaxLink`. A link CAN name a tab (`?tab=<tab id>`, [14a](14a-plugin-config-reference.md)
+   > nor the unlinked-page check finds it.** The tab plugin opens the FIRST tab by `order` and materialises **only**
+   > the active pane (the first item by `order`, remembered in the session; every inactive pane gets a blank
+   > placeholder instead of its content), and
+   > the switch is an ajax link. A link CAN name a tab (`?tab=<tab id>`, [14a](14a-plugin-config-reference.md)
    > §`nct.tab.plugin`; on a platform build that reads it — an older one ignores it), but a quick link's
    > `linkModel.identifier` still addresses a `siteMapPage` and nothing finer ([17](17-left-nav-quick-links.md)), and
    > the reachability check does not see tabs at all: it warns per **`siteMapPage`** not reached by a quick link or a redirect
@@ -915,7 +895,7 @@ submits — so the page works even before anyone touches the filter.
 > the caller (their e-mail, a role, a role group). Those rows are written by rules — open the case to its groups,
 > move it from group to group as it advances, hide it from whoever is done with it
 > ([07](07-workflows-and-tasks.md) "Stage-wise case access", [16](16-groovy-service-api.md) §2.7) — so routing
-> cases into the right people's queues is a process-table job. One limit: nct-ui keeps a list page for a few
+> cases into the right people's queues is a process-table job. One limit: the UI keeps a list page for a few
 > seconds per (realm, client, filter) with no user in the key, so for that moment another person with the same
 > filter can be shown the same page. Where the PRD makes a list CONFIDENTIAL ("an <actor> must never see another's
 > <cases>"), build that list as a `crud.table.plugin` with a scoped fetch rule
@@ -924,32 +904,31 @@ submits — so the page works even before anyone touches the filter.
 > ([24c](24c-html-data-tables-and-paging.md)). Either way, gate every ACTION by predicate: the rows hide a case,
 > they never refuse an action.
 
-> **Do not confuse with Query Builder.** `QueryBuilderDto`
-> (`nct-ui/.../component/querybuilder/QueryBuilderDto.java`) is a separate visual component for
+> **Do not confuse with Query Builder.** The Query Builder
+> is a separate visual component for
 > nested conditions (`condition`/`rules`/`not`/`flags`/`data`, its own operator vocabulary
 > `equal/not_equal/begins_with/contains/between/in/...`). It is **NOT** one of the three table plugins and is not
 > used by either `filterExpression` or `filterSettings`. Don't mix it up with the process DSL.
 
-## Process actions: `UserTaskActionsDto.ActionDto` — DIFFERENT from a CRUD action
+## Process actions — DIFFERENT from a CRUD action
 
 > ⛔ **Decide, per action, what a user meets when it cannot run** — not offered (this predicate), explained before submit (a validation in its form), or refused in words (a direct action) — and never the rule's or the database's error underneath. The decision table and the order of questions: [25](25-form-settings-validation-and-events.md) "An action that cannot run".
 
-Backing: `UserTaskActionsDto.java`
-(nested `class ActionDto`). This is a **different** type than `CrudTableActionsDto.ActionDto`
+This is a **different** shape than the CRUD table's action shape;
 the key differences:
 
 | Field | Type | Meaning | Difference from CRUD action |
 |---|---|---|---|
 | `id` | String | Unique id. | — |
 | `localizedNames` / `localizedButtonNames` | Map<locale,String> | Name/button label. | same |
-| `predicateIdentifier` | String | Visibility predicate. For `globalActions` it is **required**: an action without a predicate is NEVER shown (fail-closed, `ProcessTablePlugin.java`). | for CRUD the predicate is optional |
+| `predicateIdentifier` | String | Visibility predicate. For `globalActions` it is **required**: an action without a predicate is NEVER shown (fail-closed). | for CRUD the predicate is optional |
 | `onBeforeUserTaskStartRuleIdentifier` | String | Rule before starting a user-task. | for CRUD — `onBeforeStartRuleIdentifier` |
 | `onBeforeUserTaskCompleteRuleIdentifier` | String | Rule before completing a user-task. | for CRUD — `onBeforeCompleteRuleIdentifier` |
 | `validationRuleIdentifiers` | String | Identifier(s) of the validation rule. | not in CRUD |
-| `direct` | **String** `"on"`/`"off"` | Direct execution. **Read via `isDirect()` = `StringUtils.equals(direct,"on")`** (`UserTaskActionsDto.java`; field `private String direct`). | for CRUD `direct` is a `boolean` |
+| `direct` | **String** `"on"`/`"off"` | Direct execution. **Only the exact string `"on"` means direct.** | for CRUD `direct` is a `boolean` |
 | `formGroupIdentifier` | String | Form group to navigate to (non-direct). | same |
 | `taskId` | String | Id of the workflow task (for task-actions). Field. | not in CRUD |
-| `completeUserTask` | String `"on"`/`"off"` | Whether to complete the user-task. `shouldCompleteUserTask()` = `!StringUtils.equals(completeUserTask,"off")` — i.e. completes anything NOT equal to `"off"` (default = complete). Field. | not in CRUD |
+| `completeUserTask` | String `"on"`/`"off"` | Whether to complete the user-task. Completes anything NOT equal to `"off"` (default = complete). Field. | not in CRUD |
 | `icon` | String | Icon. | same |
 | `submitForm` | Boolean | Whether to submit the form. `null`=`true`. | same |
 | `formInModal` | Boolean | Non-direct: `true` → the form opens in a DIALOG over the process table; submit refreshes the table in place. `null`=`false`. **Boolean here, unlike `direct`.** | same field name/semantics as CRUD |
@@ -961,35 +940,33 @@ the key differences:
 > note in [04-crud-table-plugin.md](04-crud-table-plugin.md).
 
 > ⚠️ The main export pitfall: for process actions `direct` is a **string** `"on"`/`"off"`,
-> not a boolean. In the examples: `"direct": "off"`. If you write `true`/`false`, `isDirect()` returns
-> `false` (not equal to `"on"`). For tree/table CRUD actions it's the opposite — `direct` is `true`/`false`.
+> not a boolean. In the examples: `"direct": "off"`. If you write `true`/`false`, the action is not direct
+> (not equal to `"on"`). For tree/table CRUD actions it's the opposite — `direct` is `true`/`false`.
 
 Two sets:
-- **`userStartProcessActions`** — start a new process (`processService.startProcess(...)` with
-  `groupIdentifier` + `indexSettings`, `ProcessTablePlugin.java`) for `direct`, or navigate
+- **`userStartProcessActions`** — start a new process (with the process group + `indexSettings`) for `direct`, or navigate
   to a form group for non-direct. Rendered as breadcrumb buttons.
-- **`globalActions`** — actions over a process row, merged with the workflow's own task-actions
-  (`fetchBulkActions`). Visibility strictly by predicate.
+- **`globalActions`** — actions over a process row, merged with the workflow's own task-actions.
+  Visibility strictly by predicate.
 
 > ⛔ **A global action cannot open a form that shows an existing record.** Its form is launched with the
 > `processIdentifier` but with **no row**: the launcher passes the PROCESS table's `settingsName`, so
-> `FormPlugin.resolveSettingsNavigation` finds the action in `globalActions` (not in a crud-table settings
-> object), `crudTableNavData` stays null and `initCrudMode()` never runs. Point one at a CRUD form group and
+> the form finds the action in `globalActions` (not in a crud-table settings
+> object), no CRUD row is bound and the form never enters CRUD mode. Point one at a CRUD form group and
 > the user gets a page of empty, greyed-out fields. Give it a GLOBAL-scope card fed by process attributes,
 > or don't add it.
 >
 > ⛔ **And check it is not a duplicate of a task action.** `globalActions` are MERGED into the same row menu
-> as the workflow's own user-task actions (`fetchBulkActions`), so a global action named like the current
+> as the workflow's own user-task actions, so a global action named like the current
 > task's action shows the user two identical buttons that do different things. Name each for what it does,
 > and prefer putting the affordance on the task — the task action at least knows which step the case is on.
 
-`UserTaskActionsDto` also carries `errors: []` next to `actions` — in the export keep
+The `userStartProcessActions`/`globalActions` containers also carry `errors: []` next to `actions` — in the export keep
 `"errors": []`.
 
 ## Process HTML (render)
 
-`ProcessTablePlugin.html` — a table with an Actions column (a dropdown, lazily filled via
-`fetchBulkActions`) and headers from `columnHeaders`:
+The process table renders as a table with an Actions column (a dropdown, lazily filled) and headers from the column settings:
 
 ```html
 <div class="row process-table-plugin">
@@ -1029,9 +1006,8 @@ Two sets:
 ## Process group: binding and auto-creation
 
 `processGroupIdentifier` points to an object in `rep-objects.json > processGroups[]`. Important: when
-the plugin renders without a valid group, it **creates one itself**:
-`processGroupService.save(... name(getContent().getUniqueIdentifier()) ...)`
-(`ProcessTablePlugin.java`) — that is, **the group name = the plugin node's `uniqueIdentifier`**.
+the plugin renders without a valid group, it **creates one itself**,
+**named after the plugin node's `uniqueIdentifier`**.
 
 So for a process node whose `uniqueIdentifier = 9621d3e1-ce0e-4720-b42d-d6b6f4227453`, `processGroups[]` ends up
 holding an object with `name = "9621d3e1-ce0e-4720-b42d-d6b6f4227453"`. The shape
@@ -1048,8 +1024,8 @@ of the process-group object in rep-objects:
 }
 ```
 
-`ProcessGroupSelectionPanel` — a modal for manually selecting/creating a group (`ProcessGroupSelectionPanel.java`)
-— in the current code is **commented out** in `showProcessGroupSelectionDialog` (`ProcessTablePlugin.java`):
+A modal for manually selecting/creating a group
+is **disabled** in the current platform:
 in effect, when there is no group, auto-creation always happens and the dialog is not shown.
 
 ---
@@ -1060,7 +1036,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 
 1. **Make sure the CRUD has a `findByParent` method.** For dynamic — add a GROOVY method
    `findByParent` to `dynamic-cruds.json` (a wrapper over `findAllByParent`), see
-   [11](11-business-logic-dynamic-crud.md). For static — a method in the `@Crud` bean.
+   [11](11-business-logic-dynamic-crud.md). For a static (Java) CRUD — a method on it.
 
 2. **Create the fetch-rule** in `rep-objects.json > rules[]` (or rely on auto-creation — then
    skip the step and don't set `findRuleIdentifier`):
@@ -1121,7 +1097,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
    }
    ```
    The whole string must be **escaped** and placed in `properties.model.stringValue` (a JSON string inside
-   JSON). `columnSettings`/`filterSettings`/`ActionDto` are types shared with the CRUD table (04).
+   JSON). `columnSettings`/`filterSettings`/action shape are types shared with the CRUD table (04).
 
    > ⚠️ **Column headers are `localizedNames`, not the deprecated flat `name`** — write one key per entry in
    > `tenant.json.locales` (the block above shows only `en_US` for brevity, as do its actions). A column authored
@@ -1135,7 +1111,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 5. **DONE-WHEN — append the settings mirror.** After the node exists you MUST also append to
    `rep-objects.json.settings[]` one object `{ "type":"CrudTree", "name":"<node.uniqueIdentifier>",
    "content": <the SAME model, as a parsed JSON object> }` (plus the full
-   `AbstractSecuredDto` housekeeping set: `identifier`, `realmName`, `clientName`, `creationTime`,
+   housekeeping set: `identifier`, `realmName`, `clientName`, `creationTime`,
    `modificationTime`, `deleted` (`false`), `message`/`errors`/`id` (`null`)). Join key = `setting.name == node.uniqueIdentifier`
    (§Export shape) — exactly one `type:"CrudTree"` setting per tree node. When you
    MODIFY-FILLED a tree, patch `settings[].content` alongside the node `model`; when you delete the node,
@@ -1211,7 +1187,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 5. **DONE-WHEN — append the settings mirror.** After the node exists you MUST also append to
    `rep-objects.json.settings[]` one object `{ "type":"ProcessTable", "name":"<node.uniqueIdentifier>",
    "content": <the SAME model, as a parsed JSON object> }` (plus the full
-   `AbstractSecuredDto` housekeeping set: `identifier`, `realmName`, `clientName`, `creationTime`,
+   housekeeping set: `identifier`, `realmName`, `clientName`, `creationTime`,
    `modificationTime`, `deleted` (`false`), `message`/`errors`/`id` (`null`)). Join key = `setting.name == node.uniqueIdentifier`
    (§Export shape) — exactly one `type:"ProcessTable"` setting per process node. When you MODIFY-FILLED,
    patch `settings[].content` alongside the node `model`; when you delete the node, drop its setting.
@@ -1221,18 +1197,18 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 ## Gotchas
 
 0a. **⛔ A `crud.tree.plugin` has NO pagination — plan the screen around a filter, not a pager.**
-   `CrudTreePlugin.java` constructs its `CrudTableTree` with a hardcoded `Long.MAX_VALUE` page
-   size and never reads `model.rowsPerPage`, so every root renders at once and Wicket's
-   `NavigationToolbar` (added at `CrudTableTree.java`) stays invisible because there is only ever
+   The tree is built with a hardcoded maximum page
+   size and never reads `model.rowsPerPage`, so every root renders at once and no pager
+   is ever shown because there is only ever
    one page. The data layer agrees: the generated `findByParent` carries **no `LIMIT`/`OFFSET`**,
    unlike `findAll`. Consequence: a tree over a table with many ROOTS (one root per parent-less row)
    renders all of them in one very long page. **The fix is a filter that collapses the root set**
    (typically the owning entity id, which is subtree-safe because every descendant carries it),
-   never a page-size setting. Real pagination would be an nct-ui change plus LIMIT/OFFSET on the
+   never a page-size setting. Real pagination would be a platform change plus LIMIT/OFFSET on the
    roots query — do not promise it from the export.
 
 0b. **⛔ The index is written at only THREE moments, and it does not backfill.** `indexSettings[]` is the
-   WRITE side; `IndexValueExtractor` projects the context into `paramsToFilter` at **process start**, at a
+   WRITE side; the platform projects the context into `paramsToFilter` at **process start**, at a
    **direct action**, and at **form submit** — nowhere else. Consequences you must design around:
    *(a)* instances that were started **before** an index existed are permanently unfilterable on it (the
    JSONB simply has no such key), so add `indexSettings` **before** anyone starts processes, not after;
@@ -1247,8 +1223,8 @@ in effect, when there is no group, auto-creation always happens and the dialog i
    [04 §Standalone Filter Form](04-crud-table-plugin.md).
 
 0c. **⛔ Test a queue filter with a PAIR — a hit AND a deliberate miss — or you have tested nothing.**
-   `ProcessFilterSpecification.visitIgnoreNull` returns `cb.conjunction()` (TRUE) when the value does not
-   resolve, and `fromExpression` returns `Specification.allOf()` for an empty value map. A filter that is
+   `ignoreNull` evaluates to TRUE when the value does not
+   resolve, and an empty value map applies no filter at all. A filter that is
    **silently not applied** therefore returns the WHOLE table — indistinguishable from "it matched
    everything" if the value you tested with happens to match every row. Measured twice on a live project: a
    fix was announced, and announced again, on a filter that was dead both times.
@@ -1260,7 +1236,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 0d. **⛔ If the column and the filter disagree, believe the COLUMN — and look at WHEN the index is written.**
    A queue row rendering «POSTED» while filtering by POSTED returns nothing, and filtering by the PREVIOUS
    status returns it, is not a filter bug: the index describes the state the case was in one leg ago. The
-   columns render from the document `ProcessContextArchive.archiveFromFlowable` stores **after** the engine
+   columns render from the archived document, stored **after** the engine
    has run; an index written from an action's own snapshot is taken **before** the user task completes — and
    completing that task is exactly what lets the engine walk on to the service task that posts the document.
    When two views of one fact disagree, the one that is right names the source the other should have used.
@@ -1274,7 +1250,7 @@ in effect, when there is no group, auto-creation always happens and the dialog i
    belongs). "Add indexSettings before anyone starts processes" is true, and useless the day after.
 
 1. **The process `pluginName` is `process.table.pluin`** (a typo, not `process.table.plugin`).
-   `crud.tree.plugin` has no typos. (`ProcessTablePlugin.java`, `CrudTreePlugin.java`.)
+   `crud.tree.plugin` has no typos.
 
 2. **The config is in `properties.model.stringValue`, NOT in `settings`.** Both plugins use the `model` slot
    (unlike form controls, [02](02-form-controls-reference.md)). It's a JSON string; escape it.
@@ -1282,31 +1258,28 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 3. **Tree: DTO path ≠ filter name.** `parentFieldExpression` (`parent.id`) is a path in the row;
    `parentFilterFieldExpression` (`parentId`) is the property name in the filter class that actually goes to
    `findByParent`. If you set only the DTO path, the parent's id lands in a non-existent filter field →
-   stays `null` → each parent returns all rows (`CrudTreeDataProvider.java`).
+   stays `null` → each parent returns all rows.
 
 4. **Tree: `findByParent` is required on the CRUD.** The provider calls the fetch-rule, which calls
    `service.crud.<alias>.findByParent(...)`. For a dynamic CRUD this method must be defined explicitly
    (a GROOVY wrapper over `findAllByParent`, see [11](11-business-logic-dynamic-crud.md)).
    ⚠️ **Trees are rare, and a dynamic-CRUD tree rarer still** — most projects have none, so do not count on
-   finding one to copy from. The `findByParent` requirement on a dynamic CRUD follows from the code
-   (`CrudTreeDataProvider.FIND_BY_PARENT_METHOD`; rule body — `buildFindByParentScript`). Verify on your first
+   finding one to copy from. The `findByParent` requirement on a dynamic CRUD follows from how the tree fetches children. Verify on your first
    dynamic tree that the `findByParent` method really exists in the target CRUD's `dynamic-cruds.json`.
 
-5. **Tree: circuit breaker of 50 fetches/request** (`MAX_FETCHES_PER_REQUEST=50`,
-   `CrudTreeDataProvider.java`). If the data has a parent cycle or `findByParent` ignores
+5. **Tree: circuit breaker of 50 fetches/request** (a fixed limit). If the data has a parent cycle or `findByParent` ignores
    the filter — the tree is truncated and logs, rather than hanging the browser. This is a symptom of a wrong
    `parentFilterFieldExpression`.
 
-6. **Process: `direct` is a string `"on"`/`"off"`.** `isDirect()` = `equals(direct,"on")`
-   (`UserTaskActionsDto.java`). A Boolean `true`/`false` in JSON will NOT work. For tree/table CRUD
+6. **Process: `direct` is a string `"on"`/`"off"`.** Only the exact string `"on"` is direct. A Boolean `true`/`false` in JSON will NOT work. For tree/table CRUD
    actions it's the opposite boolean.
 
 7. **Process: `globalActions` without a predicate are invisible.** Fail-closed: an action without a `predicateIdentifier`
-   is not shown and not executed (`ProcessTablePlugin.java`). Always set
+   is not shown and not executed. Always set
    `predicateIdentifier` for a global action.
 
 8. **Process: columns read the context, not the row.** A column value is determined by `scope`
-   (GLOBAL/CONTEXT/CRUD) and the process context data (`extractColumnValue`) — this is
+   (GLOBAL/CONTEXT/CRUD) and the process context data — this is
    fundamentally different from the flat CRUD-row read in the table/tree. All three scopes resolve, but only
    against what the START wrote into that document: a `scope:"CRUD"` column is a snapshot of the row as it
    was at start, and it is empty for a start that seeded no `crudDataMap` entry (see the ⚠️/⛔ block above).
@@ -1319,16 +1292,16 @@ in effect, when there is no group, auto-creation always happens and the dialog i
     leave `processGroupIdentifier` empty and let the plugin create the group on first render
     (then there will be no object in the export — but the imported project will be incomplete until the first render).
 
-11. **The tree's `editComponent` returns `null`** (`CrudTreePlugin.java`) — all configuration goes
-    through the settings panel. For the process, `editComponent` provides only workflow selection
-    (`ProcessTablePluginEditor`), everything else — via `ProcessTableSettingsControlPanel`. For export
+11. **The tree has no inline editor** — all configuration goes
+    through the settings panel. For the process, the inline editor provides only workflow selection,
+    everything else — via the settings panel. For export
     generation this is irrelevant (we write JSON directly), but it explains why the node has no separate
     property slots for columns/actions — everything is in `model`.
 
 12. **Process: access-control is NOT a plugin setting.** The concept doc `table-plugins.md` has a section
-    about `ProcessAccessType` (`ROLE`/`ROLE_GROUP`/`USER`), `isOwner`, allow/deny — **this is outdated/
-    misleading material**: `ProcessTablePluginModel` has no `accesses`/`ProcessAccessDto` field
-    (grep — 0), those DTOs live on `FlowableProcessDto` (per-process-instance, runtime workflow), NOT in
+    about process access types (`ROLE`/`ROLE_GROUP`/`USER`), `isOwner`, allow/deny — **this is outdated/
+    misleading material**: the process table model has no `accesses` field;
+    access lives on the process instance (runtime workflow), NOT in
     the plugin's `model.stringValue`. Do NOT add an access section to the process table JSON. (The process model is
     exactly 7 fields: `workflowIdentifier`, `processGroupIdentifier`, `columnSettings`, `indexSettings`,
     `filterExpression`, `userStartProcessActions`, `globalActions`.)
@@ -1342,8 +1315,8 @@ in effect, when there is no group, auto-creation always happens and the dialog i
 
 14. **Enum columns/indexes.** As for a CRUD column (04): `enumName` = the name of the project Enumeration in the registry,
     `enumDisplayField` = the enum property to display (empty/`"name"` → the constant name), `enumValues` =
-    a snapshot of the enum's property table (needed because the gateway cannot `Class.forName` the project enum).
-    Supported only when `scope==CRUD` (`extractColumnValue`, the CRUD branch).
+    a snapshot of the enum's property table (needed because the table cannot load the project enum class).
+    Supported only when `scope==CRUD`.
 
 ---
 
@@ -1353,14 +1326,14 @@ in effect, when there is no group, auto-creation always happens and the dialog i
   live inside: `siteMapPage → parsis.plugin → html.plugin("Layout") → nct.parsis.plugin("parsis") → <content>`.
   A node placed directly under a siteMapPage imports clean but renders an empty page (see Recipes A/B step 3).
 - [04-crud-table-plugin.md](04-crud-table-plugin.md) — the base `crud.table.plugin`; the shared types
-  `CrudTableColumnSettings`/`CrudTableFilterSettings`/`CrudTableActionsDto`, `findRuleIdentifier`,
+  table column settings/table filter settings/action shape, `findRuleIdentifier`,
   `importSettings` (the tree/process have no import).
 - [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) — where non-direct actions navigate
   (`formGroupIdentifier` → form-group), predicate→form mapping.
 - [07-workflows-and-tasks.md](07-workflows-and-tasks.md) — `workflowIdentifier`, task-actions, with which
   `globalActions` are merged from the workflow's own task-actions; process groups.
 - [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) — the tree fetch-rule, action visibility
-  predicates, `onBefore*RuleIdentifier`, `FormControlScope` GLOBAL/CONTEXT/CRUD and how rules
+  predicates, `onBefore*RuleIdentifier`, `scope` GLOBAL/CONTEXT/CRUD and how rules
   read the context.
 - [32-public-api.md](32-public-api.md) — another system calling this node through the public API: its
   `filterKey`s (with the `filter_` prefix) are the API's filter keys and must be `{token}`s the

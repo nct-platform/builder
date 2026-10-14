@@ -42,13 +42,13 @@ user **reimports** to get a working application with **dynamic CRUD integration*
 | Form Groups, landing, predicate→form mapping, Create Default Actions, naming | [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md) |
 | Workflows, BPMN, elements, user task, all task types, processes | [07-workflows-and-tasks.md](07-workflows-and-tasks.md) |
 | The 3 types of Groovy rules + templates + context model (how a rule reads context in crud/process/form/list) | [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md) |
-| Groovy hints (server HintsService) vs live context-data hints | [09-groovy-hints-and-live-context.md](09-groovy-hints-and-live-context.md) |
+| Groovy hints (server-side) vs live context-data hints | [09-groovy-hints-and-live-context.md](09-groovy-hints-and-live-context.md) |
 | Database Management plugin + `project-db.dump` (schema/table/column/index/constraint/sequence/trigger) | [10-database-management.md](10-database-management.md) |
 | Business Logic plugin: dynamic CRUD, dtoFields, filterFields, methods (SQL/Groovy), sources | [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md) |
 | Queries, sources, schedulers, roleGroups, settings, mailTemplates | [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md) |
 | **Full plugin catalog** — every `pluginName`, one by one (HTML/label/image/link/help/tab, `action.button`, `chart.js`, `global.replacement`, all `admin.*`/system) | [14-plugin-catalog-all.md](14-plugin-catalog-all.md) |
 | **Field-level config reference** for 63 of the 64 plugin names — each one's settings panel, JSON config slot and field-by-field table | [14a-plugin-config-reference.md](14a-plugin-config-reference.md) |
-| **Charts, params & filtering-through-params** — `chart.js.plugin` data binding (`$$()` -> `ChartJsReplacement` queries), query params, the `global.replacement` filter bar, click-to-cross-filter, theme-safe rendering | [22-charts-params-and-filters.md](22-charts-params-and-filters.md) |
+| **Charts, params & filtering-through-params** — `chart.js.plugin` data binding (`$$()` -> replacement queries), query params, the `global.replacement` filter bar, click-to-cross-filter, theme-safe rendering | [22-charts-params-and-filters.md](22-charts-params-and-filters.md) |
 | **PDF templates + Mail templates** + the Groovy flow "generate a PDF from a template → send it by mail" | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
 | **Full Groovy `service.*` capability surface** (what you can actually do in a script: crud/global/security/rimm/report/notification/…) | [16-groovy-service-api.md](16-groovy-service-api.md) |
 | **Left-nav quick links** — add a sidebar quick link/group via the `modelGroups` tree on `site.kicker.plugin` (`left-nav`) | [17-left-nav-quick-links.md](17-left-nav-quick-links.md) |
@@ -137,7 +137,7 @@ user **reimports** to get a working application with **dynamic CRUD integration*
 forms/formGroups, business pages (CRUD/Process table), workflows, roleGroups. You do not touch the admin pages and the palette.
 
 > ⚠️ **Import precondition.** A full restore of rep-objects + DB triggers only if the receiving project has the
-> tenant property `type == REPORT` (`CmsProjectServiceImpl.java`, on both the export and the import side).
+> tenant property `type == REPORT` (on both the export and the import side).
 > `empty` is a REPORT project, so base yourself on it. More detail — [00](00-export-format-and-import.md).
 
 ---
@@ -226,8 +226,7 @@ column types, auto-generation, and "how to write a dump from scratch" → [10](1
 
 ### Step 3 — Source (`rep-objects.sources[]`)
 A connection to the schema from step 2: `{identifier, name, sourceType, dbType:"POISTGRESQL", hostName, port, dbName,
-schemaName, userName, password}`. ⚠️ **`dbType` = the single value `"POISTGRESQL"`** — the enum `DbType`
-(`nct-transfer/.../DbType.java`) is literally spelled with a typo; do NOT "fix" it to `POSTGRESQL` (the source will not
+schemaName, userName, password}`. ⚠️ **`dbType` = the single value `"POISTGRESQL"`** — the platform's enum value is literally spelled with a typo; do NOT "fix" it to `POSTGRESQL` (the source will not
 deserialize on import), same as `process.table.pluin`. The `identifier` of this source goes into
 every dynamic CRUD (`sourceIdentifier`) and every query. → [12](12-queries-sources-schedulers-and-rest.md).
 
@@ -411,13 +410,13 @@ You add `siteMapPage` nodes to `branches.json[0].rootContent.children`. Inside a
   `onBeforeStartRuleIdentifier`/`predicateIdentifier`/`submitForm` show up mostly on static CRUD. →
   [04](04-crud-table-plugin.md).
 - **CRUD Tree** (`crud.tree.plugin`) — a hierarchy (find roots / findByParent). Deltas → [05](05-crud-tree-and-process-table.md).
-- **Charts / KPI dashboards** — `chart.js.plugin`, config in **`properties.Javascript.stringValue`** (a `ChartJsModel`):
+- **Charts / KPI dashboards** — `chart.js.plugin`, config in **`properties.Javascript.stringValue`** (the chart model):
   `html`+`js` with `$$('name', default, 'Type')` markers, one `replacement` per marker
   (`replaceStrategy:"QUERY"` → query column → typed array). Add a `global.replacement.plugin` node for a page
   filter bar + click-to-cross-filter. Full recipe → [22](22-charts-params-and-filters.md).
 - **Mirror in `rep-objects.settings[]` — for ALL three plugins, not just Process Table.** The config for
   `crud.table.plugin`, `crud.tree.plugin` AND `process.table.pluin` lives in `properties.model.stringValue`
-  of the node (the plugin renders **from `properties.model`** — `CrudTablePlugin.java`, `ProcessTablePlugin.java`),
+  of the node (the plugin renders **from `properties.model`**),
   but is **additionally mirrored** into a `rep-objects.settings[]` object with the field `type` = `"CrudTable"` /
   `"CrudTree"` / `"ProcessTable"` respectively (the field is called `type`, not `settingsType`). The join key is
   `setting.name == node.uniqueIdentifier`. This is a persistence artifact (not the render source). The invariant is
@@ -428,8 +427,7 @@ You add `siteMapPage` nodes to `branches.json[0].rootContent.children`. Inside a
   with `jq '.settings[]|.type,.name' rep-objects.json` and look up **your own** nodes' `uniqueIdentifier`s in it —
   a hit is what you want; a raw count comparison only produces false alarms.
 - **Process Table** (`process.table.pluin` — **the typo in the name is real, keep it**) — a table over
-  workflow processes; config in **`properties.model.stringValue`** of the node (the same slot as `crud.table` —
-  `ProcessTablePlugin.java`, `getJsonProperty`/`setJsonProperty("model")`), with a mirror in
+  workflow processes; config in **`properties.model.stringValue`** of the node (the same slot as `crud.table`), with a mirror in
   `rep-objects.settings[]` `type:"ProcessTable"` (see above). The payload —
   `{workflowIdentifier, processGroupIdentifier, filterExpression, globalActions.actions[],
   userStartProcessActions.actions[], indexSettings[], columnSettings}` — lives **inside the `content` field** of the
@@ -605,8 +603,7 @@ Consignments — the chain is identical):
 7. **One context per project** with a complete `crudAliases[]` — the typical pattern (there are exceptions).
 8. **VALIDATION_RULE really exists** (executor `GroovyValidationRule`) — don't treat it as "missing".
 9. **Every auth predicate** `hasAnyRoleGroup("X")` requires roleGroup `X` + an assignment.
-10. **Component names, not line numbers** — every claim here is stated as behaviour you can observe; class
-    names are given only so you can ask the platform team a precise question.
+10. **Behaviour, not line numbers** — every claim here is stated as behaviour you can observe.
 11. **A List control without a before-complete rule** — the grid of a document's lines renders BLANK
     reference columns for every line the user adds, and fills only after save-and-reopen. The single
     most invisible defect in this library: it passes `validate`, passes every test written against

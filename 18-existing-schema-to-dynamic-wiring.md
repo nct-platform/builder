@@ -70,16 +70,15 @@ today — you write it, following this table; then `validate`/`crud verify` chec
 > `crud verify --db` or the browser will. The platform's own three-way emitter rule is in
 > [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md) §Step 2.
 
-**Binding facts you rely on** (`DynamicMethodExecutor`): a snake `:order_number` param binds the camelCase DTO
-key `orderNumber` (`toCamelCase` first); a `:x__id` param walks the nested `{x:{id}}`; `:localize` maps the
+**Binding facts you rely on:** a snake `:order_number` param binds the camelCase DTO
+key `orderNumber` (camel-cased first); a `:x__id` param walks the nested `{x:{id}}`; `:localize` maps the
 localization column; a single positional arg (id) or multiple positional args (lifecycle
 `updateStatus(id, 'X')`) bind by order. Output `mapRow` camelCases every column, and a `foo__bar` alias becomes
 `{foo:{bar}}`.
 
 > **A real pg_enum (`USER-DEFINED`) status column — bind plain, no `::type` cast.** If a status column is an actual
 > Postgres enum type (not the more common CHECK-constrained VARCHAR), the canonical single-table `create`/`update`
-> still binds a plain `:status`: the executor resolves the enum type and binds through a `PGobject`
-> (`DynamicMethodExecutor.bindAs`, fallback `lookupTargetTableColumnTypes`), so Postgres applies the input
+> still binds a plain `:status`: the executor resolves the enum type and binds it as a typed object, so Postgres applies the input
 > function. Add `:status::<enum_type>` **only** for a non-canonical write the executor can't parse a single target
 > table from. Detail: [11-...](11-business-logic-dynamic-crud.md) §Gotchas /
 > [10-...](10-database-management.md) §enumTypes. (ERP-style tables use CHECK-VARCHAR, not pg_enum, so this rarely
@@ -98,8 +97,8 @@ FKs get their own `jlN` aliases.
 
 > **This `__`-nested convention is the HAND-AUTHORED one — distinct from the browser's Join feature.** The
 > double-underscore `jN.<col> AS x__id` alias is what makes the executor emit a nested `{x:{…}}` object
-> (`DynamicMethodExecutor.mapRow`, splits on `__`). The in-browser "Join" button on a DTO field
-> (`CrudJoinServiceImpl`) instead emits **single-`_` flat** aliases → a flat `<ref><Col>` label field (e.g.
+> (it splits on `__`). The in-browser "Join" button on a DTO field
+> instead emits **single-`_` flat** aliases → a flat `<ref><Col>` label field (e.g.
 > `zoneName`), and leaves `create`/`update`/`count` untouched. Full comparison + recipe:
 > [11-business-logic-dynamic-crud.md § FK-join on a DTO field](11-business-logic-dynamic-crud.md#fk-join-on-a-dto-field-the-field-dialog-join-feature).
 > Pick `__` here only because a form sub-object / ObjectSelector needs the nested shape.
@@ -110,8 +109,8 @@ FKs get their own `jlN` aliases.
 
 An enum form control (`dynaform.form.rimm.drop.down.field.plugin`, `key=name`,
 `dataClass=com.devsegment.<app>.dto.enums.<E>`, **no `ruleIdentifier`**) gets its options at render from the
-project **DynamicEnum registry**. **Import never materializes that registry, and `Class.forName(<app enum FQN>)`
-fails in a REPORT project (no app jar on the classpath).** So the dropdown renders **empty → the field cannot be
+project **dynamic-enum registry**. **Import never materializes that registry, and the app's enum class
+cannot be loaded in a REPORT project (no app jar on the classpath).** So the dropdown renders **empty → the field cannot be
 selected or saved** — even though your CRUD stores/reads the code correctly. This breaks create/edit on nearly
 every entity and is *invisible* until you actually open a form.
 

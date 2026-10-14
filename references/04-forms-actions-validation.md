@@ -445,12 +445,12 @@ have no `onBeforeCompleteRuleIdentifier`**:
 At runtime both render as a **blank menu entry** that opens a form whose Save **writes nothing**. Import,
 `coverage` and `crud verify` are all green. Two rules follow:
 
-* the CRUD `ActionDto` has **no `name` field** — only `localizedNames` / `localizedButtonNames`
+* the CRUD action has **no `name` field** — only `localizedNames` / `localizedButtonNames`
   (`Map<locale,String>`). A flat `name` is silently discarded.
 * a non-direct Create/Edit **must** carry `onBeforeCompleteRuleIdentifier` pointing at the rule that calls
   `context.<ctx>.<alias>.service.create/update(...)`. **There is no built-in persist.**
 
-### 4.6 List sub-form actions use the other `ActionDto` — `direct` is a STRING (corrects [02](../02-form-controls-reference.md))
+### 4.6 List sub-form actions use the other action shape — `direct` is a STRING (corrects [02](../02-form-controls-reference.md))
 
 22 of 22 List controls in three projects are byte-identical. [02-form-controls-reference.md](../02-form-controls-reference.md) §7/§8 describes
 the mechanism but not the template; this is the template:
@@ -1276,7 +1276,7 @@ then by eye, over the same flattened settings:
 
 ## Cross-links
 
-* Form groups, `FormDto`, the ACTION model, the landing dispatch: [06-form-groups-and-mapping.md](../06-form-groups-and-mapping.md)
+* Form groups, the form record, the ACTION model, the landing dispatch: [06-form-groups-and-mapping.md](../06-form-groups-and-mapping.md)
 * Control settings schema and the key union: [02-form-controls-reference.md](../02-form-controls-reference.md);
   generated slots and the asterisk: [03-generate-fields-from-crud.md](../03-generate-fields-from-crud.md)
 * The two authoring panels, templates, events, drafts: [25-form-settings-validation-and-events.md](../25-form-settings-validation-and-events.md)

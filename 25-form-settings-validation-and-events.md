@@ -12,15 +12,15 @@ City dropdown"*, *"hide the approval block until it is submitted"*, *"block save
 *save a half-filled form and finish tomorrow*:
 
 - **The control "Config" accordion** — per **control**; everything here lands in the control's own
-  `properties.settings.stringValue` JSON (the `FormControlSettings` object of [02](02-form-controls-reference.md)).
+  `properties.settings.stringValue` JSON (the form control settings object of [02](02-form-controls-reference.md)).
   Sections: **Prohibited · Default value · Mandatory · Validations · Events**.
-- **The "Form Settings" panel** — per **form** (the `FormDto` rep-object of [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md));
+- **The "Form Settings" panel** — per **form** (the form rep-object of [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md));
   everything here lands in `rep-objects.forms[]`, not in the content tree. Sections: name/contexts/**Multi Language**,
   **Allow Drafts**, **Hidden Content Configuration**, **Global Validation Rules**, **Action-Based Validation Rules**.
 
 This doc is the **deep mechanics + decision guidance** for those two surfaces. The **export schemas** already live
 in 02 (control settings: `conditionalValidations[]`, `eventComponentMappings[]`, `defaultValue*`, prohibited,
-mandatory) and 06 (`FormDto`: `validators`, `actionValidators`, `hiddenConfigs`, `multiLanguage`, `allowDrafts`);
+mandatory) and 06 (the form record: `validators`, `actionValidators`, `hiddenConfigs`, `multiLanguage`, `allowDrafts`);
 the Groovy `validation.*`/rule model lives in [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md).
 **This doc does not re-print those schemas** — it documents the **dialog that generates each artifact**, the **exact
 Groovy each validation template emits**, the **runtime behaviour**, and **when to reach for which mechanism** so the
@@ -37,12 +37,12 @@ builder AI wires them from a PRD without inventing non-existent knobs.
 Opening a form control's settings (right nav) shows **three** outer accordion items:
 **Mapping** (open by default — scope / crud / field / dropdown source, all in [02](02-form-controls-reference.md)),
 **Config** (a cog icon — the five sections below), and **Audit Logs**. The Config item is present on **every** bound
-field control (`supportsFieldConfigs()` defaults `true`, and was deliberately decoupled from whether the control has
+field control (it is deliberately not tied to whether the control has
 a live scalar component — so DatePicker / Gantt / Comments / FileUpload / List show Prohibited/Mandatory/Validations
-too; `BaseFormControl.java`).
+too).
 
 Inside Config are **five flat bordered sections** (not nested accordions), in this fixed order — each writes distinct
-keys onto the same `FormControlSettings` JSON:
+keys onto the same form control settings JSON:
 
 | # | Config section | Writes into `settings` | Full schema |
 |---|---|---|---|
@@ -65,8 +65,8 @@ keys onto the same `FormControlSettings` JSON:
 > validates but shows **no** asterisk; author the slot content too — [03 §3](03-generate-fields-from-crud.md).
 
 > ⚠️ **Where the mandatory check actually runs decides what the user sees.** There are two implementations:
-> a local pass over the live controls (`FormPlugin.validateMandatoryFieldsLocally`) and the authoritative
-> backend pass (`FormSubmissionServiceImpl` STEP 2A). A CRUD submit uses the local one; a **process start
+> a local pass over the live controls and the authoritative
+> backend pass. A CRUD submit uses the local one; a **process start
 > form / process global action** goes to the backend — but its action's `onBeforeComplete` rule runs on the
 > way there. So if that rule also guards the same field (`if (x == null) throw …`), the user sees the RULE's
 > exception as a red banner instead of the field-level message you configured, and the `*` field is never
@@ -74,7 +74,7 @@ keys onto the same `FormControlSettings` JSON:
 > 1. keep the rule's guard — it is the server-side backstop — but write its message for a developer, and put
 >    the user-facing wording in `mandatoryValidationMessages`;
 > 2. if a required field's message never appears and a rule message does instead, that is this ordering, not
->    a broken `alwaysMandatory`. (Fixed in current nct-ui: the local mandatory pass now runs before the
+>    a broken `alwaysMandatory`. (Fixed in the current platform build: the local mandatory pass now runs before the
 >    before-complete rule on those two paths.)
 
 **The three rule types this panel references, do not mix them up:** Prohibited/Mandatory selectors take a
@@ -89,7 +89,7 @@ task action's `validationRuleIdentifiers` — `actionValidators` are stored and 
 
 A field validates **itself** through `settings.conditionalValidations[]`: a list of
 `{predicateIdentifier, severity: ERROR|WARNING, validationMessages: {locale→text}}`. Each entry points at a
-**PREDICATE** rule whose contract is **predicate-true ⇒ the value is INVALID** (`BuiltinTemplates.java`). This is
+**PREDICATE** rule whose contract is **predicate-true ⇒ the value is INVALID**. This is
 **most** of the validation in a project — do it here, not in a form-level rule (§4.2), unless the message must be
 *computed* at runtime.
 
@@ -98,20 +98,20 @@ own predicate + type the messages), or **"Create from Template"** — the guided
 
 ### 2.1 What the dialog produces — the two artifacts
 
-`ValidationTemplateChooserPanel` shows only templates whose `supportedTypes` contains the field's `ValueType` (from
+The template chooser shows only templates whose `supportedTypes` contains the field's value type (from
 its `dataClass`; a blank `dataClass`, or a DatePicker with no `dateFormat`, refuses to open the chooser). You pick a
 template, fill its parameters, enter localized messages; **Accept** then writes **two** things:
 
 1. **A new PREDICATE rule** in `rep-objects.rules[]` — `ruleType: "PREDICATE"`, `executor: "GroovyPredicate"`
-   (`PredicateCodeGenerator.java` — **NOT** a `GroovyValidationRule`). Its `rule.ruleScriptStr` is
+   (**NOT** a `GroovyValidationRule`). Its `rule.ruleScriptStr` is
    **`<scope preamble>` + `"\n"` + `<template body>`** (§2.2 / §2.3). `contextIdentifiers` = `[]` for a `GLOBAL`
    field, else the chosen context's identifier (singleton) — one more reason never to author a control `GLOBAL`
    on a form opened from a CRUD-table/tree action (§2.2 has the other): the generated predicate gets **no context
    attached**, so it cannot reach `context.<ctx>.<alias>` even after the body is corrected.
 2. **A `ConditionalValidation` row** appended to the control's `settings.conditionalValidations[]`:
    `predicateIdentifier` = the new rule's `identifier`; `validationMessages` = a copy of the messages you typed;
-   `severity` = **not set here → defaults to `ERROR`** (`ConditionalValidation.java`). To make it a WARNING you flip
-   the per-row **Severity** dropdown in the Validations list afterward (`FormControlConfigsPanel`).
+   `severity` = **not set here → defaults to `ERROR`**. To make it a WARNING you flip
+   the per-row **Severity** dropdown in the Validations list afterward.
 
 So a hand-authored export reproduces the template by writing **both**: one PREDICATE rule (body per §2.3) + one entry
 in the control's `conditionalValidations[]`. `mrjun.py validate` ERRORs on a `conditionalValidations` predicate that
@@ -256,10 +256,9 @@ params**.)
 
 ### 2.4 Regex presets — the `strRegex` / `strRegexNot` `REGEX_PRESET` param
 
-The `pattern` param (`ParamType.REGEX_PRESET`, label **"Regular expression"**, required) renders as a **free-text
+The `pattern` param (`REGEX_PRESET`, label **"Regular expression"**, required) renders as a **free-text
 field _plus_ a preset dropdown**; picking a preset writes its regex into the free-text field (which is then embedded
-verbatim into `.matches('…')`). There are exactly **ten** presets (`BuiltinTemplates.commonRegexPresets()`,
- — **no IPv6**), label → regex (verbatim):
+verbatim into `.matches('…')`). There are exactly **ten** presets (**no IPv6**), label → regex (verbatim):
 
 | Preset label | Regex |
 |---|---|
@@ -279,13 +278,11 @@ Any other pattern is allowed by typing it directly. For a by-hand export just em
 
 ### 2.5 Severity — ERROR vs WARNING at submit
 
-`ValidationMessageType` has exactly two values (`ValidationMessageType.java`). At submit, `FormPlugin` runs each
-`conditionalValidations` predicate via `ruleExecutionService.executePredicateWithContextData` (`FormPlugin.java`);
-when it returns **true** (invalid), it branches on severity:
+`severity` has exactly two values (`ERROR`, `WARNING`). At submit, the form runs each
+`conditionalValidations` predicate; when it returns **true** (invalid), it branches on severity:
 
-- **ERROR** (the default) → `hasErrors[0]=true` + a red message on the control → **hard block** (`validateForm`
-  returns `!hasErrors[0]`, so submit is refused).
-- **WARNING** → a **yellow, acknowledgeable** panel on the control, **no** `hasErrors` flip → the user may proceed.
+- **ERROR** (the default) → a red message on the control → **hard block** (submit is refused).
+- **WARNING** → a **yellow, acknowledgeable** panel on the control, **no** block → the user may proceed.
 
 Use **WARNING** for advisory / soft-policy checks ("unusually large quantity — are you sure?"); **ERROR** for hard
 data rules. A new template row is ERROR unless you set it otherwise.
@@ -293,11 +290,11 @@ data rules. A new template row is ERROR unless you set it otherwise.
 ### 2.6 Rule naming, message interpolation, locale
 
 - **Rule name** (auto): `"{ctxAlias} · {crudAlias} · {field} · {template display} {(paramSummary)}"`
-  (`RuleNamingService.java`; alias = camelCase). The `ctx·crud` prefix is deliberate — it stops two CRUDs that
-  share a `fieldExpression` from colliding onto one rule. A name clash opens `RuleConflictResolvePanel`
+  (alias = camelCase). The `ctx·crud` prefix is deliberate — it stops two CRUDs that
+  share a `fieldExpression` from colliding onto one rule. A name clash opens a rule-conflict dialog
   (Override / Save-as-next-suffix `(2)`,`(3)`… / Rename / Cancel).
 - **Messages**: default template messages interpolate `{paramId}` → the param value and `{field}` →
-  `settings.fieldExpression` (`BasicValidationTemplate.java`). Keys are full locale strings (`en_US`); runtime
+  `settings.fieldExpression`. Keys are full locale strings (`en_US`); runtime
   lookup falls back `en_US` → `en` → `en`. Empty locales auto-fill from the default-locale message on save.
 
 ### 2.7 By-hand recipe (author a conditional validation without the dialog)
@@ -328,7 +325,7 @@ Add a "quantity must be > 0" ERROR on a CRUD text field `quantity` (context alia
 
 ```json
 { "eventName": "change",
-  "componentIdentifier": "<uniqueIdentifier of an IRefreshable node under the same form>",
+  "componentIdentifier": "<uniqueIdentifier of a refreshable node under the same form>",
   "executionRuleIdentifiers": ["<EXECUTION-rule-uuid>", "..."] }
 ```
 
@@ -345,25 +342,25 @@ Add a "quantity must be > 0" ERROR on a CRUD text field `quantity` (context alia
    mutate the context the next rule / the refreshed component reads).
 
 **The refresh target** (`componentIdentifier`) is matched against a node's **`uniqueIdentifier`** (NOT `identifier`),
-among the descendants of the same `FormPlugin` that implement `IRefreshable` (`BaseFormControl.java`). Pickable
-IRefreshable nodes: **any field control**, and the layout nodes **`nct.parsis.plugin`** (a column), **`nct.html.plugin`**
+among the refreshable descendants of the same form. Pickable
+refreshable nodes: **any field control**, and the layout nodes **`nct.parsis.plugin`** (a column), **`nct.html.plugin`**
 (a slot — the "partner html plugin" of a field), **`nct.label.plugin`**, `nct.link.plugin`, `nct.label.link.plugin`,
 `nct.image.plugin`, `dynaform.filter.submit.button.plugin`. Refreshing a **slot or column re-renders every field inside it** — the cheap,
 usual way to cascade a dependent dropdown: point the trigger field's mapping at the *slot* (`gen_slot_*`) of the
 dependent field, not at the dependent field control itself.
 
 > 🛑 **A control inside a List's LINE form gets no events at all** — that sub-form is a
-> `ListItemFormPlugin`, so `formType()` is not `FORM` and the behaviour is never attached. The
+> list-item form, so its form type is not `FORM` and the behaviour is never attached. The
 > mapping exports, validates and displays; on change nothing happens. A cascading dropdown therefore
 > cannot live in a line form — see [02 §eventComponentMappings](02-form-controls-reference.md) for
 > the two ways out.
 
-**Runtime** (`BaseFormControl.setupEventComponentMappings`; only when `formType()==FORM` — a **filter form
+**Runtime** (only when the form type is `FORM` — a **filter form
 ignores mappings**): for each mapping it binds `AjaxFormComponentUpdatingBehavior(eventName)` on the trigger's form
 component (only if both `eventName` and `componentIdentifier` are non-blank); on fire it locates the target, runs
-`executeEventRules(executionRuleIdentifiers)` (`FormPlugin.java`) — **if any rule ERRORS (its `ExecuteResponse` is not success) or throws, the refresh
-is aborted** (`FormPlugin.java`) — the rule's **returned value is not inspected**, so a rule that merely
-`return`s `false` does NOT abort; an empty/null list is a no-op → proceed — then calls `refresh()` on the target. `mrjun.py validate`
+the `executionRuleIdentifiers` rules — **if any rule ERRORS (its execution result is not a success) or throws, the refresh
+is aborted** — the rule's **returned value is not inspected**, so a rule that merely
+`return`s `false` does NOT abort; an empty/null list is a no-op → proceed — then refreshes the target. `mrjun.py validate`
 WARNs on a `componentIdentifier` that matches no node's `uniqueIdentifier` (dead cascade).
 
 **Dependent-dropdown recipe** (Country → City): on the **Country** dropdown add a mapping
@@ -376,10 +373,10 @@ Full schema + a worked example — [02 `eventComponentMappings[]`](02-form-contr
 
 ---
 
-## 4. The Form Settings panel (form-level → `FormDto`)
+## 4. The Form Settings panel (form-level → the form record)
 
-The Form Settings right-panel edits the `FormDto` rep-object (`rep-objects.forms[]` — schema in
-[06 `FormDto`](06-form-groups-and-mapping.md)). Its author-facing sections beyond name/contexts:
+The Form Settings right-panel edits the form rep-object (`rep-objects.forms[]` — schema in
+[06 form record](06-form-groups-and-mapping.md)). Its author-facing sections beyond name/contexts:
 
 ### 4.1 Hidden Content Configuration
 
@@ -388,17 +385,16 @@ of a control's `prohibitedPredicateIdentifier`, but for arbitrary content (a sec
 sub-block), driven by one predicate that can read the current row/context. Use it for "hide the *Approval* block
 until the record is submitted", "show the *Rejection reason* only when status = Rejected", etc.
 
-**Export shape** (`FormDto.hiddenConfigs[]`, each a `HiddenContentConfig`):
+**Export shape** (`forms[].hiddenConfigs[]`, each a hidden-content config):
 ```json
 { "predicateIdentifier": "<PREDICATE-rule-uuid>",
   "contentIdentifiers": ["<node uniqueIdentifier>", "..."] }
 ```
 - **`contentIdentifiers` are node `uniqueIdentifier`s** (NOT `identifier`), despite the name. The author picks them
-  with a **multi-select** content picker limited to `IRefreshable` nodes rooted at the form
-  (`HiddenContentConfigPanel.java`).
+  with a **multi-select** content picker limited to refreshable nodes rooted at the form.
 - **`predicateIdentifier`** is a **PREDICATE** rule (create-name suggestion `"<formName> Hidden Content Predicate"`).
 
-**Runtime** (`FormPlugin.manageHiddenComponents`): each config's predicate runs against **live** form state
+**Runtime**: each config's predicate runs against **live** form state
 (`buildHiddenContentPredicateContextData`, — a snapshot of current field values + the loaded entity); when it
 returns **true** the config's `contentIdentifiers` are added to the page attribute `contentsToHide`, and
 `ContentHighlightBehavior` sets those nodes invisible (matched by `uniqueIdentifier`). So **predicate-true =
@@ -408,7 +404,7 @@ wording is stale — the behaviour is show/hide.)
 > ⚠️ **CREATE mode needs the empty-CRUD seed.** A predicate like `context.<ctx>.<alias>.data.get().id == null`
 > ("hide until saved") would throw *"No CRUD data available for CRUD: `<alias>`"* on a **create** form (no entity
 > loaded) — except `buildHiddenContentPredicateContextData` calls `ensureCrudModeEntry` which seeds an
-> **empty `CrudDataDto`**, so `data.get()` returns an empty record (`.id == null` ⇒ true ⇒ hidden on create;
+> **empty CRUD record**, so `data.get()` returns an empty record (`.id == null` ⇒ true ⇒ hidden on create;
 > edit keeps the loaded row ⇒ `.id` present ⇒ visible). A predicate **exception is fail-open** (content stays
 > visible) plus an `nctError` toast — so a broken rule is distinguishable from "don't hide". (Origin:
 > `project_hidden_content_predicate_crud_data`.)
@@ -434,26 +430,26 @@ values". That is exactly the case a per-field validation can't express cleanly.
 | `validation.addWarning(msg)` | a form-level warning — shown, not blocking |
 | `validation.addFieldWarning(field, msg)` | a warning on a specific control — shown, not blocking |
 
-> 🔑 **`field` is the control's `name`, NOT its `fieldExpression` and NOT a component id.** At submit `FormPlugin`
-> routes a field message by matching `control.getSettings().getName() == field` (`FormPlugin.java`) and renders
+> 🔑 **`field` is the control's `name`, NOT its `fieldExpression` and NOT a component id.** At submit the form
+> routes a field message by matching the control's settings `name` to `field` and renders
 > it on that control (the markup id is captured *after* the match, only for focus). The control `name` is the human
 > label from the Mapping tab / the generated `settings.name` (e.g. `"Base Quantity"`, `"Plant"`) — **not** the column
 > `baseQuantity`/`plant.id`. Target the **name**, or the error silently lands nowhere. An empty/blank `field` ⇒ the
 > message is treated as **global**.
 
-**Global Validation Rules** = `FormDto.validators[]` (a list of `VALIDATION_RULE` identifiers). On submit,
-`FormPlugin` sends `validationRuleIdentifiers(form.getValidators())` to the backend
-(`FormPlugin.java` → `FormSubmissionServiceImpl.executeValidations`), which runs each and aggregates the
+**Global Validation Rules** = `forms[].validators[]` (a list of `VALIDATION_RULE` identifiers). On submit,
+the form sends the `validators` rule identifiers to the backend,
+which runs each and aggregates the
 `validation.*` messages; they always run.
 
-**Action-Based Validation Rules** = `FormDto.actionValidators[]`, each a `FormActionValidator`
+**Action-Based Validation Rules** = `forms[].actionValidators[]`, each an object
 `{workflowIdentifier, workflowTaskId, actionId, validator}` — authored via cascading **Workflow → Task → Action**
 dropdowns + a `VALIDATION_RULE` picker, to bind a validator to *one specific* workflow/task/action.
 
-> ✅ **FIXED — `validators` now run on a CRUD-form submit.** `FormPlugin.runFormLevelValidators()` executes
-> every `FormDto.validators[]` rule on the CRUD path, and a rule answering `valid:false` blocks the save and
+> ✅ **FIXED — `validators` now run on a CRUD-form submit.** The form now executes
+> every `forms[].validators[]` rule on the CRUD path, and a rule answering `valid:false` blocks the save and
 > renders its `validationMessages`. Keep the version in mind: on a platform build older than this,
-> `FormPlugin.onSubmit` branched to `submitCrudForm()` before the validation request was built, so the
+> the CRUD submit branched off before the validation request was built, so the
 > form-level pass was skipped entirely and a form whose validator rejects a salary below the site minimum
 > saved **1000 against a minimum of 80000** with no message and no error panel — while the same rule run
 > through `nct_rule_execute` correctly returned `{"validationMessages": […], "valid": false}`.
@@ -463,28 +459,28 @@ dropdowns + a `VALIDATION_RULE` picker, to bind a validator to *one specific* wo
 >
 > ⚠️ The paragraph below is the pre-measurement reading and is kept because the `actionValidators` half of it
 > still holds: **`actionValidators` is authored/persisted but the
-> observed submit path runs ONLY `form.getValidators()`** — a repo-wide grep finds no runtime read of
-> `getActionValidators()` outside the settings panel / `FormEntity` / MCP tooling. The **working per-action**
+> observed submit path runs ONLY `form.validators`** — nothing at runtime reads
+> `actionValidators` outside the settings panel / MCP tooling. The **working per-action**
 > validation path is a different one: the **BPMN user-task action's `validationRuleIdentifiers`** on
-> `UserTaskActionsDto.ActionDto` ([06 ACTION table](06-form-groups-and-mapping.md),
+> the UserTask action ([06 ACTION table](06-form-groups-and-mapping.md),
 > [07-workflows-and-tasks.md](07-workflows-and-tasks.md)) — that CSV of VALIDATION_RULE ids is what actually gates a
 > specific user-task action. Do **not** wire an `actionValidators` entry expecting it to fire at CRUD-form submit;
 > use a **global `validators`** rule that itself checks `service.actionId` if you need per-action logic, or the
 > user-task action's `validationRuleIdentifiers` for a workflow task.
 
-**Export shape** (see [06 `FormDto`](06-form-groups-and-mapping.md)): `"validators": ["<rule-uuid>"]`,
+**Export shape** (see [06 form record](06-form-groups-and-mapping.md)): `"validators": ["<rule-uuid>"]`,
 `"actionValidators": [ {"workflowIdentifier":"…","workflowTaskId":"…","actionId":"…","validator":"<rule-uuid>"} ]`.
 The referenced rules are `VALIDATION_RULE`/`GroovyValidationRule` objects in `rep-objects.rules[]`
 ([08](08-groovy-rules-and-context.md)). Both default to `[]`.
 
 ### 4.3 Allow Drafts
 
-**What it does:** `FormDto.allowDrafts` (Boolean, `null`⇒false via `isAllowDrafts()`). When **true** *and* the form
-has a persisted id, a **"Drafts"** dropdown appears in the form breadcrumbs (`FormPlugin.java`). Saving snapshots
-the **entire** live form (`captureCurrentContextData()`) into a `DraftDto.data` JSON blob with a name and an expiry
-(1/3/7/14/30 days), stored server-side (Feign `DraftClient` → the dynaform service `/api/drafts`, tenant-scoped).
+**What it does:** `forms[].allowDrafts` (Boolean, `null`⇒false). When **true** *and* the form
+has a persisted id, a **"Drafts"** dropdown appears in the form breadcrumbs. Saving snapshots
+the **entire** live form into a JSON blob with a name and an expiry
+(1/3/7/14/30 days), stored server-side (tenant-scoped).
 **Drafts save even with invalid / partially-filled input** (validation errors are discarded for the snapshot).
-Resuming loads the blob and `applyContextData` repopulates the form in place and re-renders.
+Resuming loads the blob and repopulates the form in place and re-renders.
 
 **When the builder AI should enable it (decision guidance):** turn `allowDrafts:true` on a form when the PRD implies
 the user **cannot complete it in one sitting** — long/multi-section intake, data that must be **fetched from
@@ -501,7 +497,7 @@ contexts feed the predicates/choices ([06](06-form-groups-and-mapping.md), [08](
 
 ### 4.5 Get context data (a button, not a setting)
 
-**Writes nothing to `FormDto`.** There is no export shape for this and nothing to look for in a `.mrjun` — it is a
+**Writes nothing to the form record.** There is no export shape for this and nothing to look for in a `.mrjun` — it is a
 tool in the settings panel, listed here because that is where an author will meet it.
 
 **What it does:** reads the values currently in the form and shows the **context data document the form would
@@ -573,7 +569,7 @@ Configuration** (form-level, §4.1); depends-on → **field events** (§3).
   forms use). **Refresh is single-target** per mapping — several targets ⇒ several mappings. `componentIdentifier` is a
   node's **`uniqueIdentifier`**, and events only fire on a **FORM** (not a filter form).
 - **Hidden `contentIdentifiers` are `uniqueIdentifier`s**, and **predicate-true = HIDDEN**; a CREATE-mode predicate
-  reading `…data.get()` works only because an empty `CrudDataDto` is seeded — otherwise it throws; a broken predicate
+  reading `…data.get()` works only because an empty CRUD record is seeded — otherwise it throws; a broken predicate
   is **fail-open** (visible) + a toast.
 - **`validation.addFieldError(field, …)` targets the control `name`**, not `fieldExpression`/component id — a wrong
   `field` silently drops the error.
@@ -588,7 +584,7 @@ Configuration** (form-level, §4.1); depends-on → **field events** (§3).
 - Control settings schema (`conditionalValidations`, `eventComponentMappings`, prohibited/default/mandatory, between):
   [02-form-controls-reference.md](02-form-controls-reference.md)
 - Generate-fields dialog columns (Required/Prohibited/Default/Info): [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md)
-- `FormDto` schema (`validators`/`actionValidators`/`hiddenConfigs`/`multiLanguage`/`allowDrafts`) + the ACTION model:
+- Form record schema (`validators`/`actionValidators`/`hiddenConfigs`/`multiLanguage`/`allowDrafts`) + the ACTION model:
   [06-form-groups-and-mapping.md](06-form-groups-and-mapping.md)
 - Rule types, `GroovyPredicate` vs `GroovyValidationRule`, the `validation.*` surface, context-read grammar:
   [08-groovy-rules-and-context.md](08-groovy-rules-and-context.md), [16-groovy-service-api.md](16-groovy-service-api.md)
@@ -657,9 +653,9 @@ Where a validation rule can be attached:
 
 | Trigger | Slot | Notes |
 |---|---|---|
-| workflow user-task action | `ActionDto.validationRuleIdentifiers` (list of rule identifiers) | the `flowable:userActions` payload — this is the one that fixes the message above |
+| workflow user-task action | `actions[].validationRuleIdentifiers` (list of rule identifiers) | the `flowable:userActions` payload — this is the one that fixes the message above |
 | form (on save) — also the form a crud.table action opens | `forms[].validators` (⛔ not `forms[].actionValidators`: stored, never run — §4.2) | runs for every submit of the form — keep DRAFT-legal states out of it; a check meant for one action reads `service.actionId` |
-| **crud.table DIRECT row/toolbar action** (no form) | **none** — `CrudTableActionsDto.ActionDto` has no `validationRuleIdentifiers` (04 §ActionDto) | the EXECUTION rule's throw is the only mechanism: make the message self-contained, in the business's words — or hide the action by its predicate (section above) |
+| **crud.table DIRECT row/toolbar action** (no form) | **none** — `the CRUD action` has no `validationRuleIdentifiers` (04 §Action shape) | the EXECUTION rule's throw is the only mechanism: make the message self-contained, in the business's words — or hide the action by its predicate (section above) |
 
 So the rule of thumb: **duplicate the checks** — the VALIDATION rule for a clean UX wherever a slot
 exists, and keep the same guards inside the EXECUTION rule as the last line of defence (a direct

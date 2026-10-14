@@ -99,9 +99,8 @@ the authoring UI: every future field is a code edit.
 
 ## 2 · Export schema — `properties.studioModel.stringValue`
 
-The value is a JSON string; the platform reads it with GSON via
-`content.getJsonProperty("studioModel", HtmlStudioModel.class, HtmlStudioModel::new)`, coalescing a stored
-`null`/`""` to an empty model. Shape (`HtmlStudioModel`):
+The value is a JSON string; the platform reads it as JSON, coalescing a stored
+`null`/`""` to an empty model. Shape:
 
 ```jsonc
 {
@@ -276,8 +275,8 @@ if ((window.Dokie.__v || 0) < 3) {          // old cached runtime: ctx.include m
 
 Also absent by construction, so do not plan around them: **no user / locale / tenant / skin** on the mount
 payload (it carries only `id, domId, activeDoc, docs, libs, scripts, contextData`);
-no DOM-query or event-delegation helper; no way to ask Wicket to re-render anything (the plugin's Java-side
-`IRefreshable.refresh()` is not reachable from author JS); no `onMount`/`onDestroy` hooks other than
+no DOM-query or event-delegation helper; no way to ask Wicket to re-render anything (the plugin's server-side
+refresh is not reachable from author JS); no `onMount`/`onDestroy` hooks other than
 `ctx.onCleanup`.
 
 ### 3.1 `ctx.include(doc, selector[, opts])` — pull in a document, server-rendered
@@ -371,10 +370,10 @@ const data = await ctx.callRule('<Screen> Data', { entityId: 42, mode: 'open' })
 * **Locale**: the server stamps the session locale onto the rule context before executing (the value is the
   Wicket page locale as `language_COUNTRY`, e.g. `en_US`/`hy_AM`). This is the ONLY way a component learns the
   locale — §9. Read it in Groovy with **`service.global.locale.getKey()`** ([16](16-groovy-service-api.md)): the
-  Groovy executor copies the context's `localeKey` into the thread-local `LocaleContext` before running the body
+  Groovy executor copies the context's `localeKey` into the thread-local locale before running the body
   and restores the previous value after. ⛔ **`context.data.localeKey` returns `null`** —
-  `context.data.<x>` is an *attribute* lookup (`GlobalDataWrapper.propertyMissing → getAttr("localeKey")`)
-  and nothing ever writes an attr by that name. The raw DTO field is reachable as
+  `context.data.<x>` is an *attribute* lookup (it asks for the attribute `"localeKey"`)
+  and nothing ever writes an attr by that name. The raw field is reachable as
   `context.contextData.localeKey` if you prefer it.
 * **Return value** = the rule's `returnValue` — the value of an **explicit `return`**. The executor appends
   its own `return null` after your body, so a bare final expression is discarded and the component silently
@@ -452,7 +451,7 @@ envelope — because the richwicket ajax callback has no error channel.
 > minute, then your `catch` fires with `Error: dokieCallRule timed out`. `validate` cannot catch it. **Always
 > `try/catch` every bridge call and render the message.**
 
-> ⛔ **Return only plain maps / lists / scalars from a rule.** The envelope is built with Jackson, and a value it
+> ⛔ **Return only plain maps / lists / scalars from a rule.** The envelope is built as JSON, and a value it
 > cannot write — the classic case being an object graph with a **cycle** — does **not** come back as `null`: the
 > server converts the failure into `{"ok":false,"error":"result is not serializable: …"}`, so
 > `await ctx.callRule(...)` **rejects**. Note there are *two* distinct origins of "works in the rule editor
@@ -526,9 +525,9 @@ node's access counts here (see [01](01-content-model-and-pages.md) §"Hidden con
 
 ## 5 · `ctx.contextData` — the read-only projection
 
-Acquisition: the enclosing `IFormContextProvider.getContextData()` first (it also
+Acquisition: the enclosing form's context data first (it also
 *publishes* the page attribute as a side effect), else the page attribute
-`FormPlugin.LIVE_FORM_CONTEXT_DATA_ATTRIBUTE` (`"nct.live.form.contextData"`), else `null`.
+`"nct.live.form.contextData"`, else `null`.
 
 The projection mirrors the Groovy binding of [09](09-groovy-hints-and-live-context.md):
 
@@ -675,7 +674,7 @@ Create/Import buttons (`crud.table.plugin`, `crud.tree.plugin`, the rule editor,
 there is not cosmetic: it is the only place a user's eye already goes for "what can I do on this page", and it
 keeps your component's own markup free of a home-grown toolbar that will never match the theme.
 
-Until now only Java plugins could contribute there. `ctx.breadcrumb.*` opens it to author JS.
+Until now only built-in plugins could contribute there. `ctx.breadcrumb.*` opens it to author JS.
 
 ### 7.2 The mechanism (why it is cheap)
 
@@ -686,7 +685,7 @@ Until now only Java plugins could contribute there. `ctx.breadcrumb.*` opens it 
 3. The flush posts `{buttonsJson}` through `twin.ajax → dokieBreadcrumb` — the same sanctioned channel as
    `callRule`, and therefore the same blocking transport (§4.4): keep the set small and do not publish in a loop.
 4. The server sanitizes the set and fires the platform's `Add_Breadcrumb_Buttons` event with this plugin's
-   component path as the contribution identifier. `BreadCrumbPlugin` keys contributions by that identifier and
+   component path as the contribution identifier. The breadcrumb keys contributions by that identifier and
    **replaces**, so publishing swaps *your* buttons and leaves every other plugin's alone.
 5. Each button renders as a real `<button>` with an inline
    `onclick="window.Dokie&&window.Dokie.bcClick('<domId>','<key>',this,event)"`.
@@ -904,7 +903,7 @@ returned `done()` is idempotent: calling it twice is harmless, which is why `fin
 
 **The locale reaches you exactly one way: through the rule.** The server stamps the session locale on the rule
 context before executing, the Groovy executor copies it
-into the thread-local `LocaleContext`, and
+into the thread-local locale, and
 **`service.global.locale.getKey()`** hands it to your script, so a fetch rule can simply return it:
 
 ```groovy
@@ -1180,7 +1179,7 @@ channel of the `.mrjun` — there is no separate upload step.
   tenant id at render time, producing
   `<siteContext>/dokie-asset?p=t/<tenantId>/studio/<lib>/<file>`. A legacy absolute `t/<id>/…` path is used as-is
   and therefore **breaks after import** — `validate` WARNs on it.
-* **Serving:** `DokieAssetResource`, mounted at `/dokie-asset`. Guard: the path must match
+* **Serving:** the platform serves `/dokie-asset`. Guard: the path must match
   `t/<digits>/studio/<something>`, must not contain `..`, and its extension must be whitelisted — otherwise
   **HTTP 403**. The whitelist is exactly:
 
@@ -1210,7 +1209,7 @@ channel of the `.mrjun` — there is no separate upload step.
 > url that 404s.
 
 ```bash
-# 1) put the file into the bundle (round-trips into nct-file-storage on import)
+# 1) put the file into the bundle (it is uploaded to the project file storage on import)
 python3 mrjun.py asset add studio/echarts/echarts.esm.js ./echarts.esm.js --project ./app
 python3 mrjun.py asset ls --project ./app       # verify what will round-trip
 

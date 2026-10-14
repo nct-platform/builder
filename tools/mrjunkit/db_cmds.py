@@ -1,6 +1,6 @@
 """project-db.dump commands: db list-schemas/list-tables, db add-schema/add-table.
 
-project-db.dump is JSON, format nct-jdbc-dump-v1:
+project-db.dump is JSON, format nct-jdbc-dump-v1 (this string is the format id and must be kept verbatim):
   {format, database, schemas:[{name, enumTypes, foreignKeys[], uniqueConstraints[],
    checkConstraints[], indexes[], tables[], sequences[], views[], functions[],
    triggers[]}]}
@@ -36,27 +36,17 @@ TYPE_MAP = {
 # ---------------------------------------------------------------------------
 # The cell contract — every value in `rows[]` is a STRING or null
 # ---------------------------------------------------------------------------
-# This is not a style preference, it is the restorer's signature. nct-repository
-# reads the rows as
-#
-#     List<Map<String, String>> rows = (List<Map<String, String>>) tableDump.get("rows");
-#     ...
-#     String val = row.get(columns.get(i));            // <-- implicit checkcast
-#     setTypedParameter(ps, i + 1, val, sqlType);      // ps.setObject(idx, val, sqlType)
-#
-# Generics are erased, so the cast lands on that one assignment. A JSON number or
-# a JSON boolean parses to Integer/Double/Boolean and the line throws
-#
-#     class java.lang.Integer cannot be cast to class java.lang.String
-#
-# ClassCastException is not SQLException, so it misses the per-table savepoint
-# catch and unwinds the WHOLE schema restore. The user is told
+# This is not a style preference, it is the restorer's signature. The restorer
+# reads every cell as a string. A JSON number or a JSON boolean arrives as a number
+# or boolean and the restore fails with a type-cast error
+# ("class … Integer cannot be cast to class … String"). That error is not a SQL error, so
+# it misses the per-table savepoint catch and unwinds the WHOLE schema restore. The user is told
 # "The database was NOT replaced. Schema(s) [x] were rolled back" — an import that
 # looks like a database-shape problem and is really one unquoted integer.
 #
 # The typing is done by `columnTypes` (JDBC codes), never by the JSON type: the
-# driver converts the string "1" to an integer because the parameter is bound as
-# Types.INTEGER. The platform's own exporter writes `val.toString()` for every
+# driver converts the string "1" to an integer because the parameter is bound with the
+# column's integer type. The platform's own exporter writes the string form of every
 # non-null cell, which is why no live-exported .mrjun has ever shown this.
 #
 # ⛔ Do not hand-roll this. Call `dump_cell` / `normalise_rows` on the way in.
@@ -65,7 +55,7 @@ TYPE_MAP = {
 def dump_cell(value):
     """One row value -> the string the restorer can cast, or None for SQL NULL.
 
-    bool -> "true"/"false" (what Java's Boolean.toString writes), dict/list ->
+    bool -> "true"/"false" (what the platform's own exporter writes), dict/list ->
     compact JSON for a json/jsonb column, everything else -> str()."""
     import datetime as _dt
     import decimal as _dec

@@ -178,9 +178,9 @@ def build_parser():
     sp.add_argument("--json", required=True, help="@file or literal JSON (the studioModel object)")
     sp.set_defaults(func=content_cmds.cmd_node_set_studio)
 
-    # -- asset (tenant-files -> nct-file-storage) ---------------------------
+    # -- asset (tenant-files -> the platform's file storage) ---------------------------
     asset = sub.add_parser(
-        "asset", help="tenant-files assets (round-trip into nct-file-storage under t/<tenantId>/)"
+        "asset", help="tenant-files assets (round-trip into the platform's file storage under t/<tenantId>/)"
     ).add_subparsers(dest="sub", metavar="<sub>")
     sp = asset.add_parser("add", help="copy a local file into tenant-files/<relpath> (e.g. studio/<lib>/<file> for a Studio library)")
     _add_project(sp)
@@ -556,7 +556,7 @@ def build_parser():
 
     # -- form ---------------------------------------------------------------
     form = sub.add_parser("form", help="rep-objects forms").add_subparsers(dest="sub", metavar="<sub>")
-    sp = form.add_parser("add", help="create a form (FormDto rep-object)")
+    sp = form.add_parser("add", help="create a form (rep-object)")
     _add_project(sp)
     sp.add_argument("--name", required=True)
     sp.add_argument("--formgroup", required=True, help="formGroup id/name")

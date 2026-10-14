@@ -56,7 +56,7 @@ def _method_skeleton(method_name, method_type, order, params, returns_array,
                      query_identifier=None, rule_identifier=None, script=""):
     # A GROOVY method with a script MUST carry a ruleIdentifier or it is dead on arrival —
     # see cmd_crud_apply. `find` is the ONE exception: a blank ruleIdentifier there is the
-    # auto-find sentinel the executor acts on (isAutoFindWrapper), so leave it alone.
+    # auto-find sentinel the platform acts on, so leave it alone.
     if method_type == "GROOVY" and script and not rule_identifier and method_name != "find":
         rule_identifier = core.new_uuid()
     return {
@@ -255,23 +255,16 @@ def cmd_crud_add_method(args):
 def cmd_crud_apply(args):
     """Give every GROOVY method a ruleIdentifier — the offline equivalent of the UI's "Apply".
 
-    A GROOVY method does not run its own `script`. `DynamicMethodExecutor.executeGroovyMethod`
-    refuses outright::
-
-        if (method.getRuleIdentifier() == null || method.getRuleIdentifier().isBlank())
-            throw new IllegalStateException("Groovy method '" + name
-                    + "' has no rule identifier. Apply the CRUD first.");
-
-    and otherwise returns `{ruleIdentifier, status: "delegated", parameters}` — the script is
+    A GROOVY method does not run its own `script`. The platform refuses outright
+    ("Groovy method '<name>' has no rule identifier. Apply the CRUD first.") when the
+    identifier is blank, and otherwise returns `{ruleIdentifier, status: "delegated", parameters}` — the script is
     executed as an ordinary EXECUTION_RULE looked up by that identifier, with the arguments
     bound as `param`.
 
-    In the UI that rule is written by `CrudEditorPanel.saveGroovyRule` when you press **Apply**,
-    with `hidden(true)`. Hidden rules are filtered out of the export, so rep-objects.json
-    carries none of them — and the importer knows this: `CmsProjectServiceImpl` re-creates each
-    one from the method's own `script` (`ensureHiddenGroovyRule`). But it is guarded::
-
-        if (isBlank(em.getRuleIdentifier()) || isBlank(em.getScript())) return;
+    In the UI that rule is written when you press **Apply**, as a hidden rule. Hidden rules
+    are filtered out of the export, so rep-objects.json carries none of them — and the importer
+    knows this: it re-creates each one from the method's own `script`. But it is guarded: a method
+    with a blank identifier OR a blank script is skipped.
 
     So the identifier is the whole hinge. Present → the platform builds the rule on import and
     the method works. Absent → the method is dead in the imported project, and every caller of
@@ -283,8 +276,8 @@ def cmd_crud_apply(args):
     the import path is the platform's own and it is the one the UI reproduces on re-Apply.
 
     ⚠️ `find` is exempt. A GROOVY `find` with a BLANK ruleIdentifier is the **auto-find sentinel**:
-    `isAutoFindWrapper` catches it before the delegation branch and `executeAutoFindWrapper` runs the
-    sibling `findAll` + `count` in-process, assembling the PageResult itself. Its `script` is
+    the platform recognises it before delegating and runs the sibling `findAll` + `count`
+    in-process, assembling the page result itself. Its `script` is
     documentation. Giving it an identifier is not fatal — the generated rule computes the same thing —
     but it silently moves a hot path off the in-process route, so this leaves it alone.
 
