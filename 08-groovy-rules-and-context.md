@@ -1007,6 +1007,15 @@ script **reads** the column `productName` (`getField('productName', …)`) but *
 `'Product Name'` (`settings.name`) — see the 🔑 note above; a global-vs-action-validator walkthrough is
 [25 §4.2](25-form-settings-validation-and-events.md).
 
+> ⛔ **There is no `service.validation`.** The collector is the binding `validation` (or the bare helpers `addError` /
+> `addFieldError` …) — it is **not** a member of `service`, unlike `service.crud` / `service.rule`, which is exactly why it is
+> easy to write by analogy. It stays silent until a document violates the rule, and then the platform does **not** print your
+> sentence: it prints `Failed to execute rule '<name>': Validation rule execution failed: validation` (the MissingProperty it
+> hit) and still refuses the save — so a test that only checks "the save was refused" stays green. Measured on a delivered ERP:
+> 7 of 13 validation rules (15 call sites) were written that way. `mrjun validate` now fails on it
+> (`_check_rule_service_validation`). Do not confuse it with `service.global.validation.isEmail / isNumeric / …` — those are
+> real helper functions and a different thing.
+
 ---
 
 ## MODIFY-FILLED: editing rules in an already-filled export (scenario C)

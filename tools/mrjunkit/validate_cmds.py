@@ -370,6 +370,8 @@ def cmd_validate(args):
     # -- a crud method nothing calls -> a step that was written and never wired --
     _check_crud_method_is_called(p, cruds, r)
     # -- a Groovy name read above its own `def` -> "Context 'x' not found", the action never runs --
+    # -- `service.validation` does not exist: the collector is the binding `validation` --
+    _check_rule_service_validation(p, r)
     _check_groovy_var_used_before_def(p, r)
     # -- a Groovy name never declared at all -> the same "Context 'x' not found", on the first run --
     _check_groovy_duplicate_def(p, r)
@@ -9500,6 +9502,36 @@ def _groovy_top_level_scan(src):
             continue
         i += 1
     return defs, uses
+
+
+def _check_rule_service_validation(p, r):
+    """RUNTIME-THROW (ERROR). `service.validation` does not exist. The message collector of a VALIDATION_RULE is the
+    binding `validation` (and the bare helpers `addError` / `addFieldError` / ...), NOT a member of `service`
+    (08-groovy-rules-and-context.md "The VALIDATION shape", 16-groovy-service-api.md Part 3).
+
+    Writing it the way `service.crud` / `service.rule` are written is the natural slip, and it is silent until a
+    document actually violates the rule: the rule then dies with the platform's
+
+        Failed to execute rule '<name>': Validation rule execution failed: validation
+
+    instead of the sentence the author wrote, while the save is still refused - so every test that only checks
+    "the save was refused" stays green. Measured on a delivered ERP: 7 of its 13 validation rules (15 call sites).
+
+    Fix: `validation.addFieldError("<control name>", "<message>")`, or the bare `addFieldError(...)`. Strings and
+    comments are ignored, so a message that quotes the wrong spelling does not trigger this."""
+    for rule in (p.rep.get("rules") or []):
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        if "service.validation" not in src and "service . validation" not in src:
+            continue
+        code = _strip_groovy_noise(src)
+        code = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', code)
+        code = re.sub(r"'(?:\\.|[^'\\\n])*'", "''", code)
+        if re.search(r"\bservice\s*\.\s*validation\b", code):
+            r.err("rule %r calls `service.validation...` - there is no such member. A validation rule's collector is the "
+                  "binding `validation` (or the bare helpers `addError` / `addFieldError`): write "
+                  "`validation.addFieldError(\"<control name>\", \"<message>\")`. As written, a violation does not show "
+                  "your message - the platform prints \"Validation rule execution failed: validation\" and still refuses "
+                  "the save. (08-groovy-rules-and-context.md \"The VALIDATION shape\")" % rule.get("name"))
 
 
 def _check_groovy_var_used_before_def(p, r):
