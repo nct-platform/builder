@@ -363,6 +363,13 @@ is aborted** — the rule's **returned value is not inspected**, so a rule that 
 `return`s `false` does NOT abort; an empty/null list is a no-op → proceed — then refreshes the target. `mrjun.py validate`
 WARNs on a `componentIdentifier` that matches no node's `uniqueIdentifier` (dead cascade).
 
+> ⛔ **Aim the event at the ONE slot the rule changes, not at the form's `form.parsis` anchor.** A plain text/number field
+> sends its value to the server only with the form (or through an event of its own); a repaint of the whole form re-renders
+> every field from the server's copy, so a value typed a moment ago into a field that has no event **vanishes** (measured:
+> type a name, pick a category whose event targets `form.parsis` → the name is blank). Targeting the changed field's `gen_slot_*`
+> wrapper repaints only that field. If the rule must read what the person typed into another field, give THAT field a change
+> event aimed at its own slot with `executionRuleIdentifiers: []` — it pushes its value without repainting anything else.
+
 **Dependent-dropdown recipe** (Country → City): on the **Country** dropdown add a mapping
 `{eventName:"change", componentIdentifier:<uniqueIdentifier of the City field's `gen_slot_*`>, executionRuleIdentifiers:[]}`.
 The City dropdown's own choices rule reads the current Country from wherever this form binds it — the row

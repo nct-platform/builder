@@ -242,6 +242,14 @@ YAML. The full current catalog:
 |---|---|---|
 | `service.global.locale.getKey` | `() → String` | Session locale key (`en_US`, `ru_RU`). |
 | `service.global.locale.getLocale` | `() → Locale` | Session `java.util.Locale`. |
+
+> ⛔ **Where the session locale is actually populated** (measured on a live stand, 2026-10-15, hy_AM/ru_RU/en_US):
+> a form's **VALIDATION** rule and a dropdown's **choices** rule get it (`getKey()` = `hy_AM`…); a register's **row-action**
+> rule (`onBeforeComplete…`, run by the separate *executor* service) gets **null** from `getKey()`/`getLocale()` (and
+> `LocaleContextHolder` = the server's `en`), and so do persist hooks and schedulers. A message that must follow the
+> user's language therefore needs a fallback — `def MSG = { hy, en, ru -> … getKey() … ; fallback hy + ' / ' + en + ' / ' + ru }`
+> — and a user-visible refusal thrown from a row action will carry every language it has. Probe before promising: throw
+> `'DBG ' + service.global.locale.getKey()` from a temporary rule body and read the toast.
 | `service.global.conversion.toSelectOptions` | `(Object result, String keyField, String displayField) → List` | CRUD result/list → key-value list for a **dropdown**. |
 | `service.global.conversion.toSelectOptionsLocalized` | `(Object result, String keyField, String displayField, String localeKey=null, String localizationFieldName='localize') → List` | Same + localized `display` (fallback to the base field). |
 | `service.global.conversion.toAutoCompleteOptions` | `(Object result, String field) → List` | List → suggestions for **autocomplete** (single field). |
