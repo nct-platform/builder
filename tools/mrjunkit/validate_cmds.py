@@ -342,6 +342,9 @@ def cmd_validate(args):
     # -- service.security.users / .roleGroups: refused in a predicate, a member that does not exist, a rule that
     #    adds people left open to every signed-in user (or to anyone) --
     _check_rule_manages_people(p, r)
+    # -- service.pubsub: refused in a predicate / validation rule, a member or an alias that cannot exist, an option
+    #    no broker kind has --
+    _check_rule_uses_pubsub(p, r)
     # -- a hand-built start document with the context/attrs at the ROOT -> dropped in silence, blank queues --
     _check_workflow_start_document_shape(p, r)
     # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
@@ -6017,15 +6020,23 @@ _SUBSCRIPT_PROPERTY_RE = re.compile(r"""\[\s*(['"])(\w+)\1\s*\]""")
 _NAMESPACE_GETTER_RE = re.compile(r"\bsecurity\s*\.\s*get(Users|RoleGroups)\s*\(\s*\)")
 
 
+def _fold_property_chain(code):
+    """A `service.<namespace>.<member>` chain however it was spelled: `service?.pubsub?.plant`,
+    `service.pubsub."plant"` and `service.pubsub['plant']` all reach the same member at runtime, and a check that
+    only knew the plain dotted form would let any of them past. Folded to `service.pubsub.plant`. Analysis only -
+    the script is not changed. A subscript that is not a plain word (`['my-broker']`) is left as it is."""
+    code = _SAFE_NAV_RE.sub(".", code)
+    code = _QUOTED_PROPERTY_RE.sub(r".\2", code)
+    return _SUBSCRIPT_PROPERTY_RE.sub(r".\2", code)
+
+
 def _security_chain(code):
     """The same property chain, however it was spelled: `service?.security?.users`, `service.security."users"`,
     `service.security['users']` and the getter `service.security.getUsers()` all reach the same namespace at
     runtime, and a check that only knew the plain dotted form would let any of them past. Folded to
     `service.security.users`. Analysis only - the script is not changed. A chain broken across a variable
     (`def s = service.security` ... `s.users.create(...)`) is NOT followed; that is the limit of a text check."""
-    code = _SAFE_NAV_RE.sub(".", code)
-    code = _QUOTED_PROPERTY_RE.sub(r".\2", code)
-    code = _SUBSCRIPT_PROPERTY_RE.sub(r".\2", code)
+    code = _fold_property_chain(code)
     return _NAMESPACE_GETTER_RE.sub(lambda m: "security." + m.group(1)[0].lower() + m.group(1)[1:], code)
 
 
@@ -6137,6 +6148,47 @@ def _people_code(body):
     return folded, _blank_strings(folded)
 
 
+def _literal_callees(folded, blanked, by_rule, by_method):
+    """The bodies one body CALLS by a literal name: `service.rule("Name")` and `service.crud.<alias>.<method>(`.
+    `folded` is the body with its strings intact (the rule's name is one), `blanked` the same with the strings
+    emptied (so a call mentioned in a help text is not a call)."""
+    found = []
+    for m in _RULE_CALL_RE.finditer(folded):
+        if blanked.startswith("service", m.start()) and by_rule.get(m.group(2)) is not None:
+            found.append(by_rule[m.group(2)])
+    for m in _CRUD_CALL_RE.finditer(blanked):
+        if by_method.get((m.group(1), m.group(2))) is not None:
+            found.append(by_method[(m.group(1), m.group(2))])
+    return found
+
+
+def _reacher(hits, callees_of):
+    """`reaches(entry)`: the first body among `hits` that `entry` is, or can reach through literal calls - else None.
+
+    A rule called from a rule is not a different rule: what is refused, or what needs guarding, in the one at the
+    end of the chain is that of everything that can start it."""
+    reached = {}
+
+    def reaches(entry, trail=frozenset()):
+        key = id(entry)
+        if key in hits:
+            return entry
+        if key in reached:
+            return reached[key]
+        if key in trail:
+            return None                    # a cycle adds nothing
+        for callee in callees_of(entry):
+            hit = reaches(callee, trail | {key})
+            if hit is not None:
+                reached[key] = hit
+                return hit
+        if not trail:
+            reached[key] = None            # a "no" worked out inside a cycle may be wrong; only a top-level one is final
+        return None
+
+    return reaches
+
+
 def _check_rule_manages_people(p, r):
     """`service.security.users` / `service.security.roleGroups` - the ways a script goes wrong (doc 16 §2.3).
 
@@ -6181,36 +6233,7 @@ def _check_rule_manages_people(p, r):
                                     for namespace, member in used)
         return used, changes
 
-    def callees(entry):
-        folded, blanked = code_of[id(entry)]
-        found = []
-        for m in _RULE_CALL_RE.finditer(folded):
-            if blanked.startswith("service", m.start()) and by_rule.get(m.group(2)) is not None:
-                found.append(by_rule[m.group(2)])
-        for m in _CRUD_CALL_RE.finditer(blanked):
-            if by_method.get((m.group(1), m.group(2))) is not None:
-                found.append(by_method[(m.group(1), m.group(2))])
-        return found
-
-    reached = {}
-
-    def reaches(entry, trail):
-        """The first body that manages people which `entry` can reach through literal calls, or None."""
-        key = id(entry)
-        if key in manages:
-            return entry
-        if key in reached:
-            return reached[key]
-        if key in trail:
-            return None                    # a cycle adds nothing
-        for callee in callees(entry):
-            hit = reaches(callee, trail | {key})
-            if hit is not None:
-                reached[key] = hit
-                return hit
-        if not trail:
-            reached[key] = None            # a "no" worked out inside a cycle may be wrong; only a top-level one is final
-        return None
+    reaches = _reacher(manages, lambda entry: _literal_callees(*code_of[id(entry)], by_rule, by_method))
 
     def judge_access(where, who, access, does, target, via):
         """The ERROR / WARN about who may run a rule that manages people - or reaches one."""
@@ -6279,6 +6302,241 @@ def _check_rule_manages_people(p, r):
                       % (where, namespace, member, namespace, ", ".join(_PEOPLE_MEMBERS[namespace]), _PEOPLE_DOC))
         judge_access(where, who, access, "manages people" if changes else "reads the project's people",
                      is_method, None)
+
+
+# What `service.pubsub` really has (doc 33 §4, doc 16 §2.17). The namespace answers `list()` and `channel(alias)` and
+# hands out a channel for ANY OTHER property; a channel answers `publish` (and `alias`). It exists in every rule type,
+# but only an EXECUTION rule or a CRUD GROOVY method may use it: in a predicate or a validation rule every member
+# throws. The alias rules and the option names mirror the platform's own (what the Settings screen accepts as an
+# alias, the options a single message can carry in each of the four kinds) - the validator is stdlib-only and cannot
+# read them, so this is the one place they are repeated.
+_PUBSUB_REF_RE = re.compile(r"\bservice\s*\.\s*pubsub\b")
+_PUBSUB_NAMESPACE_MEMBERS = ("list", "channel")
+_PUBSUB_CHANNEL_MEMBERS = ("publish", "alias")
+_PUBSUB_RESERVED_ALIASES = ("list", "aliases", "channels", "channel", "get", "alias", "exists", "names", "has")
+_PUBSUB_LANGUAGE_WORDS = frozenset((
+    "abstract as assert boolean break byte case catch char class const continue def default do double else enum "
+    "extends false final finally float for goto if implements import in instanceof int interface long native new "
+    "null package private protected public return short static strictfp super switch synchronized this threadsafe "
+    "throw throws trait transient true try var void volatile while yield record sealed permits metaclass "
+    "properties binding delegate owner").split())
+_PUBSUB_ALIAS_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,39}$")
+# What a single publish call may carry besides its destination and payload: the options a message can have in any
+# of the four kinds, and the three every kind takes. (Kafka `acks` and RabbitMQ `confirm` are the CONNECTION's.)
+_PUBSUB_OPTIONS = ("qos", "retain", "exchange", "persistent", "defaultType", "timeToLiveMs", "key", "contentType",
+                   "headers")
+_PUBSUB_CALL_KEYS = ("destination", "topic", "queue", "routingKey", "payload")
+_PUBSUB_DOC = "(33-pubsub-integration.md §4, 16-groovy-service-api.md §2.17)"
+
+# `service.pubsub.<alias>` / `service.pubsub['<text>']` / `service.pubsub.channel('<text>')` - a channel expression -
+# and the member read from it. Read on the blanked text (strings emptied, quotes kept), so a mention in a help text
+# is not a use; the alias of the literal forms is read back from the folded text at the same position.
+_PUBSUB_CHANNEL_RE = re.compile(
+    r"\bservice\s*\.\s*pubsub\s*"
+    r"(?:\.\s*(?P<prop>[A-Za-z_]\w*)(?!\s*\()"
+    r"|(?P<sub>\[\s*(['\"])[^'\"\n]*\3\s*\])"
+    r"|\.\s*channel\s*\(\s*(?P<arg>(['\"])[^'\"\n]*\5)\s*\))"
+    r"\s*\.\s*(?P<member>[A-Za-z_]\w*)")
+_PUBSUB_NAMESPACE_CALL_RE = re.compile(r"\bservice\s*\.\s*pubsub\s*\.\s*([A-Za-z_]\w*)\s*\(")
+_PUBSUB_CHANNEL_ARG_RE = re.compile(r"\bservice\s*\.\s*pubsub\s*(?:\[\s*(['\"])([^'\"\n]*)\1\s*\]"
+                                    r"|\.\s*channel\s*\(\s*(['\"])([^'\"\n]*)\3\s*\))")
+_PUBSUB_NAMED_KEY_RE = re.compile(r"""\s*(?P<key>[A-Za-z_]\w*|'[ ]*'|"[ ]*")\s*:(?!:)""")
+
+
+def _pubsub_alias_problem(alias):
+    """Why `alias` can never be the alias of a connection, or None. The same rules the Settings screen applies."""
+    if not _PUBSUB_ALIAS_RE.match(alias):
+        return ("'%s' is not a legal alias - it must start with a letter and use only letters, digits and "
+                "underscores, at most 40" % alias)
+    lowered = alias.lower()
+    if lowered in _PUBSUB_LANGUAGE_WORDS or lowered in _PUBSUB_RESERVED_ALIASES:
+        return "'%s' is a reserved word, or a member of service.pubsub itself - no connection can have that alias" % alias
+    return None
+
+
+def _split_top_level(blanked, start, end):
+    """The (start, end) spans of the comma-separated pieces of blanked[start:end], nesting respected. Strings are
+    already emptied, so a comma or a bracket inside one cannot confuse it."""
+    spans, depth, begin = [], 0, start
+    for i in range(start, end):
+        ch = blanked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            spans.append((begin, i))
+            begin = i + 1
+    if blanked[begin:end].strip():
+        spans.append((begin, end))
+    return spans
+
+
+def _closing_paren(blanked, open_at):
+    """Index of the `)` that closes the `(` at `open_at`, or None when the text ends first."""
+    depth = 0
+    for i in range(open_at, len(blanked)):
+        if blanked[i] in "([{":
+            depth += 1
+        elif blanked[i] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _named_key(folded, blanked, start, end):
+    """(key, value_start) when blanked[start:end] is `key: value` (a quoted key counts), else None."""
+    m = _PUBSUB_NAMED_KEY_RE.match(blanked, start, end)
+    if not m:
+        return None
+    return folded[m.start("key"):m.end("key")].strip("'\""), m.end()
+
+
+def _publish_call_keys(folded, blanked, open_at):
+    """The keys one `publish(...)` call spells out, as (key, is_option) - literal ones only. A key built at run time,
+    a variable holding the options map, a spread: nothing static can say what they hold, so they are left alone."""
+    close = _closing_paren(blanked, open_at)
+    if close is None:
+        return []
+    pieces, positional, keys = _split_top_level(blanked, open_at + 1, close), [], []
+    for start, end in pieces:
+        named = _named_key(folded, blanked, start, end)
+        if named:
+            keys.append((named[0], True, False))
+        else:
+            positional.append((start, end))
+    # `publish(destination: 't', payload: 1, qos: 1)` is the call form, where destination and payload are the call's
+    # own words. Next to positional arguments the named ones are Groovy's leading options map instead.
+    call_form = not positional
+    keys = [(key, option and not (call_form and key in _PUBSUB_CALL_KEYS)) for key, option, _ in keys]
+    # A map literal: the options (third argument), or - alone - the whole call.
+    maps = []
+    if len(positional) == 1 and len(pieces) == 1:
+        maps.append((positional[0], True))
+    elif len(positional) >= 3:
+        maps.append((positional[2], False))
+    for (start, end), whole_call in maps:
+        text = blanked[start:end].strip()
+        if not (text.startswith("[") and text.endswith("]")):
+            continue
+        inner_start = blanked.index("[", start) + 1
+        inner_end = blanked.rindex("]", start, end)
+        for a, b in _split_top_level(blanked, inner_start, inner_end):
+            named = _named_key(folded, blanked, a, b)
+            if named:
+                keys.append((named[0], not (whole_call and named[0] in _PUBSUB_CALL_KEYS)))
+    return keys
+
+
+def _check_rule_uses_pubsub(p, r):
+    """`service.pubsub` - the ways a script goes wrong (doc 33 §4, doc 16 §2.17).
+
+    ERROR - a PREDICATE or a VALIDATION_RULE that uses the namespace, or CALLS (`service.rule("X")`,
+    `service.crud.<alias>.<method>(...)`, literal names) a body that does: every member throws there, because those
+    rules are evaluated for an answer, possibly once per row, and a message sent as a side effect of drawing a button
+    is a message nobody decided to send. The author would only find out when the first user opens the page.
+
+    ERROR - a member that does not exist: `service.pubsub.<alias>.send(...)` / `.subscribe(...)` / `.consume(...)`
+    (a channel has `publish`; receiving is a LISTENER, configured live, not something a rule does) and a CALL on the
+    namespace that is neither `list()` nor `channel(alias)` (`service.pubsub.channels()`, `service.pubsub.plant(...)`).
+
+    ERROR - an alias that can never exist: `service.pubsub['my-broker']`, `service.pubsub.channel('my broker')`, a
+    reserved word (`service.pubsub.names`, `service.pubsub.get`).
+
+    WARN - a literal option in `publish(...)` that no broker kind has (`qoss: 1`, `retained: true`, and `acks`, which
+    belongs to the connection): the call is refused at run time. Whether the option belongs to THIS connection's kind
+    is not known offline, and the run-time message lists the ones that do.
+
+    It cannot know that an alias is connected, that a listener points at a rule, or that a rule is idempotent: that is
+    the handover (doc 33 §8). Comments and string literals are blanked first. The limits of a text check: the
+    namespace passed through a variable (`def b = service.pubsub.plant`), a computed rule name or alias, and
+    `.with {}` on `service` or `service.pubsub`."""
+    entries = _groovy_bodies(p)
+    code_of = {id(e): (lambda folded: (folded, _blank_strings(folded)))(_fold_property_chain(_strip_groovy_comments(e[1])))
+               for e in entries}
+    answer_only = ("PREDICATE", "VALIDATION_RULE")
+    refers = {id(e) for e in entries if _PUBSUB_REF_RE.search(code_of[id(e)][1])}
+    uses = {id(e) for e in entries if id(e) in refers and e[2] not in answer_only}
+    by_rule = {e.rule_name: e for e in entries if e.rule_name}
+    by_method = {e.method_ref: e for e in entries if e.method_ref}
+    reaches = _reacher(uses, lambda entry: _literal_callees(*code_of[id(entry)], by_rule, by_method))
+
+    for entry in entries:
+        where, _body, rule_type, _access, _is_method = entry
+        folded, code = code_of[id(entry)]
+
+        if rule_type in answer_only:
+            kind = "predicates" if rule_type == "PREDICATE" else "validation rules"
+            if id(entry) in refers:
+                r.err("%s is a %s and uses service.pubsub - every member throws 'is not available in %s' there (those "
+                      "rules are evaluated for an answer, possibly once per row, and a message is a side effect). "
+                      "Publish from an EXECUTION_RULE or a CRUD GROOVY method that something DOES start. %s"
+                      % (where, rule_type, kind, _PUBSUB_DOC))
+            else:
+                target = reaches(entry)
+                if target is not None:
+                    r.err("%s is a %s and calls %s, which uses service.pubsub - the refusal follows the call, so "
+                          "every member throws 'is not available in rules called from %s' there. Publish from an "
+                          "EXECUTION_RULE or a CRUD GROOVY method that something DOES start. %s"
+                          % (where, rule_type, target[0], kind, _PUBSUB_DOC))
+            continue
+        if id(entry) not in refers:
+            continue
+
+        reported = set()
+
+        def report_once(text, level=r.err):
+            if text not in reported:
+                reported.add(text)
+                level(text)
+
+        # -- a call on the namespace that is neither list() nor channel(alias) --
+        for m in _PUBSUB_NAMESPACE_CALL_RE.finditer(code):
+            name = m.group(1)
+            if name not in _PUBSUB_NAMESPACE_MEMBERS and name not in _OBJECT_MEMBERS:
+                report_once("%s calls service.pubsub.%s(...), which does not exist - service.pubsub has exactly "
+                            "list() and channel(alias); a connection is addressed as a property, "
+                            "service.pubsub.<alias>.publish(...). %s" % (where, name, _PUBSUB_DOC))
+
+        # -- a literal alias that can never exist --
+        for m in re.finditer(r"\bservice\s*\.\s*pubsub\s*\.\s*([A-Za-z_]\w*)(?!\s*\()", code):
+            name = m.group(1)
+            if name not in _PUBSUB_NAMESPACE_MEMBERS and name not in _OBJECT_MEMBERS:
+                problem = _pubsub_alias_problem(name)
+                if problem:
+                    report_once("%s uses service.pubsub.%s: %s. %s" % (where, name, problem, _PUBSUB_DOC))
+        for m in _PUBSUB_CHANNEL_ARG_RE.finditer(folded):
+            if not code.startswith("service", m.start()):
+                continue
+            alias = m.group(2) if m.group(2) is not None else m.group(4)
+            problem = _pubsub_alias_problem(alias.strip())
+            if problem:
+                report_once("%s addresses a connection by an alias that can never exist: %s. %s"
+                            % (where, problem, _PUBSUB_DOC))
+
+        # -- what is called on a channel, and with which options --
+        for m in _PUBSUB_CHANNEL_RE.finditer(code):
+            member = m.group("member")
+            name = m.group("prop") or "<alias>"
+            if member in _OBJECT_MEMBERS:
+                continue
+            if member not in _PUBSUB_CHANNEL_MEMBERS:
+                report_once("%s calls service.pubsub.%s.%s(...), which does not exist - a channel has exactly "
+                            "publish(destination, payload[, options]). Receiving is a LISTENER, configured live in "
+                            "Settings -> Developer -> Integrations -> PubSub, not something a rule does. %s"
+                            % (where, name, member, _PUBSUB_DOC))
+                continue
+            after = re.compile(r"\s*\(").match(code, m.end())
+            if member != "publish" or not after:
+                continue
+            for key, is_option in _publish_call_keys(folded, code, after.end() - 1):
+                if is_option and key not in _PUBSUB_OPTIONS:
+                    report_once("%s calls service.pubsub.%s.publish(...) with the option '%s', which no broker kind "
+                                "has - the call is refused at run time. Options: %s (what is fixed when the "
+                                "connection opens - Kafka acks, RabbitMQ confirm - is a setting of the connection, "
+                                "not of a call). %s"
+                                % (where, name, key, ", ".join(_PUBSUB_OPTIONS), _PUBSUB_DOC), r.warn)
 
 
 # `crudDataMap: [ <alias>: [ value: <row> ] ]` inside the document literal a rule hands to

@@ -1849,6 +1849,54 @@ written against it is therefore safe to ship before the customer has connected a
 
 ---
 
+### 2.17 `service.pubsub.*` — publishing to the customer's message brokers
+
+Full picture — what a listener is, the delivery contract, what is configured LIVE rather than authored — in
+[33](33-pubsub-integration.md). This is the member list.
+
+```
+service.pubsub
+    .<alias>.publish(String destination, Object payload)                  // alias = the connection's name in Settings
+    .<alias>.publish(String destination, Object payload, Map options)
+    .<alias>.publish(Map call)                                            // destination:, payload:, + options
+    .['alias']  .channel("alias")                                         // the same object, for an alias held in a variable
+    .list()                                                               // [[alias:, kind:, version:, description:], …]
+```
+
+```groovy
+service.pubsub.plant.publish('sensors/room1/command', [setpoint: 21.5])                       // a Map goes out as JSON
+service.pubsub.plant.publish('sensors/room1/command', [setpoint: 21.5], [qos: 1, retain: true])
+service.pubsub.erpBus.publish('orders-created', order.id as String, [key: order.customerId])   // Kafka: the record key
+```
+
+A channel has exactly **one** member, `publish`. There is no `send`, `subscribe` or `consume` — *receiving* is a
+**listener**, configured live, which runs an EXECUTION rule per message (§5 of [33](33-pubsub-integration.md)), and
+that rule reads the message with `context.data.getAttr('message')`.
+
+**The destination is the kind's own word** — an MQTT topic, a RabbitMQ routing key, a Kafka topic, an ActiveMQ
+`queue:NAME` / `topic:NAME`. **Options differ by kind** (MQTT `qos` `retain`; RabbitMQ `exchange` `persistent`;
+Kafka `key`; ActiveMQ `defaultType` `persistent` `timeToLiveMs`; every kind `headers` `contentType`) and an option
+the kind does not have is refused with the list of the ones it does. The table is in [33 §4](33-pubsub-integration.md).
+
+**The payload:** text as text; a Map, List or other object as JSON; a number or boolean as its text; a `byte[]`
+as binary; limit 1 MB. The call returns `[ok: true, reference: …, millis: …, bytes: …]` once the broker has taken
+the message, and **throws** (a sentence naming the alias and the broker's own words) when it did not.
+
+**The alias is the connection's name, not its address.** It is letters, digits and underscores, so
+`service.pubsub.plant` reads as a property. A connection that is not there fails with the aliases that are. With
+**no connection configured the namespace is absent from the editor's completion** — and a rule written against it
+is safe to ship before the customer connects a broker: it fails with a sentence, never hangs, never writes anywhere.
+
+**Where it works.** **EXECUTION rules and CRUD GROOVY methods only.** In a PREDICATE or a VALIDATION_RULE the
+namespace exists and **every** member throws — they may run many times for one answer, and a message sent as a side
+effect of drawing a button is a message nobody decided to send. This includes an execution rule called **from**
+a predicate with `service.rule("…")`. `mrjun.py validate` reports it.
+
+> **⛔ A listener's rule runs at-least-once.** A retry, a redelivery after a restart and the other system's own
+> duplicate all run it again — write it so that the second run is harmless ([33 §5.2](33-pubsub-integration.md)).
+
+---
+
 ## Part 3 — `validation.*` (VALIDATION_RULE only)
 
 In a validation rule, the validation template places the `validation` collector and provides 4
@@ -1939,6 +1987,9 @@ resolution are done by the runtime. Step by step:
    - **turn an inbox into records:** `service.mailbox.unread(account:"Support", limit:50).each { m -> … ;
      m.markRead() }` — §2.16, EXECUTION rules only for the marking, and the `markRead()` is what stops the
      next tick processing the same message again.
+   - **publish to a message broker (MQTT, RabbitMQ, Kafka, ActiveMQ):** `service.pubsub.plant.publish("devices/${d.serial}/command",
+     [action:"restart"], [qos:1])` — §2.17, EXECUTION rules only; `plant` is the alias of a connection the recipient
+     adds live ([33](33-pubsub-integration.md)). There is nothing to call for *receiving*: that is a listener.
 5. **Return correctly.** PREDICATE **must** `return <boolean>` (a bare `true` in the template is discarded — see
    [08](08-groovy-rules-and-context.md), §"Templates and return semantics"). EXECUTION may return
    anything (map, list, scalar) or nothing. VALIDATION returns nothing.
@@ -2062,6 +2113,11 @@ The namespaces most likely to be **guessed by analogy** — also confirmed absen
   namespace is flat: `unread`, `find`, `get`, `unreadCount`, `accounts` and the mutating members listed in
   §2.16, with the folder given as an OPTION (`folder: "INBOX"`) rather than as a sub-namespace. There is
   also no way to ask whether a queued message was ultimately delivered — a send is queued, not performed.
+- **`service.pubsub.<alias>.send` / `.subscribe` / `.consume` / `.on(...)`, `service.mqtt`, `service.kafka`,
+  `service.rabbit`, `service.amqp`, `service.jms`** — none of these. One namespace, `service.pubsub`; a channel
+  has exactly `publish(destination, payload[, options])` (§2.17). A rule never subscribes: a **listener**
+  configured live in Settings → Developer → Integrations → PubSub calls the rule when a message arrives
+  ([33](33-pubsub-integration.md) §5). `service.pubsub.list()` and `.channel(alias)` are the only other members.
 - **`service.users` / `service.user` / `service.security.createUser(...)` / `service.security.deleteUser(...)` /
   `service.security.roles()` / `service.security.roleGroups()` (a call) / `service.security.groups`** — none of
   these (`service.security.roleGroups` is a property holding the namespace of §2.3.2, never a call).

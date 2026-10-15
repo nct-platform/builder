@@ -156,6 +156,14 @@ two scopes.
 (The keys themselves are new payload, capped server-side; see the `__storeKeys` row below.) The inline list form
 is what the next annotated argument would use.
 
+**`service.pubsub` is a hint that exists only when the project has something to publish to.** Its aliases are
+the project's real PubSub connections that have Publish on ([33](33-pubsub-integration.md)): the editor completes
+`service.pubsub.`, then the aliases, then the three `publish` forms with the destination named in the kind's own
+word and an example written for that kind. A project with no such connection gets **no** `service.pubsub` node at
+all, and neither do predicates and validation rules (where every member refuses); a rule can therefore not learn
+the alias from the editor in a project nobody has connected — the alias comes from the PRD and the handover.
+Option keys inside a map cannot be completed, so they are listed in the method's description instead.
+
 An entry may also carry **`expandsCall`**, and that is what makes a hint depend on another argument. Some picks
 decide far more than themselves: choosing a workflow decides which contexts and CRUDs the context-data
 argument must carry; choosing a process table decides which filter keys and indexed values a listing may be

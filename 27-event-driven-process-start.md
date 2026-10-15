@@ -161,6 +161,15 @@ records it the same way: the button's own value with `+ API CALL` after it (`STA
 is one starter, however many callers. Through the API too, a `direct:"on"` start action takes no data: data
 sent to one is refused (`422 action_takes_no_data`).
 
+**A message from a broker is another way for the system to press the button.** When the PRD says "when the
+sensor reports", "when the other system sends an order", a listener on a message broker (MQTT, RabbitMQ,
+Kafka, ActiveMQ — [33](33-pubsub-integration.md)) runs an EXECUTION rule for each message, and that rule is the
+starter: it validates the payload, claims the business id the message carries, and calls `service.workflow.start`
+— the same shape as a scheduler tick, with the same §5 idempotency plumbing, and with more reason, because
+delivery is **at-least-once** (a retry, a redelivery after a restart and the sender's duplicate each run the
+rule again). Phase 1a records it as `BROKER MESSAGE`. The listener itself is configured live and is a handover
+row, never part of the `.mrjun`.
+
 ### 2.0.1 Two starters for one process is a decision, not a bonus
 
 If a document-driven start already exists and you ALSO add a start action, the same document can get two

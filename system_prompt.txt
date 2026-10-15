@@ -455,6 +455,27 @@ Reference library — doc/builder/ :
                                         filter its fetch rule honours; validated controls stay out of tabs.
                                         Deliver the handover note + endpoint table and one test call per
                                         operation in test-scenarios.md (sections 8-9).
+  33-pubsub-integration.md ............ PUBSUB - the project talking to MESSAGE BROKERS (MQTT, RabbitMQ,
+                                        Kafka, ActiveMQ). Read it when a PRD says "the devices report to an
+                                        MQTT broker", "we publish to our RabbitMQ / Kafka", "when another
+                                        system sends an event, create ...", "IoT", "telemetry", "message
+                                        queue". FIRST FACTS: the CONNECTIONS (kind, host, credentials, alias)
+                                        and the LISTENERS (source + the rules each one runs) are configured
+                                        LIVE in Settings > Developer > Integrations > PubSub and are NOT in
+                                        the .mrjun - no key, no mrjun.py command. You author the RULES:
+                                        publishing = service.pubsub.<alias>.publish(destination, payload
+                                        [, options]) in an EXECUTION rule (a predicate/validation rule gets
+                                        a namespace whose every member refuses); receiving = a LISTENER
+                                        runs your EXECUTION rule, which reads the message with
+                                        context.data.getAttr('message') (NOT attrs.get) and the origin with
+                                        getAttr('pubsub'). Delivery is AT-LEAST-ONCE: a retry, a redelivery
+                                        and the sender's duplicate all run the rule again, so write it
+                                        idempotent (business id + unique index + do nothing on conflict).
+                                        "Version" is a protocol, not a release (MQTT 3.1.1/5.0, ActiveMQ
+                                        Classic/Artemis; RabbitMQ and Kafka negotiate). MQTT left at defaults
+                                        LOSES what is sent while the platform restarts (Clean session on).
+                                        Deliver a handover note: kind, alias, source, read-as, rule name.
+                                        The Phase-1a starter value is BROKER MESSAGE (33 sections 5, 8).
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).
