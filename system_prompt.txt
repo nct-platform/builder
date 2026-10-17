@@ -455,6 +455,17 @@ Reference library — doc/builder/ :
                                         filter its fetch rule honours; validated controls stay out of tabs.
                                         Deliver the handover note + endpoint table and one test call per
                                         operation in test-scenarios.md (sections 8-9).
+                                        When an AI ASSISTANT is a caller (a PRD saying "let Claude /
+                                        ChatGPT / our copilot ..."): a key is marked for the API, for AI
+                                        assistants (MCP) or both, and each operation of an endpoint carries
+                                        a written description of what it is for (3.16) - set live on the
+                                        key's page, never authored into the .mrjun. DRAFT them in the
+                                        handover (section 8) and say which keys to mark MCP; an assistant
+                                        connects with such a key at <base URL>/mcp (3.16) and is offered
+                                        that key's operations - say that an endpoint a person signs in to
+                                        answers it login_required (11).
+                                        NOT the same thing as the "MCP token" of the support channel (28):
+                                        a key marked MCP is still an API key.
   33-pubsub-integration.md ............ PUBSUB - the project talking to MESSAGE BROKERS (MQTT, RabbitMQ,
                                         Kafka, ActiveMQ). Read it when a PRD says "the devices report to an
                                         MQTT broker", "we publish to our RabbitMQ / Kafka", "when another

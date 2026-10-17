@@ -597,6 +597,10 @@ def _check_api_exposures(p, r, keep):
             r.warn("rep-objects.apiExposures: the rule call %s /%s%s runs rule %s, which rules[] does not have — "
                    "after import that operation answers 404 endpoint_not_found until it exists (doc 32 §3.15)."
                    % (method, slug, "/" + path if path else "", rule))
+        for slug, code, key, words in core.api_exposure_ai_problems(p.rep):
+            (r.warn if code == "unknown_key" else r.err)(
+                "rep-objects.apiExposures: /%s aiDescriptions%s %s (doc 32 §3.16, §6)."
+                % (slug, "[%s]" % key if key else "", words))
     else:
         r.err("rep-objects.apiExposures: %s. A build leaves this key out: it is what an export of a LIVE project "
               "writes, never something to author. Remove it — `mrjun.py api-exposures drop` — or, only when "

@@ -81,7 +81,9 @@ What the token does **not** carry, and what follows from that:
 * **No scope.** Any valid token can call every tool the server advertises, including `delete_page`,
   `drop_table` and `execute_ddl`. Treat a token as owner-level access to that project, and never paste one into
   a file, a chat log, a commit or a bug report.
-* **No expiry, unless the issuer set one.** A token that leaks stays valid until somebody revokes it by hand.
+* **Expiry is the issuer's choice** — the form offers 30 days, 90 days (its default), 365 days or never. A token that
+  leaks stays valid until it lapses or somebody revokes it by hand; a revoked token stops working at once on the server
+  that revoked it and within a minute on the others.
 
 **How the user gets one, and why it cannot be automated:** minting requires an authenticated admin/author
 session in the TARGET project — Settings → Developer → MCP tokens. There is no self-service path and there
@@ -137,6 +139,12 @@ declares — blunter, and it auto-trusts anything added later.)
 >   config is correct; do not rewrite it, and do not re-ask the user for a token to "check" it.
 > * **Attached but failing** — the tools exist and the CALL returns an error. Only then is it a channel
 >   problem: read the per-object error (§4) and report it.
+>
+> **A rejected token never answers in JSON.** One the platform refuses — revoked, expired, signed for another
+> installation, or an API key (`/mcp` refuses API keys — a key marked MCP connects an assistant at `<base URL>/mcp` of the public API, [32](32-public-api.md) §3.16 — and `/public-api/` refuses MCP tokens) — is answered with a redirect
+> to the sign-in page (`302`, `Location: …/auth?from=error`, `WWW-Authenticate: Bearer realm="mcp"`) or a bare `401`.
+> A client that shows a login page where the tools should be has a bad token, not a broken server: ask for a new one
+> (§2.1), do not retry.
 >
 > **`connected` is not `usable` — check the TOOL LIST, not the status.** A server can complete `initialize`
 > (so `claude mcp get` prints `✔ Connected` and the session's init event lists it as `connected`) and still
@@ -389,7 +397,7 @@ a role inside a section that is not granted stays invisible.
 | A page LAYOUT — the shell a page renders into, and building a page from one | MCP `nct_ui_*_layout*` tools | available — see §5b |
 | A mail template | MCP messaging tools | available — but see §6: a re-IMPORT of templates is delete-all-then-insert, so never mix the two channels |
 | A PDF template | — | **no channel** (§6) |
-| A public API endpoint, an API key, a key's binding to an endpoint ([32](32-public-api.md)) | — a person, in Settings → Developer → API | **no MCP channel.** Keys and bindings have no other channel at all; endpoint DEFINITIONS also arrive by a re-import whose archive carries `rep-objects.apiExposures` — which then REPLACES the whole list, and `[]` deletes every endpoint with its bindings ([32](32-public-api.md) §6). An MCP write to a table, form or rule changes what API callers get at once ([32](32-public-api.md) §10) |
+| A public API endpoint, an API key (its name and API / MCP marks included), a key's binding to an endpoint, an endpoint's descriptions for AI assistants ([32](32-public-api.md)) | — a person, in Settings → Developer → API | **no MCP channel.** Keys, their marks and bindings have no other channel at all; endpoint DEFINITIONS also arrive by a re-import whose archive carries `rep-objects.apiExposures` — which then REPLACES the whole list, and `[]` deletes every endpoint with its bindings ([32](32-public-api.md) §6). An MCP write to a table, form or rule changes what API callers get at once ([32](32-public-api.md) §10) |
 
 
 ### 5a. The project's own files — `nct_globalresource_*`

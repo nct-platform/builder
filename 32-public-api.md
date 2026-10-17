@@ -4,10 +4,11 @@
 > nightly job somewhere else — to read the project's lists and press the project's buttons over REST: what can
 > be exposed, how to author the tables, actions, forms and rules so that they answer a machine exactly as they
 > answer a person, who a call acts as, what travels with an archive and what never does, and what you hand over
-> so the recipient can switch it on and prove it works.
+> so the recipient can switch it on and prove it works. When the caller is an AI assistant it also covers the one
+> thing you write for it: a short text per operation saying what the operation is for (§3.16).
 > Read it the moment a PRD says *"the partner's system submits applications"*, *"our app shows customers their
-> open requests"*, *"the ERP pushes new suppliers"*, *"approve from the mobile app"*, or *"integrate with
-> `<system>` over an API"*.
+> open requests"*, *"the ERP pushes new suppliers"*, *"approve from the mobile app"*, *"let the AI assistant look
+> up and file requests"*, or *"integrate with `<system>` over an API"*.
 > **Not here:** the project calling somebody ELSE's API from a rule → [16](16-groovy-service-api.md) §2.2; a
 > rule working an existing case → [16](16-groovy-service-api.md) §2.13; the process-table model and its three
 > action buckets → [05](05-crud-tree-and-process-table.md); records-table actions and the fetch rule →
@@ -36,6 +37,11 @@
 > endpoints your handover lists, binds the key to them, and gives each integrator the base URL, their key and
 > the OpenAPI description that key returns (§8).
 >
+> A key also records **what it is for** — the API, AI assistants (MCP), or both, at least one — and an endpoint
+> carries one **description for AI assistants** per operation (§3.16). Both are set live, on the key's page; the
+> `.mrjun` carries neither as something you author. What you deliver is a **draft of the descriptions** in the
+> handover (§8), which the recipient pastes in.
+>
 > Plan for that. An endpoint with no key bound answers **404** to every call, so a build whose handover forgets
 > the binding step looks exactly like a build whose API is broken.
 
@@ -44,10 +50,11 @@
 | Where it is configured | Settings → **Developer** → **API** (live; members of the **Author** or **Developer** role group, customer projects only — membership, not the "I am the author" switch) |
 | Base URL | `https://<platform-host>/public-api/v1` — the address the API tab shows: the platform's own host. Hand over that one, not a project's custom domain |
 | What can be exposed | a **Process Table** node, a **CRUD Table** node, the project's **sign-in** (one Login endpoint, path `auth`), and **rule calls** — an endpoint grouping operations, each an HTTP method and path that runs ONE rule the author picked (§3.15). Not a CRUD tree, not a CRUD method, not a query — and never a rule by its name |
-| Credentials | `X-Api-Key: <key>` on every call — the calling APPLICATION. Plus `Authorization: Bearer <access token>` from the Login endpoint — the PERSON — on endpoints whose callers sign in |
+| Credentials | `X-Api-Key: <key>` on every call — the calling APPLICATION. Plus `Authorization: Bearer <access token>` from the Login endpoint — the PERSON — on endpoints whose callers sign in. A key is marked for the **API**, for **AI assistants (MCP)**, or both — at least one; only the API mark lets it call `/public-api/v1` (§2) |
 | Who a call acts as | the signed-in person; or, on an endpoint the author set to *Service account*, one named project member (§4). Never anonymous |
 | What a call runs | the table's OWN list, actions, forms and rules — or, on a rule call, the one rule its operation names — on the PUBLISHED branch, with the screen's checks — there is no API-only logic to write and none to bypass |
-| In the `.mrjun` | endpoints: the optional `rep-objects.apiExposures` an export writes — **leave it out when you author**; keys, bindings, sessions: never |
+| Descriptions for AI assistants | one text per operation (what it is for, when to choose it; ≤ 2000 characters), written live on a key marked **MCP** → *Operations*; stored ON the endpoint, so every key that opens it shares them; carried by export and import, and by an environment publish to a target that does not have the endpoint yet. **Nothing offers those operations to an assistant yet** (§11). You draft them (§3.16, §8) |
+| In the `.mrjun` | endpoints: the optional `rep-objects.apiExposures` an export writes (their descriptions for AI assistants included) — **leave it out when you author**; keys, key marks, bindings, sessions: never |
 | Offline gate | `validate` REFUSES an `apiExposures` key that is `[]` or a list (§6) — `mrjun.py api-exposures drop` removes it. It cannot see keys, bindings, or whether an endpoint will answer — nothing offline can |
 
 > **🔧 Tooling.** There is **no** `mrjun.py` command that writes endpoints or keys, deliberately: a key cannot
@@ -89,6 +96,7 @@ Then translate each inbound sentence into **what is exposed** and **what you mus
 | "the partner's system asks us for a price / a quote", "calculate the fee for …", "return the stock of …" | **Rule call** | an operation `GET /<slug>/<path>?<param>=…` — or `POST` with a body when the input is a document | an EXECUTION rule that reads its inputs and RETURNS the answer as data (§3.15) |
 | "check whether the customer is eligible", "may this order be placed?" | **Rule call** | an operation answering `true` / `false` | a PREDICATE rule (§3.15) |
 | "pre-check the application before it is sent" | **Rule call** with a form body (its `/validate` checks the form alone) — or the dry run of the action that will submit it (§2) | `POST /<slug>/<path>` | a VALIDATION rule, or a form whose validators do it (§3.15) |
+| "let ChatGPT / Claude / our assistant look up …", "an AI agent files the request", "staff ask the copilot to approve" | **the same exposure** the sentence would need for any other caller (a table, its actions, a rule call) — an assistant is one more caller, not a new kind of endpoint — through a key marked **MCP** | only the operations the assistant should have | the same API-friendly build (§3), **and** a drafted description per operation (§3.16, §8); the plan says how the assistant connects (§3.16) and that endpoints it uses should act as a service account (§4) |
 
 **Sentences that look like this and are not — say so in the plan rather than building around them:**
 
@@ -107,30 +115,43 @@ Then translate each inbound sentence into **what is exposed** and **what you mus
 recorded by the button it presses, with **`+ API CALL`** after it — `START ACTION + API CALL` (a start action
 with a start form) or `DOCUMENT ACTION + API CALL` (a records action whose rule starts the case), whether
 people press that button too or not: one button is one starter, however many callers. And every list or button
-a named external caller needs becomes a row in the handover table (§8). A row left out is an endpoint nobody
-creates.
+a named external caller needs becomes a row in the handover table (§8) — with a description draft when that caller
+is an AI assistant. A row left out is an endpoint nobody creates.
 
 ---
 
 ## 2 · The model: key → endpoint → table → actions → form
 
 ```
-API key (the calling application)            one per calling system; bound to the endpoints it may call
+API key (the calling application)            one per calling system; bound to the endpoints it may call;
+  │                                          marked for the API, for AI assistants (MCP), or both — at least one
   └─ endpoint  /public-api/v1/<slug>          one exposed table, addressed by the table node's uniqueIdentifier
        ├─ operations switched on              List · Get one
        ├─ actions switched on, one by one     each with an optional PINNED form out of its form group
        ├─ callers                             signed-in users (default) | a named service account
-       └─ item access (records tables only)   how one row is proven to be the caller's (§3.7)
+       ├─ item access (records tables only)   how one row is proven to be the caller's (§3.7)
+       └─ descriptions for AI assistants      one text per operation: what it is for (§3.16) — shared by every key
 Login endpoint  /public-api/v1/auth           one per project; sessions are bound to the key they came through
 Rule-call endpoint /public-api/v1/<slug>     no table: a group of operations
   ├─ operation  <METHOD> /<slug>[/<path>]    one rule (execution | predicate | validation) + its declared inputs
   ├─ callers                                 signed-in users (default) | a named service account
-  └─ open to role groups (optional)          empty: everyone the callers admit | only members of these (+ admins)
+  ├─ open to role groups (optional)          empty: everyone the callers admit | only members of these (+ admins)
+  └─ descriptions for AI assistants          one text per operation (§3.16) — shared by every key
 ```
 
 A key opens WHOLE endpoints — every operation of a rule-call endpoint, every switched-on operation and action of a
 table — never a single operation; an endpoint can have any number of keys. Two calling systems that must reach
 different things get different keys bound to different endpoints.
+
+**What a key is for.** Every key carries two marks, **API** and **MCP**; at least one stays ticked (a key made before
+the marks existed is API only). The **API** mark is what lets the key call `/public-api/v1`: take it off and every
+call presenting the key answers `401 invalid_api_key` — the key, its bindings and its sessions are kept (sessions are
+paused, not ended), and ticking it again resumes them. The **MCP** mark says the key is meant for an AI assistant:
+it makes the key's operations describable (§3.16) and lets an assistant connect with it (§3.16, *How an assistant
+connects*). A key marked for assistants only can still be bound to endpoints — but the REST API refuses it, so an endpoint
+whose only keys are such shows *No key* in the tab's list. The name and the marks are edited in place — the key string does not change;
+**Reissue** replaces the key (§7). A revoked key is history: it can be neither edited nor reissued (the platform answers
+`409 key_revoked`).
 
 Four properties decide most of what you will be asked about:
 
@@ -530,6 +551,95 @@ no.
 - **Describe `result`.** The reference shows `result` as free JSON — the operation's description is where its
   shape goes; write it in the handover (§8) so the recipient can paste it.
 
+### 3.16 Descriptions for AI assistants — the only manual an assistant gets
+
+When the PRD names an AI assistant (Claude, ChatGPT, a company copilot) as a caller, the assistant is one more
+caller of the SAME endpoints: nothing about the tables, actions, forms and rules changes, and §3.1–§3.15 apply in
+full. What is new is that an assistant chooses an operation by reading words — so every operation it may use carries
+a short text saying what the operation is for.
+
+**Where they live.** On the ENDPOINT, one text per operation, shared by every key that opens it. They are written
+live — Settings → Developer → API → the key → *Operations* → *For AI assistants*. The boxes are on the page of a LIVE
+key marked **MCP**, one for each switched-on operation of the endpoints that key is bound to (a key bound to nothing has
+no *Operations* section), and each is saved when the author leaves it. They travel with the endpoint in an export and
+an import, and in an environment publish to a target that does not have the endpoint yet (§6, §7). Keys and their marks
+never travel. You do not
+write them into the `.mrjun` (§6): you **draft** them in the handover (§8).
+
+**What counts as an operation** — one text each: the table's *List items*; its *Read one item*; **each action** (the
+action's dry run and the discovery of an item's actions belong to it); **each operation of a rule-call endpoint**.
+The Login endpoint has none — an assistant does not sign people in. An operation switched off keeps its text; one that
+is removed (an action deleted, a rule-call operation re-created under a new id) takes its text with it.
+
+**How to write one** (≤ 2000 characters, plain text, no markup; left blank = none):
+
+```
+Use it when <the person's intent, in their words>. Do not use it for <the neighbouring intent> — that is <the
+other operation>.
+Ask the person for <the inputs, by the labels they see>; <the mandatory ones> are required.
+It returns <what the answer holds — for a rule call, the shape of `result`>. It <writes a row / starts a case /
+sends a message / only reads> and <can / cannot> be undone.
+<Safe to call freely | Read the details back to the person and get a yes before calling>.
+```
+
+- **Write for a reader with none of your context.** The assistant sees the operation's name, its parameters and
+  this text — not the PRD, not the screen, not the other operations unless you name them.
+- **Say when NOT to use it.** Two operations an assistant cannot tell apart are two operations it will mix up;
+  name the neighbour that is the right one.
+- **Name effects honestly.** A start or create that cannot be taken back, a mail that goes out, a write on a
+  `POST` — say so, and that the person confirms first. Describe the effect; do not order the assistant about
+  ("never ask for confirmation") — what it may skip is not this text's to decide.
+- **Say who can do it** ("only an approver") — the platform refuses the rest anyway, but the assistant should not
+  offer what the person cannot do.
+- **No internals.** No rule names, table names, identifiers, role-group names, URLs or secrets; do not repeat the
+  field list (the generated reference holds it); do not promise what the build does not do (§11).
+- **One language per text** — the language the people who talk to the assistant use; the project's default when unsure.
+- **Plain text.** The platform stores the text cleaned: line breaks as one `\n`, invisible formatting characters
+  (zero-width space, bidi overrides, tag characters) and control characters removed, then normalised (Unicode NFC) and
+  trimmed. The limit is counted on the cleaned text, in UTF-16 units — what the box on the key's page enforces, so an emoji
+  or a rare ideograph counts as two. A text of more than four times the limit is refused before anything else is done
+  with it.
+- **No assistant in the PRD → write none.** An operation with no text is valid; the key stays API only.
+
+Draft them per endpoint and operation in the handover (§8), under the names the Settings screen shows: an action by the
+name its table gives it — the name the endpoint's reference shows (the `label` saved with the endpoint when the table
+cannot be read, else the action id) — *List items*, *Read one item*, or a rule call's rule name (else the start of its
+description, else `<METHOD> /<slug>/<path>`) — so the person pasting the texts finds each box by the words on the
+screen.
+
+**How an assistant connects.** A key marked **MCP** connects an assistant — Claude Code, Cursor, Claude Desktop — at
+`<base URL>/mcp` (the base URL of §8 with `/mcp` added), over the standard MCP protocol, with the key in the
+`X-Api-Key` header. When the key is created or reissued the dialog shows, besides the key, two ready configurations: the
+**remote (HTTP)** one for Claude Code and Cursor, and the **npx (stdio)** one for Claude Desktop (needs Node.js on that
+machine). They carry the key, so they are shown once, like the key. The key's page shows the address and nothing that
+holds the key; to see the configurations again, reissue the key.
+
+What the assistant is offered is the key's own, and nothing more: **one tool per switched-on operation of the endpoints the key
+is bound to** — a table's list and its read, each action, each operation of a rule-call endpoint; never a sign-in. A tool is
+named `<slug>_list`, `<slug>_read`, `<slug>_<action name>` or `<slug>_<method>_<path>`; its description is the text of this
+section when there is one, else a plain statement of what the operation is, and its arguments are the operation's own.
+Running a tool IS making that call: the same gates, the same checks, the same errors — an error comes back as a result the
+assistant can read (with the request id), and an operation whose endpoint needs a signed-in person answers
+`login_required`, because the configuration carries a key and no sign-in. **Give an assistant endpoints that act as a service
+account (§4)** unless a person's session is meant to travel with it. The key is checked for the **MCP** mark at this address,
+and for the **API** mark everywhere else: a key kept for assistants only is refused by the REST API, and a key kept for the API
+alone is refused here (`401 invalid_api_key`). The word `mcp` cannot be the slug of an endpoint.
+
+What a tool takes is exactly what the operation takes, under the names the wire contract uses (§5) — worth knowing when
+you write the texts, because a description that names a field the tool has no argument for sends the assistant looking
+for one:
+
+| the tool of | its arguments |
+|---|---|
+| *List items* | `page` (from 0), `size`, `filters` (key → value; two values = a range), `include: ["actions"]` |
+| *Read one item* | `id` — required |
+| an action on one item | `id` — required; `data` (the form's fields, by field key); `acknowledgeWarnings`; `validateOnly` to check without running |
+| an action on the collection (create / start) | `data`, `acknowledgeWarnings`, `validateOnly` — no `id`, it makes one |
+| a rule call | each declared query parameter by its own name and type; plus `body` when the operation reads one |
+
+The fields inside `data` are the form's, named as the generated reference names them — so a form a person could not
+submit is one an assistant cannot submit either, and the same checks answer both (§3.13).
+
 ---
 
 ## 4 · Who a call acts as — a signed-in person, or a service account
@@ -698,7 +808,8 @@ failure report names each refused endpoint with its reason. For recognition only
   "listEnabled": true, "readEnabled": true,
   "actions": [ { "actionId": "<start action id>", "origin": "START", "enabled": true,
                  "formIdentifier": null, "label": "New request" } ],
-  "callerMode": "USER", "serviceAccountEmail": null, "itemScope": null, "login": null }
+  "callerMode": "USER", "serviceAccountEmail": null, "itemScope": null, "login": null,
+  "aiDescriptions": { "list": "<what the list is for>", "action:START:<start action id>": "<what starting it does>" } }
 ```
 
 and a rule-call endpoint, no table:
@@ -709,8 +820,20 @@ and a rule-call endpoint, no table:
   "operations": [ { "operationId": "<id>", "enabled": true, "method": "GET", "path": "<path>",
                     "ruleIdentifier": "<rule identifier>", "ruleName": "<rule name>", "input": "NONE",
                     "parameters": [ { "name": "<param>", "type": "DATE", "required": true } ] } ],
-  "roleGroups": [], "callerMode": "USER", "serviceAccountEmail": null }
+  "roleGroups": [], "callerMode": "USER", "serviceAccountEmail": null,
+  "aiDescriptions": { "rule:<operation id>": "<what it answers, when to use it>" } }
 ```
+
+`aiDescriptions` — the descriptions for AI assistants (§3.16) — is a map from an operation key to its text: `list`
+and `read` (table endpoints), `action:<ORIGIN>:<actionId>` (an action, by where it comes from and its id), or
+`rule:<operationId>` (a rule-call operation). In a list you keep on purpose: the member **absent or `null` keeps** the
+texts the target's endpoint already has (an archive from before descriptions existed changes none); `{}` **clears**
+them; a map **replaces** them. A key for an operation the entry does not have is dropped on import, and a text
+longer than 2000 characters (counted after the cleaning of §3.16, under whichever operation key it sits — even one the
+endpoint does not have) refuses the whole list, and so does an endpoint with more than 500 texts. An `aiDescriptions` that is not a
+map, or a value in it that is an object or an array, makes the archive unreadable — the whole import fails, as for any
+wrong-typed field (numbers and booleans are read as their text). `mrjun.py api-exposures show` counts the texts per endpoint and
+`validate --keep-api-exposures` checks them.
 
 ---
 
@@ -718,24 +841,29 @@ and a rule-call endpoint, no table:
 
 | event | endpoints | keys and key bindings | sessions |
 |---|---|---|---|
-| **export** | in `apiExposures` (§6), `id` nulled, `identifier` kept | never | never |
+| **export** | in `apiExposures` (§6), `id` nulled, `identifier` kept, with their descriptions for AI assistants | never — neither the keys, nor their marks, nor their bindings | never |
 | **import of an archive without the list** (every build you author) | untouched | untouched | untouched |
 | **re-import of a live export into the same project**, a **version-tag revert** | reconciled to the archive's list (§6); the import summary names every endpoint it deleted, and those that had keys bound | kept on endpoints that survive; gone with the ones deleted | unaffected unless the Login endpoint is deleted (below) |
 | **a new environment** (created from an export) | arrive with the export | none — each arrives with **no key** and answers `404` until one is bound | none |
-| **environment publish** | carried, as ONE list applied in one step; a refused list names the endpoint; removing an endpoint that has keys in the target is left unticked by default | never — new endpoints arrive with no key, existing ones keep theirs, and the publish review warns about both, about calls that would start acting as somebody else, and about calls that would stop answering — an endpoint with keys bound in the target whose path changes, that is switched off, or that loses an operation or an action | never |
-| **a key is revoked** | keep the binding — the key shows *Revoked*, and an endpoint whose every bound key is revoked or expired shows *No live key*; calls with it answer `401 invalid_api_key` | — | every session opened through it ends |
+| **environment publish** | carried — an endpoint NEW to the target arrives with its descriptions for AI assistants; one the target already has keeps the descriptions it holds (a publish writes none over them, and a copy that differs only in descriptions carries nothing) — except that a text goes with its operation when the published definition no longer has that operation (an action deleted, a rule-call operation re-created under a new id), and an operation the publish adds arrives with no text — as ONE list applied in one step; a refused list names the endpoint; removing an endpoint that has keys in the target is left unticked by default | never — new endpoints arrive with no key, existing ones keep theirs, and the publish review warns about both, about calls that would start acting as somebody else, and about calls that would stop answering — an endpoint with keys bound in the target whose path changes, that is switched off, or that loses an operation or an action | never |
+| **a key is revoked** | keep the binding — the key shows *Revoked*, and an endpoint whose every bound key is revoked or expired shows *No live key*; calls with it answer `401 invalid_api_key`. A revoked key is history: it is neither edited nor reissued (`409 key_revoked`) | — | every session opened through it ends |
+| **a key is edited** (renamed; API / MCP marks changed) | — | the same key string; bindings kept. With the API mark off, every call presenting it answers `401 invalid_api_key` | sessions opened through it are refused, not ended; ticking the API mark again resumes them |
+| **a key is reissued** (*Edit* → *Reissue the key*) | — | a NEW string, shown once; every binding of the old key moves to the new one; the old one is revoked | the old key's sessions end |
 | **the Login endpoint is switched off, deleted, or its key unbound** | — | — | sign-in and refresh refused; access tokens already issued expire within minutes. That PAUSES sessions: switched back on in time, they refresh again. Revoking the KEY is what ends them |
 | **the project is deleted** | deleted | deleted | deleted |
 | **a new project on a realm/client pair a deleted project used** | swept on creation | swept | swept |
 
 So the recipient creates keys **once per environment**, and nothing short of deleting the project — or
-importing an archive that carries a different endpoint list — undoes their bindings.
+importing an archive that carries a different endpoint list — undoes their bindings. A **reissue** replaces a leaked
+or expiring key without re-binding anything; whoever holds the old string (the integrator's secret store, the
+autotest's `API_KEY`) must be given the new one.
 
 ---
 
 ## 8 · The handover — what you deliver with the export
 
-Two things, both written by you, both in the delivery next to `project.mrjun`.
+Two things, both written by you, both in the delivery next to `project.mrjun` — three when an AI assistant is a
+caller.
 
 **1. The endpoint table** — one row per endpoint the PRD needs, in the recipient's terms:
 
@@ -751,8 +879,8 @@ Two things, both written by you, both in the delivery next to `project.mrjun`.
 > This project offers a REST API for `<the calling system>`. API keys never travel with the project file, so
 > before anything can call it, open **Settings → Developer → API** (you need to be in the Author or Developer
 > role group) and:
-> 1. **Create a key** for each calling system. It is shown ONCE — copy it straight into that system's secret
->    store.
+> 1. **Create a key** for each calling system and tick what it is for: **API**, **MCP** (an AI assistant), or
+>    both — at least one. It is shown ONCE — copy it straight into that system's secret store.
 > 2. **Add the endpoints** in the table above (if this project was imported from an export of a live project,
 >    check the ones that arrived instead — they arrive with no key). Turn on exactly the operations and actions
 >    listed. For a **Rule call** endpoint, add each operation: its method and path, the rule, its body and its
@@ -768,8 +896,24 @@ Two things, both written by you, both in the delivery next to `project.mrjun`.
 >    **Download OpenAPI for this key** on the key's page: the switched-on endpoints that key opens. The toolbar's
 >    *Download OpenAPI (all endpoints)* describes ALL of them, switched-off ones and other integrators' included.
 >
+> 6. For a key marked **MCP**: open the key's page → **Operations** and paste each operation's description from
+>    the sheet that comes with this note (*For AI assistants*; a box is saved when you leave it). To connect an
+>    assistant, copy the configuration shown when the key was created — *remote (HTTP)* for Claude Code or Cursor,
+>    *npx (stdio)* for Claude Desktop — into its MCP settings; it points at `<base URL>/mcp`. The configuration is
+>    shown once: to see it again, **Edit** → *Reissue the key*.
+>
 > Until a key is bound, every call to an endpoint answers 404. Each endpoint shows its state in the list —
-> *Live*, *No key*, *No live key*, *Broken*, *Disabled* — and *Broken* opens the reason.
+> *Live*, *No key*, *No live key*, *Broken*, *Disabled* — and *Broken* opens the reason. A key you need to replace
+> (leaked, or about to expire): **Edit** → *Reissue the key* gives a new string and keeps every binding.
+
+**3. The sheet of descriptions for AI assistants** — only when the PRD names an assistant as a caller (§3.16). One
+row per operation, under the name the Settings screen shows, and say above it which key(s) to mark **MCP**:
+
+| endpoint | operation | description (≤ 2000 characters) |
+|---|---|---|
+| `open-requests` | List items | Use it when … Do not use it for … |
+| `open-requests` | `<action label>` | Use it when … Ask the person for … It starts … and cannot be undone: confirm first. |
+| `<rule-call slug>` | `<rule name>` (`GET /<path>`) | Use it when … It returns … |
 
 ---
 
@@ -779,7 +923,7 @@ Nothing offline can execute an API call, so each endpoint gets scenarios in `tes
 ([26](26-orchestration-and-testing.md) §5), run against the imported project once the recipient has bound a key
 ([30](30-live-test-bugfix-and-autotest.md)). Write them as calls, with expected codes. In the autotest project the key
 is `API_KEY` in `test/.env`, written there by the project's owner ([30](30-live-test-bugfix-and-autotest.md) §6) —
-never a literal in a test, never asked for in a chat:
+never a literal in a test, never asked for in a chat (a **reissued** key is a new string: the owner updates `API_KEY`):
 
 ```bash
 BASE='https://<platform-host>/public-api/v1'
@@ -839,6 +983,8 @@ And the refusals, which prove the guards are on — each one is a scenario of it
 | a rule-call parameter the operation does not declare / a required one left out / `<param>=<wrong type>` | `400 bad_request`, the detail naming the parameter |
 | a rule call by a user outside the role groups the endpoint is open to | `403 forbidden` |
 | a rule call whose rule throws its own words | `422 validation_failed`, the rule's words |
+| a call with a key whose **API** mark was taken off | `401 invalid_api_key` — its signed-in sessions are refused too, and work again once the mark is back |
+| a call with a **reissued** key's previous string | `401 invalid_api_key`; the new string answers wherever the old one did (other servers learn of the moved bindings within half a minute — a `404` there right after a reissue is that window) |
 
 ⛔ **The edge in front of the platform may refuse some HTTP clients before the API sees them.** Cloudflare's
 Browser Integrity Check answers a handful of library default user agents — Python's standard-library
@@ -852,11 +998,14 @@ HTTP client; never imitate a browser. If a legitimate client is still challenged
 
 ## 10 · Support mode — changing a live project's API
 
-- **There is no MCP channel for it.** No MCP tool reads or writes endpoints, keys or bindings. A person changes
-  them in Settings → Developer → API; a re-import changes endpoints only when its archive carries
+- **There is no MCP channel for it.** No MCP tool reads or writes endpoints, keys, bindings or their descriptions
+  for AI assistants. A person changes them in Settings → Developer → API; a re-import changes endpoints only when its archive carries
   `apiExposures`, and then it REPLACES the list (§6). Keys and bindings have no channel but the screen.
-- **An MCP token is not an API key, and neither opens the other's door.** `/public-api/` refuses an MCP token
-  and `/mcp` refuses an API key.
+- **An MCP token is not an API key, and neither opens the other's door.** `/public-api/` refuses an MCP token, and the
+  support channel's own `/mcp` refuses an API key however it is marked. A key **marked MCP** is still an API key: each
+  mark opens one door of the project's own API — the API mark its REST operations, the MCP mark the assistants' address
+  under the same base URL (§3.16) — and neither turns the key into a token of the support channel
+  ([28](28-support-mode-over-mcp.md)).
 - **Your MCP writes change what callers get — at once.** MCP writes land on the published branch
   ([28](28-support-mode-over-mcp.md) §2.4), and endpoints read the published branch. Adding a button is safe
   (actions are opt-in, §2); **renaming a binding, an action id or a filter key, deleting an action, or moving a
@@ -867,7 +1016,8 @@ HTTP client; never imitate a browser. If a legitimate client is still challenged
 - **Rules an endpoint calls are in use.** The *Unused rules* scan counts them; deleting one — or changing its
   identifier — breaks the endpoint (*Broken*, `404 endpoint_not_found`). Changing what such a rule reads or
   returns is an API change: say so in the hand-over, with the endpoints that call it.
-- **Read the endpoint's state before suspecting the build:** *No key* (bind one), *No live key* (every bound key
+- **Read the endpoint's state before suspecting the build:** *No key* (bind one — also what an endpoint shows when
+  the only keys bound to it are kept for AI assistants, which the API refuses), *No live key* (every bound key
   revoked or expired), *Disabled*, or *Broken* — whose notice names the cause (table gone from the published
   branch, pinned form gone, a form the API cannot serve, item access missing or its rule deleted, a workflow that
   is not deployed, a service account that cannot act, sign-in required but no Login endpoint, a rule a rule call
@@ -903,6 +1053,11 @@ HTTP client; never imitate a browser. If a legitimate client is still challenged
 - **Single sign-on projects** cannot use the Login endpoint; their endpoints need a service account.
 - **The API's own check messages are English** (§3.13); labels, rule words and the form's own checks follow
   `Accept-Language`.
+- **An assistant sees the key's operations, and acts as the endpoint says.** The MCP address offers the operations of the endpoints
+  the key is bound to, with the descriptions of §3.16; running one is the same call as over REST, so an endpoint whose callers sign
+  in answers `login_required` to an assistant that holds only a key (the configuration carries none). Promise the customer an
+  assistant that works with the endpoints you built for a service account (§4); for a signed-in person's data, agree how that
+  person's session reaches the assistant. The generated reference (OpenAPI) does not carry the descriptions.
 - **Changes reach every server within about half a minute**: a revoked key or an edited endpoint stops working
   at once on the server that made the change and within that window on the others.
 
@@ -922,6 +1077,7 @@ HTTP client; never imitate a browser. If a legitimate client is still challenged
 - [ ] `rep-objects.json` has **no** `apiExposures` key — `mrjun.py api-exposures show` prints `absent`, and `validate` passes WITHOUT `--keep-api-exposures` — unless the import is meant to restore exactly that list
 - [ ] every rule a rule-call operation runs reads only declared parameters or the body its operation takes, answers plain data (or true/false, or validation messages), refuses in words a caller can act on, writes nothing on a `GET`, and checks for itself whatever a page would have gated
 - [ ] the handover note and the endpoint table are in the delivery, and `test-scenarios.md` has one call per operation plus the refusals
+- [ ] when the PRD names an AI assistant as a caller: the handover has a description draft per operation the assistant should use (§3.16), names the keys to mark **MCP**, and the plan says how an assistant connects (§3.16) and which endpoints it can use without a signed-in person (§11)
 
 ---
 

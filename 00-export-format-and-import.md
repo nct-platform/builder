@@ -401,7 +401,8 @@ apiExposures        <- optional; LEAVE IT OUT of anything you author (below)
 > a base exported from a live project** unless the import is meant to restore exactly that list — how, and what an
 > entry looks like: [32](32-public-api.md) §6. No `mrjun.py` command writes it, and none may default it to `[]`;
 > `mrjun.py api-exposures show` says what it would do, `api-exposures drop` removes it, and `validate` refuses `[]`
-> and a list until it is gone.
+> and a list until it is gone. An entry may carry `aiDescriptions` — the texts for AI assistants, one per
+> operation; absent or `null` there keeps the target's, `{}` clears them ([32](32-public-api.md) §3.16, §6).
 
 (`pdfTemplates[]` — a PDF-template object, `id` nulled on export like the rest — is exported for **all**
 project types, and imported for all types alongside `roleGroups`/`mailTemplates` (not gated on REPORT); see
@@ -443,7 +444,7 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 | `userRoleGroupAssignments` | `{userId, roleGroupId, roleGroupName}` | — |
 | `mailTemplates` | a mail-template object | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `pdfTemplates` | a PDF-template object (`id` nulled on export; saved into the PDF service on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
-| `apiExposures` | one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
+| `apiExposures` | one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; `aiDescriptions` — one text per operation, for AI assistants; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
 
 **Execution access — `rules[].access`.** Who may RUN the rule, whoever asks (a page, the public API, a workflow
 step, MCP): `{"publicAccess": bool, "authenticatedUserAccess": bool, "roleGroups": ["<Group>", …]}` —
@@ -834,7 +835,7 @@ needs none: a hidden rule's own access is ignored — callers are checked agains
 | DB schema `int_*` / `system_*` (≠ the target's own `system_<realm>_<client>`) | **skipped** (mapped to null) — assumed to be the donor's integration/liquibase registries. Silent: logged only. A business schema named this way loses ALL its tables and rows on import ([10](10-database-management.md) §Export shape) |
 | dynamic CRUD | recreated entirely via `bl.*`; new ids; source creds from the live src_source |
 | hidden Groovy rules of methods | recreated on import from `method.ruleIdentifier` |
-| `apiExposures` (API endpoints) | `id` nulled on export, `identifier` kept; reconciled by `identifier` as one list; key bindings never travel and survive only on the endpoints the list keeps ([32](32-public-api.md) §6) |
+| `apiExposures` (API endpoints) | `id` nulled on export, `identifier` kept; reconciled by `identifier` as one list; their descriptions for AI assistants travel with them; key bindings never travel and survive only on the endpoints the list keeps, and the keys themselves (with their marks) are never touched by an import ([32](32-public-api.md) §6) |
 
 ---
 

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import unicodedata
 import uuid
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,231 @@ def api_exposures_state(rep):
                                 "the list are deleted with their key bindings" % len(value))
 
 
+# The descriptions for AI assistants an endpoint of `apiExposures` may carry (doc 32 §3.16, §6): `aiDescriptions`, a
+# map from an operation key to its text. The operations are the table's `list` and `read`, one per action
+# (`action:<ORIGIN>:<actionId>`) and one per rule-call operation (`rule:<operationId>`) — the platform derives the
+# same set from the same entry, and on import drops a text under any other key and refuses the whole list for a text
+# longer than this. What it stores is the text CLEANED (`api_exposure_ai_clean`), and the limit is counted on that.
+API_AI_DESCRIPTION_MAX_LENGTH = 2000
+# A text longer than this AS IT ARRIVES (UTF-16 units) is refused without being cleaned: four times what is stored.
+API_AI_RAW_MAX_LENGTH = 4 * API_AI_DESCRIPTION_MAX_LENGTH
+# The most marks (accents, vowel signs, enclosing marks) kept in a row; normalisation is quadratic in a longer run.
+# The cut is made before normalising AND after it: normalising can make a run longer (one character that decomposes
+# into two marks), and a text that came out above the limit would be cut again — and so rewritten — by the next save.
+API_AI_MAX_MARK_RUN = 30
+# More texts than this on one endpoint cannot be descriptions of its operations; the import refuses the whole list.
+API_AI_MAX_TEXTS = 500
+_API_ACTION_ORIGINS = {"PROCESS_TABLE": ("GLOBAL", "TASK", "START"), "CRUD_TABLE": ("ROW", "CREATE")}
+# Invisible characters that carry no text and could carry hidden instructions to a model: zero-width space, the word
+# joiner and its invisible operators, the deprecated format characters, the byte-order mark, the interlinear annotation
+# marks, the bidi embeddings/overrides/isolates, the tag characters. (The zero-width joiners and the left/right marks
+# stay: scripts and emoji sequences need them.)
+_API_HIDDEN_CODE_POINTS = ((0x200B, 0x200B), (0x2060, 0x2064), (0x206A, 0x206F), (0xFEFF, 0xFEFF), (0xFFF9, 0xFFFB),
+                           (0x202A, 0x202E), (0x2066, 0x2069), (0xE0000, 0xE007F))
+_NO_BREAK_SPACES = "\u00a0\u2007\u202f"
+
+
+def _platform_trim(text):
+    """What the platform's plain trim removes: every character up to U+0020 (the store trims operation ids so)."""
+    start, end = 0, len(text)
+    while start < end and text[start] <= " ":
+        start += 1
+    while end > start and text[end - 1] <= " ":
+        end -= 1
+    return text[start:end]
+
+
+def _id_text(value):
+    """An id as the import reads it into a text field: a string as it is, a number or a boolean as its text, else None."""
+    ok, text = _api_ai_text(value) if isinstance(value, (str, int, float, bool)) else (False, "")
+    return text if ok else None
+
+
+def _as_list(value):
+    """`value` when it is a list, else an empty one — an archive edited by hand can hold anything."""
+    return value if isinstance(value, list) else []
+
+
+def _rule_name(operation):
+    """The identifier of the rule a rule-call operation runs, when it is text — an archive edited by hand can hold
+    anything there, and only a string names a rule (a list or an object is no rule, and cannot be looked up)."""
+    rule = operation.get("ruleIdentifier")
+    return rule if isinstance(rule, str) else None
+
+
+def _json_type(value):
+    """The JSON word for a value, for messages."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, (int, float)):
+        return "a number"
+    if isinstance(value, str):
+        return "a string"
+    return "an array" if isinstance(value, list) else "an object"
+
+
+def _is_whitespace(ch):
+    """What the platform counts as white space when it trims a description and when it tests an id for blank — which
+    keeps the no-break spaces, unlike Python's `str.strip()`."""
+    return ch in "\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f" or (
+        unicodedata.category(ch) in ("Zs", "Zl", "Zp") and ch not in _NO_BREAK_SPACES)
+
+
+def _is_blank(text):
+    """Whether `text` is empty or only white space, as the platform counts it."""
+    return all(_is_whitespace(ch) for ch in text)
+
+
+def _limit_mark_runs(text):
+    """`text` with no more than `API_AI_MAX_MARK_RUN` marks in a row — the rest of a longer run is dropped."""
+    kept = []
+    marks = 0
+    for ch in text:
+        if unicodedata.category(ch) in ("Mn", "Me", "Mc"):
+            marks += 1
+            if marks > API_AI_MAX_MARK_RUN:
+                continue
+        else:
+            marks = 0
+        kept.append(ch)
+    return "".join(kept)
+
+
+def api_exposure_ai_clean(text):
+    """A description as the platform stores it (doc 32 §3.16): line breaks as `\\n`; without control characters other
+    than the line break and the tab, without lone surrogates and without the invisible characters above; with no more
+    than `API_AI_MAX_MARK_RUN` marks in a row; in normal form (NFC); trimmed. The ORDER is the contract: what is dropped
+    goes first, so that normalisation sees the text that will be stored, and the run of marks is cut before AND after
+    normalising — so that cleaning the result again changes nothing. The limit is counted on this."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    visible = []
+    for ch in text:
+        category = unicodedata.category(ch)
+        code_point = ord(ch)
+        if category == "Cs" or (category == "Cc" and ch not in "\n\t") or any(
+                low <= code_point <= high for low, high in _API_HIDDEN_CODE_POINTS):
+            continue
+        visible.append(ch)
+    cleaned = _limit_mark_runs(unicodedata.normalize("NFC", _limit_mark_runs("".join(visible))))
+    start, end = 0, len(cleaned)
+    while start < end and _is_whitespace(cleaned[start]):
+        start += 1
+    while end > start and _is_whitespace(cleaned[end - 1]):
+        end -= 1
+    return cleaned[start:end]
+
+
+def _utf16_units(text):
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _api_ai_length(text):
+    """Characters as the platform counts them: UTF-16 units, which is also what a browser's `maxlength` counts — of the
+    text as stored. A text longer than `API_AI_RAW_MAX_LENGTH` as it arrives is too long without being cleaned."""
+    raw = _utf16_units(text)
+    return raw if raw > API_AI_RAW_MAX_LENGTH else _utf16_units(api_exposure_ai_clean(text))
+
+
+def _api_ai_text(value):
+    """(readable, text): how the import reads one value of `aiDescriptions` — a string as it is, a number or a boolean
+    as its text (they are coerced: the platform keeps the literal as written, which this toolkit cannot see, so a
+    number's length is only approximate), null as no text. An object or an array cannot be read."""
+    if value is None:
+        return True, ""
+    if isinstance(value, str):
+        return True, value
+    if isinstance(value, bool):
+        return True, "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return True, json.dumps(value)
+    return False, ""
+
+
+def api_exposure_ai_operation_keys(entry):
+    """The keys a description for AI assistants of this `apiExposures` entry can be stored under (doc 32 §3.16):
+    nothing for a sign-in endpoint."""
+    kind = entry.get("kind")
+    keys = []
+    if not isinstance(kind, str):
+        return keys
+    if kind in _API_ACTION_ORIGINS:
+        keys += ["list", "read"]
+        for action in _as_list(entry.get("actions")):
+            action_id = _id_text(action.get("actionId")) if isinstance(action, dict) else None
+            if action_id is not None and not _is_blank(action_id) and action.get("origin") in _API_ACTION_ORIGINS[kind]:
+                keys.append("action:%s:%s" % (action["origin"], action_id))
+    elif kind == "RULE":
+        for operation in _as_list(entry.get("operations")):
+            operation_id = _id_text(operation.get("operationId")) if isinstance(operation, dict) else None
+            if operation_id is not None and _platform_trim(operation_id):
+                # the store trims an operation's id
+                keys.append("rule:%s" % _platform_trim(operation_id))
+    return keys
+
+
+def api_exposure_ai_note(entry):
+    """The tag `api-exposures show` appends to an endpoint for its descriptions for AI assistants: nothing when the
+    entry has no member for them (an archive from before descriptions existed, or a null: the import keeps what the
+    target has), what the import would store otherwise — the number of texts under keys the endpoint has — and none
+    at all (`{}`, only blank texts, only keys it does not have) means the import CLEARS the target's."""
+    texts = entry.get("aiDescriptions")
+    if texts is None:
+        return ""
+    if not isinstance(texts, dict):
+        return "  [AI texts: not a map — the archive cannot be read, the whole import fails]"
+    known = set(api_exposure_ai_operation_keys(entry))
+    count = 0
+    for key, value in texts.items():
+        readable, text = _api_ai_text(value)
+        if not readable:
+            return "  [AI texts: a value is not text — the archive cannot be read, the whole import fails]"
+        if key in known and _utf16_units(text) <= API_AI_RAW_MAX_LENGTH and api_exposure_ai_clean(text):
+            count += 1
+    if entry.get("kind") == "LOGIN" and texts:
+        return "  [AI texts: none stored — a sign-in endpoint has no operations]"
+    return "  [AI texts: %s]" % (count if count else "none — the import CLEARS the target's")
+
+
+def api_exposure_ai_problems(rep):
+    """(slug, code, key, words) for each problem in the `aiDescriptions` of a `rep-objects.apiExposures` list.
+    "shape" (not a map, or a value that is an object or an array) makes the archive unreadable: the whole import
+    fails. "too_long" and "too_many" (more texts than `API_AI_MAX_TEXTS`) make the import refuse the whole list.
+    "unknown_key" (an operation the entry does not have) is only dropped by it. Empty for anything that is not a
+    list."""
+    value = rep.get("apiExposures")
+    if not isinstance(value, list):
+        return []
+    problems = []
+    for entry in value:
+        if not isinstance(entry, dict) or entry.get("aiDescriptions") is None:
+            continue
+        slug = entry.get("slug") if isinstance(entry.get("slug"), str) else "?"
+        texts = entry["aiDescriptions"]
+        if not isinstance(texts, dict):
+            problems.append((slug, "shape", "", "is %s, not a map of texts — the archive cannot be read, the whole "
+                             "import fails" % _json_type(texts)))
+            continue
+        if len(texts) > API_AI_MAX_TEXTS:
+            problems.append((slug, "too_many", "", "has %d texts, more than an endpoint can have operations (at most "
+                             "%d) — the import REFUSES the whole list" % (len(texts), API_AI_MAX_TEXTS)))
+            continue
+        known = set(api_exposure_ai_operation_keys(entry))
+        for key, item in texts.items():
+            readable, text = _api_ai_text(item)
+            if not readable:
+                problems.append((slug, "shape", key, "is %s, not text — the archive cannot be read, the whole import "
+                                 "fails" % _json_type(item)))
+            elif _api_ai_length(text) > API_AI_DESCRIPTION_MAX_LENGTH:
+                problems.append((slug, "too_long", key, "is longer than %d characters — the import REFUSES the "
+                                 "whole list" % API_AI_DESCRIPTION_MAX_LENGTH))
+            elif key not in known:
+                problems.append((slug, "unknown_key", key, "names an operation this endpoint does not have — the "
+                                 "import drops the text"))
+    return problems
+
+
 def api_exposure_lines(rep):
     """One line per endpoint of a `rep-objects.apiExposures` list (doc 32 §6) — and, for a rule call, one per
     operation with the rule it runs, flagged when `rules[]` does not have it (after import that operation
@@ -82,17 +308,18 @@ def api_exposure_lines(rep):
             lines.append("  ? an entry that is not an object (%s) — the import refuses the whole list"
                          % type(e).__name__)
             continue
-        lines.append("  %-13s /%s  %s%s" % (e.get("kind"), e.get("slug"), json.dumps(e.get("name"), ensure_ascii=False),
-                                            "" if e.get("enabled") else "  [off]"))
+        slug = e.get("slug") if isinstance(e.get("slug"), str) else "?"
+        lines.append("  %-13s /%s  %s%s%s" % (e.get("kind"), slug, json.dumps(e.get("name"), ensure_ascii=False),
+                                              "" if e.get("enabled") else "  [off]", api_exposure_ai_note(e)))
         if e.get("kind") != "RULE":
             continue
-        for op in e.get("operations") or []:
+        for op in _as_list(e.get("operations")):
             if not isinstance(op, dict):
                 continue
-            rule = op.get("ruleIdentifier")
+            rule = _rule_name(op)
             path = op.get("path") or ""
             lines.append("      %-6s /%s%s  -> rule %s%s, body %s%s" % (
-                op.get("method"), e.get("slug"), "/" + path if path else "", rule,
+                op.get("method"), slug, "/" + path if path else "", rule,
                 " (%s)" % op["ruleName"] if op.get("ruleName") else "", op.get("input") or "NONE",
                 "" if op.get("enabled", True) else "  [off]"))
             if rule and rule not in known:
@@ -115,10 +342,9 @@ def api_exposure_missing_rules(rep):
     for e in value:
         if not isinstance(e, dict) or e.get("kind") != "RULE":
             continue
-        for op in e.get("operations") or []:
-            if (isinstance(op, dict) and op.get("enabled", True) and op.get("ruleIdentifier")
-                    and op["ruleIdentifier"] not in known):
-                missing.append((e.get("slug"), op.get("method"), op.get("path") or "", op["ruleIdentifier"]))
+        for op in _as_list(e.get("operations")):
+            if isinstance(op, dict) and op.get("enabled", True) and _rule_name(op) and _rule_name(op) not in known:
+                missing.append((e.get("slug"), op.get("method"), op.get("path") or "", _rule_name(op)))
     return missing
 
 
@@ -127,8 +353,8 @@ def api_exposure_rule_identifiers(rep):
     value = rep.get("apiExposures")
     if not isinstance(value, list):
         return set()
-    return {op.get("ruleIdentifier") for e in value if isinstance(e, dict) and e.get("kind") == "RULE"
-            for op in (e.get("operations") or []) if isinstance(op, dict) and op.get("ruleIdentifier")}
+    return {_rule_name(op) for e in value if isinstance(e, dict) and e.get("kind") == "RULE"
+            for op in _as_list(e.get("operations")) if isinstance(op, dict) and _rule_name(op)}
 
 
 # ruleType -> executor  (hard rule §5)
@@ -206,7 +432,8 @@ def load_json_file(path, required=True):
         text = fh.read()
     try:
         data = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:
+        # JSONDecodeError, and the ValueError Python raises for a number literal of thousands of digits
         raise ToolError("malformed JSON in %s: %s" % (path, exc))
     return JsonFile(path, data, _detect_indent(text))
 
@@ -650,4 +877,8 @@ def new_rep_object(project, extra):
 
 
 def out(msg):
-    sys.stdout.write(msg + "\n")
+    # A name or a key in a hand-edited archive may hold a lone surrogate, which a terminal cannot encode: show it escaped.
+    try:
+        sys.stdout.write(msg + "\n")
+    except UnicodeEncodeError:
+        sys.stdout.write((msg + "\n").encode("utf-8", "backslashreplace").decode("utf-8"))

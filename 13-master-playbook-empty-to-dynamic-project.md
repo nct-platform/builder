@@ -64,7 +64,7 @@ user **reimports** to get a working application with **dynamic CRUD integration*
 | **Global resources** — the project's own files (js, css, html, fonts, images) and the scripts and stylesheets loaded on EVERY page | [29-global-resources.md](29-global-resources.md) |
 | **The automated suite and the test-and-bugfix loop** — `test/` written at build time from the scenarios (every build's third deliverable), and the order of work when the user asks to test the imported project and fix what fails | [30-live-test-bugfix-and-autotest.md](30-live-test-bugfix-and-autotest.md) |
 | **E-mail as the project itself, and a mailbox on a page** — accounts are configured live; what you build is the page, the rules and a handover step | [31-email-integration-and-mailbox.md](31-email-integration-and-mailbox.md) |
-| **Public API — another system calling the project** — keys and endpoints are configured live; what you build is the tables, actions, forms and rules they expose, API-friendly, plus a handover; never `rep-objects.apiExposures` | [32-public-api.md](32-public-api.md) |
+| **Public API — another system calling the project** — keys and endpoints are configured live; what you build is the tables, actions, forms and rules they expose, API-friendly, plus a handover (with a description draft per operation when an AI assistant is a caller); never `rep-objects.apiExposures` | [32-public-api.md](32-public-api.md) |
 
 > **🔧 Tooling.** Do the entire assembly below with the **commands** of [`tools/mrjun.py`](tools/mrjun.py), not hand-written
 > JSON — the CLI encodes all the "hard rules" (settings vs model, `id=null`, fresh uuids, `ruleType→executor`,
@@ -564,6 +564,8 @@ Consignments — the chain is identical):
 - [ ] **No `rep-objects.apiExposures` key** — `validate` refuses `[]` (deletes every public-API endpoint of the
       target on import) and a list (replaces them); remove it with `mrjun.py api-exposures drop`. An inbound API
       is delivered as a handover — endpoint table, note, test calls — never as endpoints ([32](32-public-api.md) §6, §8).
+      When the PRD names an AI assistant as a caller, the handover also drafts a description per operation and names
+      the keys to mark MCP ([32](32-public-api.md) §3.16) — and says how an assistant connects (the key's configuration, shown once) and that an endpoint a person signs in to answers it `login_required`.
 - [ ] **Every rule a PUBLIC page triggers is open to anyone** (`mrjun.py rule access <rule> --access anyone`; the
       CRUD methods it calls stay at the default) — no public-page execution-access warning left in `validate`,
       or anonymous visitors are refused ([08 §Execution access](08-groovy-rules-and-context.md)).
