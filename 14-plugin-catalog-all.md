@@ -408,6 +408,43 @@ Real node (`erp`, logo):
   } }
 ```
 
+### Different image per theme (`perTheme`, `urlByTheme`)
+
+For an image that cannot work on every skin — typically a logo drawn for a light background that vanishes on the
+dark ones — the image can carry its own version per theme. Two optional props; **both absent = the image behaves
+exactly as above** (every image made before the option existed is in that state):
+
+| Prop | Type | Meaning |
+|---|---|---|
+| `perTheme` | BOOLEAN | The editor's **"Different image per theme"** switch. Absent / `false` → `url` under every skin. |
+| `urlByTheme` | STRING holding a JSON object | Skin name → image path. Keys are the **exact** skin names (`Standard`, `Dracula`, `Forest`, `Dark`, `Dark Blue` — doc [24a](24a-theming-and-dark-mode.md)); paths follow the same rules as `url` (tenant-stripped, file in `tenant-files/`). |
+
+- A skin with **no entry shows `url`** — `url` is the default, so give your own entries only to the skins that need
+  them (usually the light `Standard`, or the four dark ones).
+- `perTheme:false` with a filled `urlByTheme` is legal: the entries are **kept but ignored** (the author switched the
+  option off; switching it back on restores them).
+- The theme switch in the header changes skin **without reloading the page**; a per-theme image follows it on the
+  spot, so nothing else is needed.
+- Every version is cropped to the same `width`×`height`, so the layout does not move when the theme changes.
+
+```json
+{ "pluginName": "nct.image.plugin", "name": "logo-plugin",
+  "properties": {
+    "url":        { "key":"url", "propertyType":"STRING", "stringValue":"images/logo-dark-ink.png" },
+    "perTheme":   { "key":"perTheme", "propertyType":"BOOLEAN", "booleanValue":true },
+    "urlByTheme": { "key":"urlByTheme", "propertyType":"STRING",
+                    "stringValue":"{\"Dracula\":\"images/logo-light-ink.png\",\"Forest\":\"images/logo-light-ink.png\",\"Dark\":\"images/logo-light-ink.png\",\"Dark Blue\":\"images/logo-light-ink.png\"}" }
+  } }
+```
+
+⛔ Do **not** solve a light/dark logo with a `byTheme` CSS block or two image nodes toggled by CSS: these props are
+the supported way, and they are what the image editor shows and edits.
+
+**In the editor:** the switch sits above the gallery; when on, a row of slots appears — *Default* plus one per
+theme, each drawn on that theme's own background so the author sees at once where the default does not read. Pick a
+slot, then pick / upload / crop an image (or press the upload button on the slot itself); it goes to that slot, the
+editor stays open and the gallery lists the new upload. "×" on a slot sends that theme back to the default.
+
 ## 1.6 · `nct.link.plugin` — link · `nct.label.link.plugin` — link with a caption
 
 | | |

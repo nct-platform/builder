@@ -504,6 +504,8 @@ def cmd_validate(args):
             r.warn("node %r: inline <style> in properties.html is GLOBAL — it leaks onto every other component "
                    "on the page and cannot be per-theme. Move it to studioModel.css.byTheme, which is scoped to "
                    "#dokie-plug-<id> (doc 24a §5.5)." % node.get("name"))
+        if pn == "nct.image.plugin":
+            _check_image_per_theme(node, props, r)
         # localizedNames in inner config (column/action captions) should cover
         # tenant locales. Page meta title/description are intentionally EN-only in
         # the baseline, so we do NOT check LOCALIZED_STRING property slots here.
@@ -8859,6 +8861,51 @@ def _check_global_resources(p, r):
 
 #: The skins a stylesheet may name. An empty list means every skin, which is the default.
 _WEBASSET_SKINS = ("Standard", "Dracula", "Forest", "Dark", "Dark Blue")
+
+
+def _check_image_per_theme(node, props, r):
+    """An image's own version per theme (doc 14 §1.5): `perTheme` + `urlByTheme`, a JSON object skin name -> path.
+
+    Every mistake here is SILENT on the platform: an unreadable map is treated as empty, a key that is not an exact
+    skin name matches nothing, and a filled map without `perTheme: true` is kept but never shown. Each of those
+    imports clean and renders the default `url` under every theme — the very thing the author was trying to avoid.
+    """
+    name = node.get("name")
+    by_theme = props.get("urlByTheme")
+    if not isinstance(by_theme, dict):
+        return
+    if isinstance(by_theme.get("localizedStringValue"), dict) and not by_theme.get("stringValue"):
+        variants = by_theme["localizedStringValue"]   # what the MCP property setter stores for an object
+    else:
+        raw = by_theme.get("stringValue")
+        if raw in (None, ""):
+            return
+        try:
+            variants = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            r.err("image %r: urlByTheme is not valid JSON (%s) — the platform reads it as EMPTY, so every theme "
+                  "shows the default url (doc 14 §1.5)" % (name, exc))
+            return
+    if not isinstance(variants, dict):
+        r.err("image %r: urlByTheme must be a JSON object {skin name: image path}, got %s — read as EMPTY "
+              "(doc 14 §1.5)" % (name, type(variants).__name__))
+        return
+    for skin, path in variants.items():
+        if skin not in _WEBASSET_SKINS:
+            r.warn("image %r: urlByTheme key %r is not a skin — keys are the exact names %s, so this entry "
+                   "matches nothing (doc 14 §1.5)" % (name, skin, ", ".join(_WEBASSET_SKINS)))
+        if not isinstance(path, str) or not path.strip():
+            r.warn("image %r: urlByTheme[%r] is not an image path — that theme shows the default url "
+                   "(doc 14 §1.5)" % (name, skin))
+        elif path.startswith("t/"):
+            r.warn("image %r: urlByTheme[%r] = %r carries a tenant prefix; store it tenant-stripped like url, or "
+                   "it points at the EXPORTING project's files after import (doc 14 §1.5)" % (name, skin, path))
+    per_theme = props.get("perTheme") if isinstance(props.get("perTheme"), dict) else {}
+    on = per_theme.get("booleanValue") is True or str(per_theme.get("stringValue")).strip().lower() == "true"
+    if variants and not on:
+        r.warn("image %r: urlByTheme is filled but perTheme is not true — the per-theme images are kept but "
+               "NEVER shown; set perTheme {\"propertyType\":\"BOOLEAN\",\"booleanValue\":true} (doc 14 §1.5)"
+               % name)
 
 
 def _globalresource_kind_of(name):

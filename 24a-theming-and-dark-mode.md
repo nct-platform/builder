@@ -561,7 +561,8 @@ library, not styled by CSS. Those must be set in the chart's **js**: for Chart.j
 Use a per-skin key **only** when the design is genuinely *different* per theme, not merely
 differently-coloured. Concretely, only these justify a `byTheme` key:
 
-- a raster **image / logo / illustration** that needs a light and a dark variant;
+- a raster **image / logo / illustration** that needs a light and a dark variant — when that image is an
+  `nct.image.plugin`, use its own `perTheme` / `urlByTheme` props instead (doc 14 §1.5);
 - a **shadow or glow** that must invert (`0 1px 2px rgba(0,0,0,.16)` reads as nothing on `#13181b`;
   a dark skin may want a lighter inner border instead);
 - a **gradient or texture** whose stops cannot be derived from a token;

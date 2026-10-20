@@ -1117,8 +1117,10 @@ Nested column objects (shared with `crud.table.plugin`): `id`, `name` *(deprecat
 | `className` | STRING | CSS class applied to the image. | `""` |
 | `styleName` | STRING | Inherited standard property (inline style) available on all plugins; optional, not read by this plugin's own code. | *(unset)* |
 | `tagProperties` | STRING | Inherited standard property (extra tag attributes) available on all plugins; optional. | *(unset)* |
+| `perTheme` | BOOLEAN | "Different image per theme" switch. Off → `url` under every skin. Full rules: doc 14 §1.5. | *(unset = off)* |
+| `urlByTheme` | STRING (JSON object) | Exact skin name → image path (tenant-stripped like `url`). A skin without an entry shows `url`. Kept but ignored while `perTheme` is off. | *(unset)* |
 
-- **Editor / settings panel:** No tabbed settings panel. In authoring mode the node exposes a role-gated edit action that opens an **image gallery picker** — a browse/upload image picker seeded with the current `url`/`description`/`tooltip` and `width`×`height`. On pick it **strips the tenant prefix and saves only the `url` STRING property**, then switches back to view mode. `width`/`height`/`description`/`tooltip`/`className` are **not** editable through the picker — set them via the generic property panel or hand-authored JSON.
+- **Editor / settings panel:** No tabbed settings panel. In authoring mode the node exposes a role-gated edit action that opens an **image gallery picker** — a browse/upload image picker seeded with the current `url`/`description`/`tooltip` and `width`×`height`, under a **"Different image per theme"** switch. Switch off (the default): on pick it **strips the tenant prefix and saves only the `url` STRING property**, then switches back to view mode. Switch on: a row of slots (Default + one per skin) picks where the next image goes, and the editor stays open — doc 14 §1.5. `width`/`height`/`description`/`tooltip`/`className` are **not** editable through the picker — set them via the generic property panel or hand-authored JSON.
 - **See also / source:** `doc/builder/14-plugin-catalog-all.md` §1.5 (field table + tenant-strip note) · `doc/builder/01-content-model-and-pages.md` (catalog row)
 
 ### `nct.label.link.plugin` — a hyperlink rendered with a localized text caption
