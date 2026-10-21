@@ -30,10 +30,24 @@ on an empty stream — a failed download would then run the `rm -rf` and delete 
 Re-run the command any time to refresh. If ./builder already exists and you were not asked to update it,
 use it as it is. Requires python3 >= 3.9; the toolkit is stdlib-only, there is nothing to pip install.
 
+⛔ THEN PUT THE REFRESHER IN THE PROJECT FOLDER — every project gets one, in the same step as the download:
+
+    cp builder/updateBuilder.sh .          # ships inside the library; belongs NEXT to it, never in it
+
+It is the one-liner above plus the three things the one-liner leaves to luck: it stages the archive in a folder
+of its own, refuses to install anything that is not the library (four files present, and `mrjun.py --help`
+actually runs — under `python3 -B`, so checking it leaves no compiled bytecode inside the copy it installs), and
+only then swaps the folders, so a 404, a dead network or a renamed repo leaves ./builder exactly as it was. It
+also strips any `.git` from what it installs: the library is PLAIN FILES in this folder and must never become a
+repository inside the project. If the library you downloaded does not carry the file, write it — the invariants,
+in order: download to a file, verify what arrived, swap last, delete the old copy only once the new one is in
+place. Tell the user it is there; refreshing the library is THEIR one-command job afterwards, not a rebuild.
+
 The layout you work in from here on:
 
     <project folder>/        <- your cwd, where the run prompt lives
     |-- builder/             <- the library. READ-ONLY: never write your project's files into it
+    |-- updateBuilder.sh     <- refresh builder/ in one command (copied out of it, above)
     |-- work/                <- the unpacked export (`mrjun.py unpack`)
     |-- work-case/           <- case notes, a SIBLING of work/, never inside it
     |-- build-plan/          <- plan.json, the coverage ledger (doc 26 6/6a)
