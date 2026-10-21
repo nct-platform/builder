@@ -613,6 +613,9 @@ Flat file trees (binaries). Both are copied recursively on export and import.
   because the registry stores the path RELATIVE to the tenant root — an absolute `t/{id}/…` survives the
   import unchanged and then reads, successfully, from the DONOR project. See
   [29-global-resources.md](29-global-resources.md)
+- `tenant-files/static-pages/<sha256>/<name>` ← the uploaded file of a STATIC page (a page answering its URL
+  with a file); the page node keeps that path RELATIVE to the tenant root in `staticFilePath`, and the sha256
+  in the path must be the hash of the bytes. See [34-static-pages.md](34-static-pages.md)
 - `tenant-files/` ← from `t/{tenantId}`; on import → `t/{newTenantId}`. Logos
   (`fixed/90-60/logo1.png`), the 404 image (`fixed/400-250/404.png`), avatars
   (`{id}/profile/camera_*.png`).

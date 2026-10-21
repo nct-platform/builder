@@ -277,6 +277,10 @@ A real example of an "empty" slot (from `empty/branches.json`, any page):
 A page = a content node with `pluginName="siteMapPage"`. Every export has
 `rootContent.pluginName="siteMapPage"` and a common base set of property keys.
 
+> **Static pages.** A page with the property `pageType: "static"` (and no children) is answered with ONE text
+> or ONE uploaded file and a `Content-Type` instead of plugins — `robots.txt`, a manifest, a PDF, a logo. Its
+> layout, title and parsis do not exist. Shape, URL, access and traps: [34-static-pages.md](34-static-pages.md).
+
 ### Full example (root `Home`, `empty/branches.json` `rootContent`)
 
 ```jsonc

@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 from . import (autotest_cmds, case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
                crudverify_cmds, execaccess, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
                packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
-               globalresource_cmds, workflow_cmds)
+               globalresource_cmds, staticpage_cmds, workflow_cmds)
 
 
 def _add_project(sp):
@@ -111,6 +111,30 @@ def build_parser():
     grp.add_argument("--public", action="store_true", help="public read access")
     sp.add_argument("--layout", help="layout virtualPlugin name")
     sp.set_defaults(func=content_cmds.cmd_page_add)
+
+    def _static_content_args(parser):
+        parser.add_argument("--text", help="the response text (UTF-8)")
+        parser.add_argument("--text-file", dest="text_file", help="a local UTF-8 file whose text is the response (editable in the page dialog)")
+        parser.add_argument("--file", help="a local file served byte for byte (images, PDF, fonts, archives…) — stored under tenant-files/static-pages/")
+        parser.add_argument("--content-type", dest="content_type", help="Content-Type to answer with; omit/'' = decided by the file name, else the alias")
+
+    sp = page.add_parser("add-static", help="add a STATIC page: answers at its alias with exactly this text or file (doc 34)")
+    _add_project(sp)
+    sp.add_argument("--parent", required=True, help="parent page id/name or 'root'")
+    sp.add_argument("--name", required=True)
+    sp.add_argument("--alias", required=True, help="last URL segment WITH its extension: robots.txt, app.js, logo.png")
+    grp = sp.add_mutually_exclusive_group()
+    grp.add_argument("--auth", action="store_true", help="authenticated users only")
+    grp.add_argument("--public", action="store_true", help="public read access")
+    _static_content_args(sp)
+    sp.set_defaults(func=staticpage_cmds.cmd_page_add_static)
+
+    sp = page.add_parser("set-static", help="make a page static / change what it answers with / --dokie to turn it back (doc 34)")
+    _add_project(sp)
+    sp.add_argument("--page", required=True, help="page id/name (NOT the content alias)")
+    _static_content_args(sp)
+    sp.add_argument("--dokie", action="store_true", help="turn it back into a normal (plugin) page; text and file are kept")
+    sp.set_defaults(func=staticpage_cmds.cmd_page_set_static)
 
     sp = page.add_parser("rm", help="remove a page")
     _add_project(sp)

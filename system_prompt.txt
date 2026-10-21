@@ -487,6 +487,19 @@ Reference library — doc/builder/ :
                                         LOSES what is sent while the platform restarts (Clean session on).
                                         Deliver a handover note: kind, alias, source, read-as, rule name.
                                         The Phase-1a starter value is BROKER MESSAGE (33 sections 5, 8).
+  34-static-pages.md .................. STATIC PAGES - a page of the tree that answers its URL with ONE
+                                        text or ONE file + a Content-Type instead of plugins: robots.txt,
+                                        sitemap.xml, a web manifest, a public JSON/Markdown document, a
+                                        script or stylesheet at a stable URL, a logo, a PDF, a font. The
+                                        node is an ordinary siteMapPage with properties pageType="static"
+                                        and staticBody (text, <= 1 MiB) OR staticFilePath =
+                                        static-pages/<sha256>/<name> (tenant-RELATIVE, bytes in
+                                        tenant-files/, <= 25 MiB; the hash is checked before serving), and
+                                        NO children. staticContentType empty = decided by the name. Alias
+                                        WITH the extension; public unless the PRD says who reads it. A
+                                        NORMAL page whose alias ends .js/.css/.png/.html/.txt... never
+                                        opens. Use `page add-static` / `page set-static`, never hand-hash.
+                                        Files on EVERY page are 29, not this.
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).

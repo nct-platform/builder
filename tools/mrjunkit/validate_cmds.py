@@ -8,6 +8,7 @@ import re
 
 from . import core
 from . import dyncheck
+from . import staticpage_cmds
 
 # Flat per-locale text maps: {localeKey: value}. Their top-level keys ARE tenant
 # locale strings — so a coverage check (must cover every tenant locale) is valid.
@@ -551,6 +552,8 @@ def cmd_validate(args):
     _check_html_includes(p, root, r)
     # -- a page renders its content from the child parsis named 'siteMapPageParsis'; lose it -> blank page --
     _check_page_top_parsis(p, root, r)
+    # -- a STATIC page answers with its own text or file: the file must be in the bundle, byte-exact (doc 34) --
+    _check_static_pages(p, root, r)
     # -- content nodes cloned from another export must have id=null (no foreign/duplicate ids) --
     _check_content_node_ids(root, r)
     # -- a content-node field that is a STRING where it is an object/array elsewhere aborts the import --
@@ -764,6 +767,8 @@ def _check_homepage_and_nav(p, root, r):
             continue  # form pages are reached via form flows, not the sidebar
         if _hosts_form_or_landing_plugin(node):
             continue  # form-group landing / form pages are reached via Create/Edit actions
+        if staticpage_cmds.is_static(node):
+            continue  # a static page is a FILE (robots.txt, app.js) fetched by URL, not a screen in the nav
         if node.get("identifier") not in linked:
             r.warn("business page %r (alias %s) is not referenced by any quick link or redirect "
                    "target — users can't reach it from the nav (17-left-nav-quick-links.md)."
@@ -1119,6 +1124,70 @@ def _check_form_group_landing_plugin(p, root, r):
                   "offline gate stays green. Add it to the page's content parsis: `node add --parent "
                   "<parsis> --plugin dynaform.form.groups.landingplugin` (it needs no properties). "
                   "(06-form-groups-and-mapping.md)" % (fg.get("name"), node.get("alias")))
+
+
+def _check_static_pages(p, root, r):
+    """A STATIC page (`pageType: "static"`) answers at its alias with exactly its `staticBody` text or its
+    uploaded file. Everything here either makes the platform answer 404 / the wrong bytes, or is unreachable:
+
+    - ERROR the file path is not `static-pages/<sha256>/<name>`, is not in `tenant-files/`, or its bytes do not
+      hash to the sha256 in the path — the platform checks that hash before it serves a byte (file storage
+      answers a missing path with a placeholder image, so the hash is the only proof);
+    - ERROR the site root is static, a page sits UNDER a static page, the content type is not type/subtype,
+      the text is over 1 MiB (store it as a file);
+    - WARN a static page with plugin children (never rendered), an unknown `pageType` value (read as a normal
+      page), a NORMAL page whose alias ends like a file (`.js`, `.png`, `.txt`, `.html`…) — that URL is handed to
+      the platform's static-file handler and the page never opens. (34-static-pages.md)"""
+    sp = staticpage_cmds
+    for node, parent, _pt in core.iter_nodes(root):
+        if node.get("pluginName") != "siteMapPage":
+            continue
+        where = "page %s (%s)" % (node.get("name"), node.get("alias") or "-")
+        raw_type = sp.string_prop(node, sp.PAGE_TYPE)
+        if raw_type not in (None, "", sp.TYPE_STATIC, sp.TYPE_DOKIE):
+            r.warn("%s: pageType %r is neither 'static' nor 'dokie' — it is read as a normal page. (34)"
+                   % (where, raw_type))
+        if parent is not None and sp.is_static(parent):
+            r.err("%s sits under the static page %r — a static page holds no pages. (34)"
+                  % (where, parent.get("name")))
+        if not sp.is_static(node):
+            if node is not root and sp.looks_like_file_url(node.get("alias")):
+                r.warn("%s: a normal page whose alias ends like a file — that URL goes to the platform's "
+                       "static-file handler and this page never opens. Make it a static page "
+                       "(`page set-static`) or drop the extension. (34)" % where)
+            continue
+        if node is root:
+            r.err("%s: the site root cannot be a static page. (34)" % where)
+        if any(c.get("pluginName") != "siteMapPage" for c in (node.get("children") or [])):
+            r.warn("%s: a static page has plugin children; they are never rendered — remove them. (34)" % where)
+        ct = (sp.string_prop(node, sp.CONTENT_TYPE) or "").strip()
+        if ct and not sp.CONTENT_TYPE_RE.match(ct):
+            r.err("%s: staticContentType %r is not type/subtype (e.g. text/javascript). (34)" % (where, ct))
+        body = sp.string_prop(node, sp.BODY) or ""
+        if len(body.encode("utf-8")) > sp.MAX_INLINE_TEXT_BYTES:
+            r.err("%s: staticBody is %d bytes; the limit is %d — store it as a file (`page set-static --file`). (34)"
+                  % (where, len(body.encode("utf-8")), sp.MAX_INLINE_TEXT_BYTES))
+        path = sp.string_prop(node, sp.FILE_PATH)
+        if not path:
+            continue
+        m = sp.FILE_PATH_RE.match(path)
+        if not m:
+            r.err("%s: staticFilePath %r must be static-pages/<sha256>/<name>, relative to the tenant root "
+                  "(never t/<id>/…) — the platform refuses anything else. (34)" % (where, path))
+            continue
+        disk = os.path.join(p.root, "tenant-files", *path.split("/"))
+        if not os.path.isfile(disk):
+            r.err("%s: its file tenant-files/%s is not in this bundle — the page would answer 404. (34)"
+                  % (where, path))
+            continue
+        with open(disk, "rb") as fh:
+            data = fh.read()
+        if hashlib.sha256(data).hexdigest() != m.group(1):
+            r.err("%s: tenant-files/%s does not hash to the sha256 in its path — the platform refuses it and "
+                  "answers 404. Re-add the file with `page set-static --file`. (34)" % (where, path))
+        size = sp.long_prop(node, sp.FILE_SIZE)
+        if size not in (None, len(data)):
+            r.warn("%s: staticFileSize %s but the file is %d bytes. (34)" % (where, size, len(data)))
 
 
 def _check_page_top_parsis(p, root, r):
