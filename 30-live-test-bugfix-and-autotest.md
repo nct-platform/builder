@@ -123,6 +123,15 @@ Integrations · Appearance · Developer`, and the missing three read exactly lik
 build. (`Developer` is NOT in that group — it is gated on role-group MEMBERSHIP, so it
 stays put whatever the toggle says.)
 
+⛔ **A billed project has no Import for anyone but the platform's developer account.** Once
+billing has started on a project, the `Import / Export` section (and the top bar) shows
+**Export only** — the Import button is not drawn, not merely disabled, and Retry on a failed
+import disappears with it — for every account except the developer account configured for
+the platform; a press that reaches the server anyway is refused. A free project, and every
+environment copy, imports as before. So a missing Import button on a billed project is the
+rule working, not a broken build: the import is the platform developer account's to do.
+`test/start.sh reset` hits the same wall there.
+
 ### 2.3 The inherited admin quick links — the full list
 
 Relative to `<root>/<realm>/<client>`:

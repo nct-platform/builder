@@ -208,6 +208,10 @@ one of each before you believe it.
 Doing it yourself, in your project: turn on **"I am author"** at the top, then left menu → **Settings** →
 **Import/Export**, and upload `project.mrjun`.
 
+⛔ **Not on a billed project**, unless you are the platform's own developer account: once billing has started, the
+Import button is gone for everyone else (Export stays), and the platform refuses the import even if it is reached
+another way. Ask the platform's operators to do it.
+
 A dialog appears **before** anything is written:
 
 | Choice | What it does | When |
