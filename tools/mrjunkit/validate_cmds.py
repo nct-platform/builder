@@ -355,6 +355,9 @@ def cmd_validate(args):
     _check_findall_paging_untyped(p, r)
     _check_form_linkage(p, r)
     _check_form_control_config(p, r)
+    # -- an Html Field: value contract unreadable / binding of an undeclared type / a script that never writes it --
+    _check_html_field(p, r)
+    _check_html_field_sections(p, r)
     _check_workflow_refs(p, r)
     # -- a workflow serviceTask uses <alias>.data but the start form seeds no CRUD entity -> No CRUD data available --
     _check_workflow_start_seeds_entity(p, r)
@@ -533,7 +536,7 @@ def cmd_validate(args):
         # An inline <style> in the html property is GLOBAL (it is not scoped like css.byTheme) and is the
         # usual home of a hardcoded light palette. See doc 24a §5.5.
         _html_prop = props.get("html")
-        if pn == "nct.html.plugin" and _html_prop and "<style" in (_html_prop.get("stringValue") or ""):
+        if pn in _STUDIO_PLUGINS and _html_prop and "<style" in (_html_prop.get("stringValue") or ""):
             r.warn("node %r: inline <style> in properties.html is GLOBAL — it leaks onto every other component "
                    "on the page and cannot be per-theme. Move it to studioModel.css.byTheme, which is scoped to "
                    "#dokie-plug-<id> (doc 24a §5.5)." % node.get("name"))
@@ -1263,7 +1266,15 @@ def _check_page_top_parsis(p, root, r):
                   "the others are unrendered orphans. (01-content-model-and-pages.md)" % (where, len(tops)))
 
 
-_HTML_PLUGINS = ("html.plugin", "nct.html.plugin")
+# A studio component: a node whose `html` + `studioModel` are rendered by the studio runtime — the html block, the
+# Html Field (a form control that renders the very same component on its own node) and an Html Field's settings
+# section (a child of the field, drawn in its settings drawer) — doc 24e. Every studio check (include graph, scoped
+# CSS, rule references) applies to all three.
+_HTML_FIELD = "dynaform.form.html.field.plugin"
+_HTML_FIELD_SECTION = "dynaform.html.field.section.plugin"
+_STUDIO_PLUGINS = ("nct.html.plugin", _HTML_FIELD, _HTML_FIELD_SECTION)
+# Every node that draws its children from `<plugin id=…>` tags in its `html`.
+_HTML_PLUGINS = ("html.plugin",) + _STUDIO_PLUGINS
 _PLUGIN_TAG = re.compile(r"<plugin[^>]*>")
 _PLUGIN_ID = re.compile(r'\bid="([^"]+)"')
 _PLUGIN_NAME = re.compile(r'\bname="([^"]+)"')
@@ -1309,7 +1320,9 @@ def _check_html_plugin_refs(p, root, r):
                 if m:
                     nm = _PLUGIN_NAME.search(tag)
                     wanted[m.group(1)] = nm.group(1) if nm else None
-            kids = {c.get("identifier"): c.get("pluginName") for c in (node.get("children") or [])}
+            # An Html Field's settings sections are its children too, drawn in its settings drawer — never by its html.
+            kids = {c.get("identifier"): c.get("pluginName") for c in (node.get("children") or [])
+                    if not (node.get("pluginName") == _HTML_FIELD and c.get("pluginName") == _HTML_FIELD_SECTION)}
             unref = [(k, v) for k, v in kids.items() if k not in wanted]
             for rid, rplugin in wanted.items():
                 if rid in kids:
@@ -1425,15 +1438,15 @@ def _include_label(name, kind):
 
 
 def _page_own_html_studio_nodes(page):
-    """`nct.html.plugin` nodes in a page's OWN content (never descending into a child siteMapPage, so a
-    component is diagnosed once, under the page that really owns it)."""
+    """Studio component nodes (`_STUDIO_PLUGINS`) in a page's OWN content (never descending into a child
+    siteMapPage, so a component is diagnosed once, under the page that really owns it)."""
     out = []
 
     def w(n):
         for c in n.get("children") or []:
             if c.get("pluginName") == "siteMapPage":
                 continue
-            if c.get("pluginName") == "nct.html.plugin":
+            if c.get("pluginName") in _STUDIO_PLUGINS:
                 out.append(c)
             w(c)
 
@@ -4879,8 +4892,37 @@ _DATACLASS_WHITELIST = {
     "dynaform.form.datepicker.field.plugin": {"java.time.Instant", "java.time.LocalDate", "java.time.LocalDateTime", _OBJNODE, None},
     "dynaform.form.textarea.field.plugin": {"java.lang.String", _OBJNODE, None},
     "dynaform.form.comments.field.plugin": {_OBJNODE, None},
-    "dynaform.form.gantt.field.plugin": {_OBJNODE, None},
+    "dynaform.form.gantt.chart.plugin": {_OBJNODE, None},
 }
+
+# The value type a form control's dataClass binds it as — the names an Html Field declares in `fieldModel.types`
+# and its script reads as `ctx.field.type` (doc 24e §2). No dataClass is JSON: any value, as stored.
+_VALUE_TYPE_BY_DATACLASS = {
+    "java.lang.String": "STRING",
+    "java.lang.Integer": "INTEGER",
+    "java.lang.Long": "LONG",
+    "java.lang.Short": "SHORT",
+    "java.lang.Byte": "BYTE",
+    "java.math.BigInteger": "BIG_INTEGER",
+    "java.lang.Double": "DOUBLE",
+    "java.lang.Float": "FLOAT",
+    "java.math.BigDecimal": "BIG_DECIMAL",
+    "java.lang.Boolean": "BOOLEAN",
+    "java.time.LocalDate": "LOCAL_DATE",
+    "java.time.LocalDateTime": "LOCAL_DATE_TIME",
+    "java.time.Instant": "INSTANT",
+    _OBJNODE: "OBJECT_NODE",
+    "com.fasterxml.jackson.databind.node.ArrayNode": "ARRAY_NODE",
+    "java.util.List": "ARRAY_LIST",
+    "java.util.ArrayList": "ARRAY_LIST",
+    "com.fasterxml.jackson.databind.JsonNode": "JSON",
+}
+# What an Html Field may declare: every type a field can be bound as except the untyped JSON node.
+_HTML_FIELD_TYPES = frozenset(v for v in _VALUE_TYPE_BY_DATACLASS.values() if v != "JSON")
+# A component program that writes its value: it names the field and calls a writer — ctx.field.set(v), or an alias
+# (`const f = ctx.field; … f.set(v)`), possibly in another of the component's scripts.
+_FIELD_REF_RE = re.compile(r"\bfield\b")
+_FIELD_WRITE_RE = re.compile(r"\.\s*(?:set|commit)\s*\(")
 
 
 def _check_form_control_config(p, r):
@@ -4916,6 +4958,219 @@ def _check_form_control_config(p, r):
                 if v and v != "name" and props and v not in props:
                     r.warn("enum dropdown %r %s %r is not a property in the enumValues snapshot (%s) — silent fallback to the constant name. (02)"
                            % (field, k, v, sorted(props)[:6]))
+
+
+def _html_field_bound_type(st):
+    """The type an Html Field's binding hands its script: the type inside a JSON column when it projects into one,
+    STRING for an enum-bound field, the dataClass's type otherwise, JSON with no dataClass — the platform's own
+    resolution. None for a class this table does not know (nothing to compare)."""
+    if st.get("jsonNodeExpression") and st.get("dataClass") in (_OBJNODE, "com.fasterxml.jackson.databind.JsonNode") \
+            and st.get("jsonNodeValueType"):
+        return _VALUE_TYPE_BY_DATACLASS.get(st.get("jsonNodeValueType"))
+    if st.get("enumName") or (isinstance(st.get("enumValues"), dict) and st["enumValues"]):
+        return "STRING"
+    if not st.get("dataClass"):
+        return "JSON"
+    return _VALUE_TYPE_BY_DATACLASS.get(st.get("dataClass"))
+
+
+def _check_html_field(p, r):
+    """HTML FIELD (WARN). An Html Field (`dynaform.form.html.field.plugin`, doc 24e) is a form control whose input
+    is a studio component, and what it submits is exactly what its script writes with `ctx.field.set(…)`. The
+    platform reads the field's value contract leniently and converts the submitted value strictly by the binding,
+    so each of these imports clean and surfaces only on a live submit:
+      * a `fieldModel` that is not `{"types": [...]}`, or a type in it that no field can be bound as (`JSON`
+        included — it cannot be declared) — the platform ignores it, so the field accepts ANY type;
+      * a binding (its dataClass, or its jsonNodeValueType inside a JSON column) of a type the component does not
+        declare — the script is handed a type it was not written for (the studio's Value tab warns the same);
+      * no enabled script, or none that ever writes the value (`field` + a `.set(`/`.commit(` call anywhere in the
+        component's program, which all its scripts share) — the field only ever submits the value it was drawn
+        with, so nothing the user does reaches the record."""
+    for n, pn, st in _iter_control_settings(p):
+        if pn != _HTML_FIELD:
+            continue
+        name = st.get("name") or n.get("name") or n.get("identifier")
+        props = n.get("properties") or {}
+
+        declared = set()
+        raw = (props.get("fieldModel") or {}).get("stringValue")
+        if raw:
+            try:
+                model = json.loads(raw)
+            except (json.JSONDecodeError, TypeError) as exc:
+                model = None
+                r.warn("html field %r: fieldModel is not valid JSON (%s) — the platform ignores it and the field "
+                       "accepts ANY type. (24e §2)" % (name, exc))
+            if model is not None:
+                types = model.get("types") if isinstance(model, dict) else None
+                if not isinstance(model, dict) or (types is not None and not isinstance(types, list)):
+                    r.warn("html field %r: fieldModel must be {\"types\": [<type>, …]} — the platform ignores it and "
+                           "the field accepts ANY type. (24e §2)" % name)
+                else:
+                    for t in types or []:
+                        if isinstance(t, str) and t in _HTML_FIELD_TYPES:
+                            declared.add(t)
+                        else:
+                            r.warn("html field %r: fieldModel type %r is not one a field can be bound as (%s) — "
+                                   "the platform ignores it. (24e §2)"
+                                   % (name, t, ", ".join(sorted(_HTML_FIELD_TYPES))))
+
+        bound = _html_field_bound_type(st)
+        if declared and bound and bound != "JSON" and bound not in declared:
+            r.warn("html field %r is bound as %s (dataClass %r) but its fieldModel declares only %s — the script is "
+                   "handed a type it was not written for. Declare it, or bind a field of a declared type. (24e §2)"
+                   % (name, bound, st.get("dataClass"), ", ".join(sorted(declared))))
+
+        scripts = []
+        sm = (props.get("studioModel") or {}).get("stringValue")
+        try:
+            studio = json.loads(sm) if sm else None
+        except (json.JSONDecodeError, TypeError):
+            studio = None                     # already reported as malformed studioModel JSON
+        if isinstance(studio, dict):
+            scripts = [s for s in studio.get("scripts") or []
+                       if isinstance(s, dict) and s.get("enabled") is not False]
+        program = "\n".join(_strip_groovy_comments(s.get("code") or "") for s in scripts)
+        if not (_FIELD_REF_RE.search(program) and _FIELD_WRITE_RE.search(program)):
+            r.warn("html field %r has %s — it only ever submits the value it was drawn with, so nothing the user "
+                   "does reaches the record. Write the value with ctx.field.set(value). (24e §3)"
+                   % (name, "no enabled script" if not scripts else "no script that writes ctx.field"))
+
+
+_SETTING_ATTR_RE = re.compile(r"""\bdata-setting\s*=\s*(?:"([^"]+)"|'([^']+)')""")
+_SELECT_TAG_RE = re.compile(r"<select\b[^>]*>", re.I)
+_SETTINGS_WRITE_RE = re.compile(r"\bsettings\s*\.\s*(?:set|commit)\s*\(")
+_CATALOG_KINDS = ("rules", "cruds", "fields", "methods", "contexts")
+_CATALOG_RULE_TYPES = ("PREDICATE", "EXECUTION_RULE", "VALIDATION_RULE")
+
+
+def _tag_attr(tag, name):
+    m = re.search(r"""\b%s\s*=\s*(?:"([^"]*)"|'([^']*)')""" % re.escape(name), tag)
+    return None if not m else (m.group(1) if m.group(1) is not None else m.group(2))
+
+
+def _enabled_program(node):
+    """Every enabled script of a studio component, comments stripped, as the one program they are."""
+    sm = ((node.get("properties") or {}).get("studioModel") or {}).get("stringValue")
+    try:
+        studio = json.loads(sm) if sm else None
+    except (json.JSONDecodeError, TypeError):
+        studio = None                         # reported elsewhere as a malformed studioModel
+    scripts = [] if not isinstance(studio, dict) else [
+        s for s in studio.get("scripts") or [] if isinstance(s, dict) and s.get("enabled") is not False]
+    return "\n".join(_strip_groovy_comments(s.get("code") or "") for s in scripts)
+
+
+def _check_html_field_sections(p, r):
+    """HTML FIELD SETTINGS (WARN). An Html Field's own settings are written by its settings sections — child nodes
+    `dynaform.html.field.section.plugin` drawn in the field's settings drawer (doc 24e §5) — into
+    `settings.custom`, which the field's script reads as `ctx.settings`. Each of these imports clean and shows only in
+    the drawer or at run time:
+      * `settings.custom` that is not a JSON object — the platform drops it, so the field reads only defaults;
+      * a section that is not a child of an Html Field — no drawer draws it, it configures nothing;
+      * a `sectionModel` that is not {"icon": …, "defaults": {…}} — ignored: no icon, no defaults;
+      * a section that writes nothing — no `data-setting` control and no `ctx.settings.set(…)`;
+      * a `<select data-catalog>` the catalog cannot fill — an unknown kind, a rule type that does not exist (the
+        catalog refuses it), `fields`/`methods` with neither `data-crud` nor `data-crud-setting` (stays empty);
+      * a rule picked through `data-catalog="rules"` that is not in rules[], or not of the type the list asks for —
+        the drawer shows it as missing and the field's script calls a rule that is not there."""
+    types = _rule_types(p)
+    for node, parent, _path in core.iter_nodes(p.root_content):
+        pn = node.get("pluginName")
+        if pn == _HTML_FIELD:
+            try:
+                st = core.get_inner_json(node, "settings")
+            except core.ToolError:
+                continue
+            custom = st.get("custom") if isinstance(st, dict) else None
+            if isinstance(custom, str):
+                try:
+                    custom = json.loads(custom)
+                except json.JSONDecodeError:
+                    custom = False
+            if custom is not None and not isinstance(custom, dict):
+                r.warn("html field %r: settings.custom must be a JSON object of the values its settings sections "
+                       "wrote — the platform drops anything else, and the field reads only the defaults. (24e §5)"
+                       % (st.get("name") or node.get("name")))
+            continue
+        if pn != _HTML_FIELD_SECTION:
+            continue
+        title = node.get("name") or node.get("identifier")
+        field_custom = {}
+        if not parent or parent.get("pluginName") != _HTML_FIELD:
+            r.warn("settings section %r is not a child of an html field (%s) — no settings drawer draws it, so it "
+                   "configures nothing. (24e §5)" % (title, _HTML_FIELD))
+        else:
+            try:
+                pst = core.get_inner_json(parent, "settings")
+            except core.ToolError:
+                pst = {}
+            c = pst.get("custom") if isinstance(pst, dict) else None
+            if isinstance(c, str):
+                try:
+                    c = json.loads(c)
+                except json.JSONDecodeError:
+                    c = None
+            field_custom = c if isinstance(c, dict) else {}
+
+        raw = ((node.get("properties") or {}).get("sectionModel") or {}).get("stringValue")
+        if raw:
+            try:
+                model = json.loads(raw)
+            except (json.JSONDecodeError, TypeError) as exc:
+                model = None
+                r.warn("settings section %r: sectionModel is not valid JSON (%s) — ignored: no icon, no defaults. "
+                       "(24e §5)" % (title, exc))
+            if model is not None and (not isinstance(model, dict)
+                                      or isinstance(model.get("icon"), (dict, list))):
+                r.warn("settings section %r: sectionModel must be {\"icon\": \"<css classes>\", \"defaults\": "
+                       "{<key>: <value>}} — the platform ignores all of it: no icon, no defaults. (24e §5)" % title)
+            elif isinstance(model, dict) and model.get("defaults") is not None:
+                defaults = model["defaults"]
+                if isinstance(defaults, str):           # the platform unwraps an object stored as a JSON string
+                    try:
+                        defaults = json.loads(defaults)
+                    except json.JSONDecodeError:
+                        defaults = None
+                if not isinstance(defaults, dict):
+                    r.warn("settings section %r: sectionModel.defaults must be a JSON object — the platform drops "
+                           "them (the icon stays), so every key it writes reads only the script's fallback. "
+                           "(24e §5)" % title)
+
+        html = _html_of(node)
+        keys = {a or b for a, b in _SETTING_ATTR_RE.findall(html)}
+        if not keys and not _SETTINGS_WRITE_RE.search(_enabled_program(node)):
+            r.warn("settings section %r writes nothing — no data-setting control in its html and no "
+                   "ctx.settings.set(…) in its scripts, so the field's settings never change. (24e §5)" % title)
+
+        for tag in _SELECT_TAG_RE.findall(html):
+            kind = _tag_attr(tag, "data-catalog")
+            if kind is None:
+                continue
+            kind = kind.strip().lower()
+            key = _tag_attr(tag, "data-setting")
+            if kind not in _CATALOG_KINDS:
+                r.warn("settings section %r: data-catalog=%r is not a list the catalog has (%s) — the list stays "
+                       "as written. (24e §5)" % (title, kind, ", ".join(_CATALOG_KINDS)))
+                continue
+            if kind in ("fields", "methods") and _tag_attr(tag, "data-crud") is None \
+                    and _tag_attr(tag, "data-crud-setting") is None:
+                r.warn("settings section %r: data-catalog=%r on %r names no CRUD (data-crud=\"<alias>\" or "
+                       "data-crud-setting=\"<key>\") — the list stays empty. (24e §5)" % (title, kind, key))
+            wanted = [t.strip().upper() for t in (_tag_attr(tag, "data-rule-type") or "").split(",") if t.strip()]
+            bad = [t for t in wanted if t not in _CATALOG_RULE_TYPES]
+            if kind == "rules" and bad:
+                r.warn("settings section %r: data-rule-type %s is not a rule type (%s) — the catalog refuses the "
+                       "list. (24e §5)" % (title, ", ".join(bad), ", ".join(_CATALOG_RULE_TYPES)))
+            picked = field_custom.get(key) if key else None
+            if kind == "rules" and isinstance(picked, str) and picked:
+                if picked not in types:
+                    r.warn("html field settings: %r = %r (picked in section %r) is not a rule in rules[] — the "
+                           "drawer shows it as missing and the field's script calls a rule that is not there. "
+                           "(24e §5)" % (key, picked, title))
+                elif wanted and not bad and types.get(picked) not in wanted:
+                    r.warn("html field settings: %r = %r (picked in section %r) is a %s, but the list offers only "
+                           "%s. (24e §5)" % (key, picked, title, types.get(picked), ", ".join(wanted)))
 
 
 _TABLE_PLUGINS = ("crud.table.plugin", "crud.tree.plugin", "process.table.pluin")

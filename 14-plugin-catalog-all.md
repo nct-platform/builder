@@ -84,6 +84,8 @@ platform/admin-level and never written into a project export.
 | `dynaform.form.file.upload.field.plugin` | 1 per upload field | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.comments.field.plugin` | 1 per comments field | `properties.settings` | [02](02-form-controls-reference.md) |
 | `dynaform.form.gantt.chart.plugin` | 0 unless you author one | `properties.settings` | [02](02-form-controls-reference.md) |
+| `dynaform.form.html.field.plugin` | 0 unless an input needs an interaction no stock control has | `properties.settings` (binding + `custom`, the values its settings sections wrote) + `properties.html` / `properties.studioModel` (the component) + `properties.fieldModel` (the value types) | [24e](24e-html-field-control.md) |
+| `dynaform.html.field.section.plugin` | 0+ per Html Field — a CHILD of it, one per item of its settings drawer | `name` (title) + `properties.html` / `properties.studioModel` (the section's component) + `properties.sectionModel` (icon, defaults) | [24e](24e-html-field-control.md) §5 |
 | `dynaform.filter.form.plugin` | 1 per standalone filter panel | `properties.filterFormModel` | [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table) |
 | `dynaform.filter.submit.button.plugin` | 1 per filter panel | `properties.settings` (`{"buttonName":…}`) | [04](04-crud-table-plugin.md#standalone-filter-form-filter-panel-above-the-table) |
 | `dynaform.form.groups.landingplugin` | 1 per form-group landing page | — (no settings blob; the form group comes via the `?group=<identifier>` URL parameter) | [06](06-form-groups-and-mapping.md) |

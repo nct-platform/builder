@@ -15,7 +15,8 @@
 > grammar and component reuse → [24b](24b-html-composition-and-plugin-tags.md); server-paged tables inside a
 > component → [24c](24c-html-data-tables-and-paging.md); the `<include>`/`<plugin>` tag grammar →
 > [24b](24b-html-composition-and-plugin-tags.md); how to lay a component out across documents and scripts and
-> when splitting is worth it → [24d](24d-html-component-structure.md).
+> when splitting is worth it → [24d](24d-html-component-structure.md); the same component as the INPUT of a form
+> field — `dynaform.form.html.field.plugin`, its value types and `ctx.field` → [24e](24e-html-field-control.md).
 
 | | |
 |---|---|
@@ -226,11 +227,14 @@ This table is the whole surface — `ctx` has nothing else:
 | **`ctx.addBreadcrumbButton(def)`** | alias of `ctx.breadcrumb.add(def)` |
 | **`ctx.busy(elOrSelector, {block})`** | show the platform wait indicator, returns `done()` — §8 |
 | `ctx.api` | your export object; published as `window.Dokie.plugins[ctx.name]` |
+| `ctx.field` | the form value of an **Html Field** component (`value`, `set`, `type`, …) — [24e](24e-html-field-control.md) §3; `null` in an html block |
+| `ctx.settings` | an **Html Field**'s own settings — read in the field, read/written in its settings sections (`get`, `set`, `values`, `onChange`) — [24e](24e-html-field-control.md) §5; `null` in an html block |
+| `ctx.catalog` | in an Html Field's settings section only: the project's rules, CRUDs, fields, methods, contexts to bind the field to — [24e](24e-html-field-control.md) §5.2; `null` elsewhere |
 
 Page-global registry:
 
 ```js
-window.Dokie.__v        // runtime version marker — 3 since ctx.include shipped; guard on it, see below
+window.Dokie.__v        // runtime version marker — 3 since ctx.include, 4 since ctx.field, 5 since ctx.settings/ctx.catalog; guard on it, see below
 window.Dokie.plugins    // identifier -> the ctx.api of the most recent instance of that component
 window.Dokie.libs       // lib name -> the loaded library, page-wide (first requester wins)
 window.Dokie.bus        // the cross-component event bus behind ctx.bus / ctx.emit / ctx.on
@@ -243,7 +247,9 @@ notice.
 `__v` exists so author code can survive a browser holding a **cached older runtime**: without a guard the first
 `ctx.<new thing>` is a bare `TypeError`, and because all of an instance's scripts share ONE `AsyncFunction` that
 aborts the whole author program, not just the new call. Compare against the feature you need: a runtime reporting
-`2` has the breadcrumb API (§7) but **no `ctx.include`**. The idiom the runtime itself documents:
+`2` has the breadcrumb API (§7) but **no `ctx.include`**; `3` has `ctx.include` but **no `ctx.field`**; `4` has
+`ctx.field` but **no `ctx.settings` / `ctx.catalog`**. The idiom
+the runtime itself documents:
 
 ```js
 if ((window.Dokie.__v || 0) < 3) {          // old cached runtime: ctx.include may be missing
@@ -274,7 +280,8 @@ if ((window.Dokie.__v || 0) < 3) {          // old cached runtime: ctx.include m
 > teardown) and unregister explicitly rather than relying on listener options.
 
 Also absent by construction, so do not plan around them: **no user / locale / tenant / skin** on the mount
-payload (it carries only `id, domId, activeDoc, docs, libs, scripts, contextData`);
+payload (it carries only `id, domId, activeDoc, docs, libs, scripts, contextData` — and `field` / `settings` on an
+Html Field and its settings sections, [24e](24e-html-field-control.md));
 no DOM-query or event-delegation helper; no way to ask Wicket to re-render anything (the plugin's server-side
 refresh is not reachable from author JS); no `onMount`/`onDestroy` hooks other than
 `ctx.onCleanup`.
@@ -1571,6 +1578,7 @@ the breadcrumb bar and morph by key as the user drills in; every timer/listener 
 [24c](24c-html-data-tables-and-paging.md) (server-paged tables in a component) ·
 [24d](24d-html-component-structure.md) (splitting one component into documents and scripts — `<include>`,
 `ctx.include`, when to split) ·
+[24e](24e-html-field-control.md) (the component as a form field's input — `ctx.field`, value types) ·
 [14 §1.1](14-plugin-catalog-all.md) (the classic html plugin) ·
 [14a](14a-plugin-config-reference.md) (field-level config reference) ·
 [01](01-content-model-and-pages.md) (content tree, pages, roleAccess) ·

@@ -202,6 +202,23 @@ def build_parser():
     sp.add_argument("--json", required=True, help="@file or literal JSON (the studioModel object)")
     sp.set_defaults(func=content_cmds.cmd_node_set_studio)
 
+    sp = node.add_parser("set-field-model",
+                         help="replace properties.fieldModel inner JSON on an Html Field: the value types its "
+                              "script handles, {\"types\":[\"INTEGER\"]} (see 24e)")
+    _add_project(sp)
+    sp.add_argument("id")
+    sp.add_argument("--json", required=True, help="@file or literal JSON (the fieldModel object)")
+    sp.set_defaults(func=content_cmds.cmd_node_set_field_model)
+
+    sp = node.add_parser("set-section-model",
+                         help="replace properties.sectionModel inner JSON on an Html Field settings section: its "
+                              "drawer icon and the defaults of the keys it writes, "
+                              "{\"icon\":\"pe-7s-config\",\"defaults\":{\"max\":5}} (see 24e)")
+    _add_project(sp)
+    sp.add_argument("id")
+    sp.add_argument("--json", required=True, help="@file or literal JSON (the sectionModel object)")
+    sp.set_defaults(func=content_cmds.cmd_node_set_section_model)
+
     # -- asset (tenant-files -> the platform's file storage) ---------------------------
     asset = sub.add_parser(
         "asset", help="tenant-files assets (round-trip into the platform's file storage under t/<tenantId>/)"

@@ -9,7 +9,7 @@ platform, and where the docs are *necessary but not sufficient*.
 ## 1. What's bundled vs what you still need
 
 **Bundled (portable, no codebase required):**
-- The 33 numbered docs (`00`–`27`, plus the `14a`/`24a`/`24b`/`24c`/`24d` deep-dives) + `README.md` +
+- The 42 numbered docs (`00`–`35`, plus the `14a`/`24a`/`24b`/`24c`/`24d`/`24e` deep-dives) + `README.md` +
   `system_prompt.txt` (the knowledge) + `GETTING-STARTED.md` (start here) + `LICENSE` +
   `initialtemplates/empty-validate.txt` (the baseline's expected `validate` output) + `.github/` (the CI gates). Doc **24** = the HTML Component Studio
   (`nct.html.plugin` with JS libs / isolated scripts / `ctx.callRule`+`ctx.callBl` / per-theme CSS). A `studioModel`

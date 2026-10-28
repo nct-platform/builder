@@ -9,7 +9,7 @@
 ## Contents
 
 - **Charts & reporting** — `chart.js.plugin`, `global.replacement.plugin`
-- **Form controls** — `action.button.plugin`, `dynaform.filter.submit.button.plugin`, `dynaform.form.comments.field.plugin`, `dynaform.form.datepicker.field.plugin`, `dynaform.form.file.upload.field.plugin`, `dynaform.form.gantt.chart.plugin`, `dynaform.form.list.field.plugin`, `dynaform.form.rimm.autocomplete.field.plugin`, `dynaform.form.rimm.drop.down.field.plugin`, `dynaform.form.text.field.plugin`, `dynaform.form.textarea.field.plugin`, `dynaform.form.tree.picker.plugin`
+- **Form controls** — `action.button.plugin`, `dynaform.filter.submit.button.plugin`, `dynaform.form.comments.field.plugin`, `dynaform.form.datepicker.field.plugin`, `dynaform.form.file.upload.field.plugin`, `dynaform.form.gantt.chart.plugin`, `dynaform.form.html.field.plugin` (+ its settings sections `dynaform.html.field.section.plugin`), `dynaform.form.list.field.plugin`, `dynaform.form.rimm.autocomplete.field.plugin`, `dynaform.form.rimm.drop.down.field.plugin`, `dynaform.form.text.field.plugin`, `dynaform.form.textarea.field.plugin`, `dynaform.form.tree.picker.plugin`
 - **Form infrastructure** — `dynaform.filter.form.plugin`, `dynaform.form.groups.landingplugin`, `dynaform.form.plugin`, `dynaform.list.item.plugin`
 - **CRUD tables & trees** — `crud.table.plugin`, `crud.tree.plugin`, `process.table.pluin`
 - **Layout & content** — `nct.help.plugin`, `nct.html.plugin`, `nct.image.plugin`, `nct.label.link.plugin`, `nct.label.plugin`, `nct.link.plugin`, `nct.parsis.plugin`, `nct.tab.plugin`, `siteMapPage`
@@ -375,6 +375,27 @@ The **field value** (runtime data, NOT config) is the `ObjectNode` written to th
 
 - **Editor / settings panel:** The settings panel — a single form, every input autosaves on change: 8 checkbox toggles, a number field (`maxItems`), a color input (`defaultColor`), and a plain text field (`chartHeight`). Persisted to `properties.settings`. (`palette` has no panel input — it is only editable in JSON.) The runtime task modal edits the task items (name/description per-locale, dates, progress, color, dependencies, attachments) and writes the field data on save/delete — that touches field data, never `settings`.
 - **See also / source:** [02-form-controls-reference.md](02-form-controls-reference.md) §10 (already field-complete) · doc 14 catalog note ("real, hand-authorable, unused in samples")
+
+### `dynaform.form.html.field.plugin` — a form control whose input is a studio component you author, bound to one value of a declared type
+
+- **Config slots:** `properties.settings` (the base form-control settings, plus `custom` — the JSON object its settings sections wrote, read by its script as `ctx.settings`) · `properties.html` + `properties.studioModel` (the component — exactly the `nct.html.plugin` studio slots, [24](24-html-component-studio.md) §2) · `properties.fieldModel` (`{"types":[…]}` — the value types its script handles) · **children:** its settings sections (below) · **Editor:** the studio (documents · scripts · libraries · CSS) with one more tab, **Value**, where the types are ticked and the current settings are shown; the binding is edited in the form-control settings drawer like any control's, which offers only fields of the ticked types — and after the stock items, the field's settings sections, with **Add settings section**. · **Hand-authored in .mrjun:** **yes** — `node add` + `node set-studio` + `node set-field-model`, `properties.html` by hand.
+- **Function:** Renders the author's component where a stock control draws its input; the component's script reads the value as `ctx.field.value` and writes it with `ctx.field.set(v)`. The value is submitted, validated (mandatory, conditional, prohibition) and stored like any control's, converted strictly by `dataClass`; a value of the wrong shape is refused with a message on the field. Writable through the public API as a value of the bound type.
+- **`fieldModel`** (decoded):
+```jsonc
+{ "types": ["INTEGER", "SHORT", "LONG"] }   // absent / [] = any type; names: 24e §2.1 (JSON is not declarable)
+```
+- **See also / source:** [24e-html-field-control.md](24e-html-field-control.md) (the whole delta: value types, `ctx.field`, submit/validation/events, settings sections, traps) · [02-form-controls-reference.md](02-form-controls-reference.md) §12
+
+### `dynaform.html.field.section.plugin` — one item of an Html Field's settings drawer, a studio component you author
+
+- **Config slots:** `name` (the drawer item's title) · `properties.html` + `properties.studioModel` (the component — the `nct.html.plugin` studio slots) · `properties.sectionModel` (`{"icon": "<css classes>", "defaults": {<key>: <value>}}`) · **Placement:** a CHILD of a `dynaform.form.html.field.plugin`, in drawer order; anywhere else it is drawn nowhere · **Editor:** the studio, with a **Section** tab (title, icon, defaults), opened from the section's **Edit section** in the drawer · **Hand-authored in .mrjun:** **yes** — `node add --parent <field>` + `node set-studio` + `node set-section-model`, `properties.html` by hand.
+- **Function:** Drawn in the field's settings drawer, for an author. Its controls marked `data-setting="<key>"` show and write `settings.custom.<key>` of its field (saved with the field's settings, which draws the field again); `<select data-catalog="rules|cruds|fields|methods|contexts">` fills itself with the project's artefacts; its scripts get `ctx.settings` (read/write) and `ctx.catalog`. Its scripts never run in the field.
+- **`sectionModel`** (decoded):
+```jsonc
+{ "icon": "pe-7s-star",                         // absent = a generic cog
+  "defaults": { "maxStars": 5, "allowClear": true } }   // what each key it writes holds while unset — the field reads the same
+```
+- **See also / source:** [24e-html-field-control.md](24e-html-field-control.md) §5
 
 ### `dynaform.form.list.field.plugin` — repeatable sub-grid form control (a nested list/child-table with per-row + create actions and reusable inline forms)
 

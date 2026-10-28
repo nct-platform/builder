@@ -1061,7 +1061,9 @@ in the platform** — keep it verbatim. These are registry keys; the "corrected"
 `dynaform.form.rimm.drop.down.field.plugin`, `dynaform.form.rimm.autocomplete.field.plugin`,
 `dynaform.form.datepicker.field.plugin`, `dynaform.form.file.upload.field.plugin`,
 `dynaform.form.comments.field.plugin`, `dynaform.form.list.field.plugin`,
-`dynaform.form.tree.picker.plugin`, `dynaform.form.gantt.chart.plugin`, `action.button.plugin`.
+`dynaform.form.tree.picker.plugin`, `dynaform.form.gantt.chart.plugin`, `action.button.plugin`,
+`dynaform.form.html.field.plugin` (also carries `html` + `studioModel` + `fieldModel`, and its settings sections as
+children — `dynaform.html.field.section.plugin` — [24e](24e-html-field-control.md)).
 
 **Workflow / processes:** `workflows.plugin`, `bpmn2modeler.plugin`, `processes.selectedplugin` (the process
 list — one self-contained master-detail node, list + detail together; see the legacy note below for

@@ -100,6 +100,7 @@ TABMODEL_SLOT_PLUGINS = {
 # content config blob.
 NO_CONFIG_SLOT_PLUGINS = {
     "dynaform.form.plugin",
+    "dynaform.html.field.section.plugin",   # an Html Field settings section: html + studioModel + sectionModel (24e §5)
     "dynaform.list.item.plugin",
     "dynaform.form.groups.landingplugin",
     "executor.rule.script.plugin",
@@ -488,11 +489,27 @@ def cmd_node_patch_model(args):
 
 
 def cmd_node_set_studio(args):
-    """Replace properties.studioModel inner JSON on an nct.html.plugin node — the HTML
-    Component Studio project (libs/docs/scripts/css). See 24-html-component-studio.md for
-    the schema and the ctx.callRule / ctx.callBl runtime API. Same STRING-holds-JSON slot
-    mechanism as set-model, so it round-trips in .mrjun for free."""
+    """Replace properties.studioModel inner JSON on a studio component node — an nct.html.plugin
+    or an Html Field (dynaform.form.html.field.plugin): the HTML Component Studio project
+    (libs/docs/scripts/css). See 24-html-component-studio.md for the schema and the
+    ctx.callRule / ctx.callBl runtime API. Same STRING-holds-JSON slot mechanism as set-model,
+    so it round-trips in .mrjun for free."""
     _set_slot(args, "studioModel")
+
+
+def cmd_node_set_field_model(args):
+    """Replace properties.fieldModel inner JSON on an Html Field (dynaform.form.html.field.plugin)
+    — the value types its component's script handles, {"types": ["INTEGER", ...]}. The field's
+    settings may only bind it to a field of one of these types. See 24e-html-field-control.md."""
+    _set_slot(args, "fieldModel")
+
+
+def cmd_node_set_section_model(args):
+    """Replace properties.sectionModel inner JSON on an Html Field settings section
+    (dynaform.html.field.section.plugin, a child of the field): {"icon": "<css classes>",
+    "defaults": {<key>: <value>, ...}} — the drawer item's icon and what each key the section writes
+    holds while unset. See 24e-html-field-control.md."""
+    _set_slot(args, "sectionModel")
 
 
 # ---------------------------------------------------------------------------

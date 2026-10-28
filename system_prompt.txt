@@ -368,6 +368,13 @@ Reference library — doc/builder/ :
                                         produces, naming, when to split, static include vs runtime ctx.include,
                                         cycles. One 900-line html + one 1200-line script is this plugin's
                                         default failure mode.
+  24e-html-field-control.md ........... a form FIELD whose input is a component you author (dynaform.form.html.field.plugin):
+                                        fieldModel = the value types its script handles (the binding's dataClass must be one),
+                                        ctx.field.value / ctx.field.set(v) — the only way a value reaches the record.
+                                        Its knobs (how many stars, which rule supplies options) are SETTINGS SECTIONS:
+                                        child nodes dynaform.html.field.section.plugin drawn in its settings drawer,
+                                        writing settings.custom via data-setting / data-catalog, read as ctx.settings.
+                                        Only when no stock control can draw the input (02 §Choosing a control first).
   25-form-settings-validation-and-events.md . control Config accordion + Form Settings panel: "Create Validation from Template" (51 templates → GroovyPredicate bodies + 10 regex presets + ERROR/WARNING), field events (Execute-Rules-Before-Refresh + refresh fragment(s)), Hidden Content Config, Global vs Action validation (validation.addFieldError → control NAME), Allow Drafts + decision guidance.
   26-orchestration-and-testing.md ..... how NOT to finish a big PRD fast-and-shallow: decompose (epics→stories→
                                         tasks), build + TEST each module, integrate + re-test, the live-import
@@ -1380,7 +1387,10 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   "this is an attachment", "this is a hierarchy", so those fields silently become text boxes and look
   finished. Discussion on a record → `dynaform.form.comments.field.plugin` over a **jsonb** column (binds
   ONLY to a JSON-object field); an attachment → `file.upload`; a hierarchical reference → `tree.picker`; a large or
-  free-text-plus-pick reference → `rimm.autocomplete`; repeating children → `list.field` + `list.item`.
+  free-text-plus-pick reference → `rimm.autocomplete`; repeating children → `list.field` + `list.item`; an input
+  whose INTERACTION no control has (a rating, a colour swatch, a signature, a point on a map, a slot grid) →
+  `dynaform.form.html.field.plugin`, a component you author bound to one value of a declared type (24e) — never a
+  text field holding a value typed in a format the rules then parse, and never for a choice among server data.
   ⛔ But a **single attributable remark tied to one action** (an approval comment, a rejection reason) is a
   TEXT AREA over varchar, not the comments control — a thread will not serialise into a varchar and the rules
   that quote the remark into mail and the audit row cannot read one. ⛔ And where the field IS persisted, the

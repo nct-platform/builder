@@ -368,7 +368,8 @@ would find it: a rule that puts a record the caller may not see into the form's 
 ### 3.8 Forms: what the API serves, and what it cannot
 
 - **Served:** text, textarea, number, boolean, date/datetime, dropdown (enum or rule choices), autocomplete,
-  tree picker, localized values (a string, or `{"<locale>": "<value>"}`), Between pairs.
+  tree picker, an Html Field (a value of its bound type, converted as the screen converts it —
+  [24e](24e-html-field-control.md) §4.4), localized values (a string, or `{"<locale>": "<value>"}`), Between pairs.
 - **Read-only through the API:** List (sub-grid), file upload, comments, Gantt. They appear in the schema
   marked `x-uiOnly`; a value sent for one is refused (`422 read_only`).
 - **Not run through the API:** field events (rules a field fires when it changes on screen), in-form action

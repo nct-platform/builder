@@ -24,8 +24,10 @@ rules are described in [03-generate-fields-from-crud.md](03-generate-fields-from
 > `node add --plugin <field-plugin> --settings @f`, `node set-settings <id>`, `node patch-settings <id> --set k=v`, `show node <id>`.
 > Full index and rules — [`tools/README.md`](tools/README.md); before re-import — `mrjun.py validate`.
 
-> **Exactly 10 field-control plugins exist** (list + counts below). Two more plugins — the action button and the
-> filter-submit button — also sit in the "Form Controls" group, but those are **buttons**, not fields. There are **no** separate NUMBER / DATE / DATETIME / CHECKBOX plugins — that is an
+> **Exactly 11 field-control plugins exist** (list + counts below): the ten stock controls, and the **Html Field**,
+> whose input is a component you author ([24e](24e-html-field-control.md)). Three more plugins also sit in the "Form
+> Controls" group and are NOT fields: the action button and the filter-submit button (**buttons**), and an Html Field's
+> settings section (`dynaform.html.field.section.plugin` — a child of an Html Field, never placed on a form; 24e §5). There are **no** separate NUMBER / DATE / DATETIME / CHECKBOX plugins — that is an
 > obsolete fabrication of older platform documentation (flagged as stale below).
 > A number = **Text field** with a numeric `dataClass`; boolean = **Text field** with `dataClass=java.lang.Boolean`;
 > date/date-time = **Date Picker** with `dataClass` `LocalDate` vs `LocalDateTime`.
@@ -48,6 +50,7 @@ rules are described in [03-generate-fields-from-crud.md](03-generate-fields-from
 | Autocomplete (rimm) | `dynaform.form.rimm.autocomplete.field.plugin` | occasional — large or free-text-plus-pick references |
 | Comments | `dynaform.form.comments.field.plugin` | occasional — discussion threads on a record |
 | Gantt Chart | `dynaform.form.gantt.chart.plugin` | rare — scheduling screens only |
+| Html Field | `dynaform.form.html.field.plugin` | rare — an input no stock control draws ([24e](24e-html-field-control.md)) |
 
 ### ⛔ Choosing a control — by what the field MEANS, then by its type
 
@@ -69,6 +72,7 @@ Ask the meaning question FIRST, for every field, and fall through to the type ma
 | a reference with **hundreds+ of options**, or free text that may also be picked | `dynaform.form.rimm.autocomplete.field.plugin` | a dropdown that loads everything |
 | a **repeating child** of this document (order lines) | `dynaform.form.list.field.plugin` + `dynaform.list.item.plugin` | a textarea of comma-separated values |
 | a **schedule** with bars and dependencies | `dynaform.form.gantt.chart.plugin` | — |
+| an input whose **interaction** no control above has — a star rating, a colour swatch, a signature, a point on a map, a grid of time slots | `dynaform.form.html.field.plugin`: a component you author, bound to one value of a declared type ([24e](24e-html-field-control.md)) | a text field holding a value typed in a format the rules then parse; a choice among server data (that is a dropdown / autocomplete) |
 | an ordinary scalar / number / boolean / FK / enum / date | the type map above | — |
 
 Two traps that make the wrong choice look right offline:
@@ -112,8 +116,10 @@ Each control is a content node in the `branches.json[0].rootContent` tree (the f
 - **The entire configuration is `properties.settings.stringValue`**: this is an **escaped-JSON string** of the
   serialized settings-DTO. The three remaining slots (`className`, `styleName`, `tagProperties`) are the only real
   layout/style hooks at the node level (CSS class, inline style, extra HTML attributes); usually empty.
-- `children` are non-empty **only for List** (`dynaform.form.list.field.plugin`) and for the List-item subform
-  (`dynaform.list.item.plugin`).
+- `children` are non-empty **only for List** (`dynaform.form.list.field.plugin`), for the List-item subform
+  (`dynaform.list.item.plugin`), and for an **Html Field** — its settings sections
+  (`dynaform.html.field.section.plugin`) and whatever its own HTML addresses with `<plugin>` tags
+  ([24e](24e-html-field-control.md)).
 - `identifier`/`name` of generated fields = `fld_gen_slot_<batch>_<col>_<i>` — `<col>` is the **0-based column**
   index (column `gen_col1` holds `…_0_*`), `<i>` the 0-based position **within that column** (a convention of the
   *Generate fields* dialog, see [03-generate-fields-from-crud.md](03-generate-fields-from-crud.md)); manual ones are
@@ -134,6 +140,7 @@ Which keys each control adds on top of the common base:
 ```
 common base (every control)                    name, filterKey, dataClass + the keys of the two base tables below
   ├── Text field, Text Area, Comments          (nothing added)
+  ├── Html Field                               + custom (the values its settings sections wrote — a JSON object); its component and value types are SEPARATE properties: html, studioModel, fieldModel — 24e
   ├── Drop Down (rimm)                         + ruleIdentifier, key, displayName, showNav, rowsInPage, searchEnabled, searchField, prevRuleIdentifier, searchRuleIdentifier
   ├── Tree Picker                              + ruleIdentifier, key, displayName, showNav, displayMode, rowsInPage
   ├── Autocomplete (rimm)                      + ruleIdentifier, key, displayName, showNav, showChoicesOnClick, searchField
@@ -303,6 +310,7 @@ counterparty, stored per locale:
 | File Upload | `java.util.ArrayList`, `ObjectNode` — **but real nodes write `java.util.List`** (see the attachments example below) |
 | Gantt | `ObjectNode` **only** |
 | Comments | `ObjectNode` **only** |
+| Html Field | the classes of the types its `fieldModel` declares — **every** class in [24e](24e-html-field-control.md) §2.1 when it declares none |
 
 > **ArrayList vs List trap.** For List and File Upload the whitelist contains `java.util.ArrayList`,
 > but real nodes serialize `dataClass:"java.util.List"`.
@@ -1561,6 +1569,19 @@ Off a CRUD-action form (a user task, a `process.table` start/global action — �
 
 HTML — an "Add a Comment" card (textarea + button) + a list of comments with a reply section and nested
 answers.
+
+### 12. Html Field — `dynaform.form.html.field.plugin`
+
+Settings: the base keys (no delta), with `dataClass` one of the types its `fieldModel` declares. The INPUT is a
+studio component you author on the same node — `properties.html` + `properties.studioModel`, exactly as on an
+`nct.html.plugin` ([24](24-html-component-studio.md)) — and `properties.fieldModel` (`{"types":["INTEGER",…]}`)
+declares which value types its script handles. The script reads the value as `ctx.field.value` and writes it with
+`ctx.field.set(v)`; the form submits, validates and stores that one value like any control's, converting it
+strictly by `dataClass`. Everything else on this page — scope, CRUD mode, mandatory, conditional validation,
+prohibition, default value, event mappings (`eventName: "change"`), localization — applies unchanged. Its own
+settings are built like its input: **settings sections** — child nodes `dynaform.html.field.section.plugin`, each a
+studio component drawn as an item of the field's settings drawer — write `settings.custom` (a JSON object), and the
+field's script reads it as `ctx.settings`. The whole delta: [24e](24e-html-field-control.md) (§5 for the sections).
 
 ---
 
