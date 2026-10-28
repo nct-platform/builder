@@ -261,10 +261,10 @@ def cmd_crud_apply(args):
     executed as an ordinary EXECUTION_RULE looked up by that identifier, with the arguments
     bound as `param`.
 
-    In the UI that rule is written when you press **Apply**, as a hidden rule. Hidden rules
-    are filtered out of the export, so rep-objects.json carries none of them — and the importer
-    knows this: it re-creates each one from the method's own `script`. But it is guarded: a method
-    with a blank identifier OR a blank script is skipped.
+    In the UI that rule is written when you press **Apply**, as a hidden rule. A platform export carries it in
+    rep-objects.json (with the business logic); an archive built here does not — and the importer
+    knows this: it creates each one from the method's own `script` when the project has no rule of that
+    identifier yet. But it is guarded: a method with a blank identifier OR a blank script is skipped.
 
     So the identifier is the whole hinge. Present → the platform builds the rule on import and
     the method works. Absent → the method is dead in the imported project, and every caller of
@@ -273,7 +273,9 @@ def cmd_crud_apply(args):
     the script is right there in the file, and `validate` used to pass.
 
     This writes the identifier only; there is deliberately no rule in rep-objects.json, because
-    the import path is the platform's own and it is the one the UI reproduces on re-Apply.
+    the import path is the platform's own and it is the one the UI reproduces on re-Apply. (When the archive DOES
+    carry the rule — an export of a live project — that rule is what runs, and `validate` ERRORs when its body and
+    the method's `script` differ.)
 
     ⚠️ `find` is exempt. A GROOVY `find` with a BLANK ruleIdentifier is the **auto-find sentinel**:
     the platform recognises it before delegating and runs the sibling `findAll` + `count`

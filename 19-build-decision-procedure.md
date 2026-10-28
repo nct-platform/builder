@@ -277,6 +277,10 @@ the predicates (Phase 5), the form split (Phase 8) and the tab layout (Phase 9).
 
 Per entity:
 
+- **The semantic type of every column** ([35](35-semantic-types-and-field-decisions.md) §1). Above all: is a coded
+  column a CLOSED enum the logic branches on (schema CHECK + label table), or an OPEN classifier the business will
+  extend (a lookup table with NO CHECK, attributes as columns)? A list the customer will add to, frozen in a CHECK
+  the project role cannot alter, makes the settings screen accept values every save refuses.
 - **Lifecycle.** List the states, and for each: who moves it in, who moves it out, what is FORBIDDEN while in it.
   Every state gets a row-action predicate and a CHECK-constraint value. **A state that no action reads and no
   report filters on is not a state — delete it.**
@@ -726,7 +730,12 @@ page triggers is `--access anyone` (no public-page warning left in `validate`).
 A **form** (`rep-objects.forms[]`) is a wrapper; its fields live in the content node it points at
 (`contentIdentifier`). **Decide, per form:**
 
-- **Which control per column data type:**
+- **The field decision — one row per field, before generating ([35](35-semantic-types-and-field-decisions.md) §2).** The
+  control follows the field's SEMANTIC type, not its storage type: a `VARCHAR` that holds a code the rules select by
+  (a status, a vocabulary name, a setting key, a category) is a dropdown over its catalogue, never a text field; a
+  key the logic reads is immutable after create; a value the system stamps is read-only. The table below is only the
+  storage-type FALLBACK for a field whose semantic type is a plain scalar or free text.
+- **Which control per column data type (fallback):**
 
   | Column | Control plugin |
   |---|---|
@@ -1367,9 +1376,10 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    buttons; **every form opens with all its fields** and each dropdown is populated (not "No results"/blank);
    create/edit/lifecycle actions save — **re-open the row and read the value back; a success toast is not
    evidence** ([26](26-orchestration-and-testing.md) §5 step 4); **every workflow starts** and its tasks fire; **mail + PDF render branded**;
-   **every AUTOMATIC start opens exactly ONE case** — the scenario must tell the tester to **Deploy the workflow in
-   the BPMN editor first** (import ships every workflow un-deployed, so a rule-started chain throws
-   `workflow_is_not_deployed` until someone presses it, and no screen says so), then run the action rule by hand and
+   **every AUTOMATIC start opens exactly ONE case** — the scenario must tell the tester to **check the workflow is
+   deployed first** (a workflow the archive marks `deployed:false`, or one whose deploy the import report names as
+   refused, arrives un-deployed, so a rule-started chain throws `workflow_is_not_deployed` until someone presses
+   Deploy in the BPMN editor, and no screen says so), then run the action rule by hand and
    **run it AGAIN on the same data**: a second case for the same subject means the idempotency guard is missing or is
    not atomic, and this is the only test that exists for it — **and the case it opened must be visible in its own
    worklist**, with populated columns, to a NON-admin, non-author member of the role group the call passed (every
@@ -1397,9 +1407,9 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    diffs what the platform actually stored against what was packed, and catches two classes that emit **no log
    line** anywhere: a symbolic layout anchor regenerated on a cloned page (the platform builds a fresh EMPTY node
    under that name, renders it, and the real subtree becomes an unrendered orphan → a BLANK page), and a
-   rep-object that threw mid-`initAllObjects` (everything after it silently skipped while the import still
+   rep-object that threw in the middle of the object import (everything after it silently skipped while the import still
    reports DONE). It diffs the content tree for the first and prints the PACKED rep-object counts in
-   `initAllObjects` order for the second — it cannot read live rep-objects, so those counts have to be compared
+   the import's object order for the second — it cannot read live rep-objects, so those counts have to be compared
    against the platform by hand; its exit code covers the content-tree checks only. Run first, it turns "the page
    is empty" from an hours-long hunt into a one-liner.
 6. Tell the user what changed, which docs/commands you used, the result of EACH of the four offline gates and of

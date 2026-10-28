@@ -104,7 +104,7 @@ It resolves `nct_ui.s_tenant` (by `s_alias`) → `s_published_branch_id` → `nc
 and diffs that live tree against your packed one. The signature to look for is a page with **two** top-level
 `parsis.plugin` children: one holding your Layout and content, one empty and named `siteMapPageParsis` — the
 platform created the second because your clone lost the name, and it renders THAT one. The same command also prints the PACKED rep-object counts in
-`initAllObjects` order so you can compare them against the platform by hand — it does not read live rep-objects,
+the import's object order so you can compare them against the platform by hand — it does not read live rep-objects,
 and its exit code covers the content-tree checks only (a rep-object collection that threw takes every later
 collection with it).
 

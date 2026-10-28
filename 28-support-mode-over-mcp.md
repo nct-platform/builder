@@ -63,7 +63,8 @@ re-running the generator with nothing changed produces a byte-identical file and
 
 ⛔ **`support` + no token is not a degraded support mode, it is a BUILD of a delta.** Do not pretend to support a
 project you cannot read. Say plainly that without a token you can only produce an archive, and that importing it
-REPLACES the project — including anything the customer changed in the UI since the last export.
+REPLACES every part of the project it carries and the importer leaves ticked — by default all of them — including
+anything the customer changed in the UI since the last export.
 
 ---
 
@@ -586,9 +587,10 @@ requires a re-import (§7), and a re-import REPLACES the project.
   archive cannot connect until someone re-enters the credential in the UI.
 * **Project locales and tenant-level settings.** No tool reads or writes them. Adding a language is not possible
   over this channel.
-* **Free-form enumerations** created live never round-trip into an export. There is no local half of them, so
-  they cannot participate in a dual write at all — record them in a case note or they are lost at the next
-  rebuild.
+* **Free-form enumerations** have no live channel. Their local half is `dynamic-cruds.json` → `enums[]`
+  ([00](00-export-format-and-import.md) §7), which a re-export of the live project carries with its Business logic:
+  one created live must be written there too — an import whose `enums[]` lacks it DELETES it (only an `enums` key
+  that is absent leaves the project's enumerations alone).
 * **Bulk seed data.** There is no loader for the archive's data dump; only statement-by-statement SQL.
 * **Workflow diagram geometry.** A workflow authored over MCP opens on an empty canvas in the platform's own
   modeler, even though it runs.
@@ -755,16 +757,21 @@ defect until you fix it there too, or the next re-import silently reinstates it.
 
 ## 7. When a re-import is the only channel
 
-Re-import is the LAST resort, not a shortcut, because it is a whole-project REPLACE: the project's objects are
-deleted and rebuilt from the archive, and every UI-side change since the export goes with them.
+Re-import is the LAST resort, not a shortcut, because every part it takes is a full REPLACE: that part's objects
+are deleted and rebuilt from the archive, and every UI-side change to it since the export goes with them — by default
+the Import dialog takes every part the file carries. Untick what the delta does not touch: an unticked part stays
+exactly as it is.
 
 Before doing it: take a snapshot first if the platform offers one; confirm the target project's type is the one
 the archive expects (a mismatched type does not fail — it replaces every page and branch while importing none
 of the rules and queries those pages reference); **set the dialog's switches explicitly rather than accepting
-their defaults** — the four of them, their labels and what each one costs are in
-[00](00-export-format-and-import.md) §The four switches, and the one that decides whether a SCHEMA change
-arrives at all defaults to OFF; and after it finishes, read the per-object report, deploy every workflow again
-(they all come back undeployed), and then check the things §6 says the report cannot see.
+their defaults** — all of them, their labels and what each one costs are in
+[00](00-export-format-and-import.md) §The Export and Import dialogs, and the one that decides whether a SCHEMA
+change arrives at all (*Rebuild the table structure from the file*) defaults to ON — it drops and rebuilds every
+business schema from the file; and after it finishes, read the
+per-object report, deploy every workflow
+that came back a draft (one the archive marks `deployed: false`, or one whose deploy the report names as refused),
+and then check the things §6 says the report cannot see.
 
 ---
 
@@ -899,8 +906,8 @@ archive**, and the session you drive is already signed in:
 <root>/<realm>/<client>/settings      <- import / export the .mrjun
 ```
 
-But an import REPLACES the live project — content, rules, business logic and, with "Replace the
-business logic and its database", its DATA, back to the archive's dump. In support mode that is a
+But an import REPLACES every part of the live project it takes — content, rules, business logic and, with
+**Database** ticked, its DATA, back to the archive's dump. In support mode that is a
 customer's working project. So it is never a silent step of the loop:
 
 * **prefer MCP.** Everything that has a live channel (§4) is fixed over MCP and mirrored into `work/`
@@ -912,9 +919,10 @@ customer's working project. So it is never a silent step of the loop:
   user says so — and never another project;
 * the user may prefer to import by hand — then hand over the archive and wait.
 
-⚠️ **After every import, re-deploy the workflows.** They come back `deployed: false`
-and `service.workflow.start` throws until they are deployed again. And anything you
-changed live over MCP but never mirrored into the export is REVERTED by the import —
+⚠️ **After every import, check the workflows are deployed.** The import deploys what the archive
+marks `deployed: true`; one marked `deployed: false`, or one the report names as refused, comes back
+a draft and `service.workflow.start` throws `workflow_is_not_deployed` until it is deployed. And
+anything you changed live over MCP but never mirrored into the export is REVERTED by the import —
 which is the practical reason every fix must land in `work/` as well.
 
 The full order of work — the suite written at build time; then (with the user's yes) import, deploy,

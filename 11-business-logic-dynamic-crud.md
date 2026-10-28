@@ -1111,8 +1111,9 @@ The shape:
 > EXECUTION_RULE **looked up by that identifier**, with the arguments bound as `param`.
 >
 > In the UI that rule is written by the **Apply** button (as a hidden rule).
-> Hidden rules are filtered out of the export, so `rep-objects.json` legitimately carries **none** of them —
-> the importer re-creates each one from the method's own `script`. But that re-creation is skipped
+> An archive built by hand legitimately carries **none** of them in `rep-objects.json` — the importer creates each
+> one from the method's own `script`, when the project has no rule of that identifier yet. (A platform export does
+> carry them, with the business logic — and then THAT rule is what runs, see below.) But that creation is skipped
 > when the identifier or the script is blank, so **the identifier is the entire hinge**, and it is the one thing a file-first build has no reason to invent.
 > Any UUID will do — the platform builds the rule around it. Absent, the method is dead in the imported project
 > and the symptom never names it: a choices rule calling it renders an **empty dropdown**; a form action calling
@@ -1120,7 +1121,11 @@ The shape:
 >
 > `mrjun.py crud apply` mints the missing identifiers (idempotent), and `mrjun.py validate` ERRORs without them.
 > Do **not** "fix" it by writing the rule into `rep-objects.json` — the importer owns that object, and a second
-> copy drifts from the script.
+> copy drifts from the script. ⛔ When your base is an export of a LIVE project, the copy is already there: the
+> export carries every method's hidden rule (`crud_<alias>_<method>`, `hidden: true`) in `rules[]`, the import saves it
+> as it is and builds nothing from the script — so a changed `script` alone changes nothing. Change the rule's
+> `rule.ruleScriptStr` together with the script, or delete that rule from `rules[]` so the import builds it from the
+> script; `validate` ERRORs while the two differ ([00](00-export-format-and-import.md) §The hidden Groovy rule).
 >
 > ⚠️ **`find` is the exception, and only `find`.** A GROOVY `find` with a blank `ruleIdentifier` is the
 > **auto-find sentinel** of §Step 3 Variant A: the executor catches it ahead of the delegation branch and
@@ -1578,19 +1583,18 @@ but edits only the dynamic members (Edit/Delete are hidden for read-only rows).
 - **`returnFields` = null until the first Run.** The result schema for Groovy hints
   (filled via the Run dialog). Its absence does not hinder the method's operation — only the hints in the rule editor (see
   [09-groovy-hints-and-live-context.md](09-groovy-hints-and-live-context.md)).
-- **Enums do not live in `dynamic-cruds.json`.** STATIC/DB enums = pg_enum types in `project-db.dump` (see
-  [10-database-management.md](10-database-management.md)); FREE enums are created via `bl.addEnum`
-  (fields `name` + `baseType ∈ {STRING, INTEGER}`, `kind:"FREE"`) and stored on the
-  dynamic-integration side — there is **no** separate enum section in the export at all. In a CRUD an enum is visible only as
-  the `fieldType` of a DTO field (e.g. `OrderStatus` instead of `String`), if the pg_enum is registered.
-  > ⚠️ **A FREE enum is NOT round-tripped — you cannot author one in a hand-built export.** The exported CRUD
-  > carries **no** enum field, the file holds only `exportVersion` + `cruds` (no enum field),
-  > and the import **never** calls `bl.addEnum`.
-  > So a FREE enum lives **only** in the dynamic-integration DB — export drops it and import never recreates it. For a
-  > user-editable enum in a hand-built project use a **pg_enum type** (`project-db.dump` `enumTypes[]`,
-  > [10-database-management.md](10-database-management.md)) or a **`lookup_*` table**
-  > ([18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md) §2) instead — do NOT plan a
-  > FREE enum, it produces an un-reconstructable project.
+- **Enums travel in `dynamic-cruds.json` → `enums[]`** (with the Business logic part; absent from archives written
+  before they travelled). STATIC/DB enums = pg_enum types in `project-db.dump` (see
+  [10-database-management.md](10-database-management.md)) — a DB entry in `enums[]` carries its values' labels,
+  extras and translations, materialised over that type on import; FREE enums (`kind:"FREE"`, `baseType ∈ {STRING,
+  INTEGER}`) live on the dynamic-integration side and `enums[]` carries them whole, values and all. In a CRUD an enum
+  is visible as the `fieldType` of a DTO field (e.g. `OrderStatus` instead of `String`).
+  > ⚠️ **On import `enums[]` REPLACES the project's enumerations** — a FREE one the list lacks is deleted, `[]`
+  > deletes them all; absent leaves them as they are. The shape and the rules:
+  > [00](00-export-format-and-import.md) §7 "`enums[]`". So a FREE enum CAN be authored in a hand-built export now:
+  > write it into `enums[]` with its values and type the field with its `name`. A **pg_enum type** (`project-db.dump`
+  > `enumTypes[]`) or a **`lookup_*` table** ([18-existing-schema-to-dynamic-wiring.md](18-existing-schema-to-dynamic-wiring.md)
+  > §2) remain the choice when the values must live in the database itself.
 - **A pg_enum (`USER-DEFINED`) column needs NO manual `::enum_type` cast in `create`/`update`.** Bind a plain
   `:status`; the executor resolves the column's enum type from the statement metadata (fallback:
   `information_schema.columns.udt_name`) and binds the value

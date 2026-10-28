@@ -779,17 +779,19 @@ HOW TO WORK (do this for every task)
       A real `.mrjun` is megabytes, base64 of it is millions of characters, and you cannot emit that: the attempt
       burns the session and produces a truncated archive. The toolkit uploads the bytes over its own HTTP channel
       and prints a HANDLE; the handle is the only part of the file that travels through you.
-   d. START THE IMPORT WITH ALL THREE BUSINESS-LOGIC FLAGS STATED EXPLICITLY — `replaceBusinessLogic`,
-      `rebuildSchemas`, `recreateIntegration` on `nct_project_import_start`. There are no defaults; a flag you
-      did not state is a decision you did not make, and the wrong one silently keeps the old schema or the old
-      integration under your new objects. Record the three values you passed in the hand-over.
+   d. START THE IMPORT WITH EVERY PART AND BOTH OPTIONS STATED EXPLICITLY on `nct_project_import_start` — which
+      parts it takes (the Import dialog's switches, by label: doc 00 §The Export and Import dialogs) and the two
+      options, "Rebuild the table structure from the file" and "Recreate them from scratch". There are no
+      defaults; a part or an option you did not state is a decision you did not make, and the wrong one silently
+      keeps the old schema, the old SQL or the old integration under your new objects. Record what you passed in
+      the hand-over.
    e. POLL `nct_project_import_status` TO A TERMINAL STATE. It is keyed by (realm, client), NOT by a run id, so
       check its `startedAt` against your own push — otherwise you read a colleague's finished import as your own
       and report a success you never caused.
    f. READ THE PER-OBJECT FAILURE REPORT and repeat it, object by object, in the hand-over. ⛔ `DONE` IS NOT
-      PROOF THE PROJECT ARRIVED: mail and PDF templates are written outside that reporting and fail with a log
-      warning only, so an import can report `DONE` with not one template in the project. Say so plainly, and
-      keep step 7 exactly as it is — an import is not a run, and nothing here clicked a single screen.
+      PROOF THE PROJECT ARRIVED: a part the import did not take is not in the report at all, and a template that
+      imported can still render wrong. Say so plainly, and keep step 7 exactly as it is — an import is not a run,
+      and nothing here clicked a single screen.
 
 7. WRITE THE TEST SCENARIOS — a `test-scenarios.md` BESIDE the finished `.mrjun`. The person who tests this is
    not you and did not read the PRD twice; they open the running application and need to know what to press, what
@@ -1048,8 +1050,8 @@ HOW TO WORK (do this for every task)
    `test/start.sh`, or ask me to "test and fix", which runs the suite against the live project and repairs what
    it finds (TEST & BUGFIX — it needs the project's MCP connection). Say that `test/.env` and `./.mcp.json` hold
    credentials — git-ignored and mode 600; never commit, mail or paste them.
-   If step 6b ran, that sentence changes to what did happen: which project it was imported into, the three flags
-   you passed, the terminal status, the per-object failures, the snapshot tag to revert to — and, unchanged, that
+   If step 6b ran, that sentence changes to what did happen: which project it was imported into, the parts and
+   options you passed, the terminal status, the per-object failures, the snapshot tag to revert to — and, unchanged, that
    nothing has been DRIVEN. Never let "imported" be read as "tested"; that is the same false report as calling a
    green `validate` done, only harder to disbelieve.
 
@@ -1140,6 +1142,14 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   whether something is safe to remove or whether a change truly needs a delete+recreate, **STOP and ASK the user
   first** — a wrong deletion of data or a working entity costs far more than a clarifying question. When you DO edit
   in place, verify afterwards that the archive's non-edited entries (especially the data files) are unchanged.
+- ⛔ [BOTH] SEMANTIC TYPE BEFORE STORAGE TYPE, FOR EVERY FORM FIELD — before you generate a form, write ONE ROW PER
+  FIELD: its semantic type (closed enum · open classifier · reference · key the logic reads · series code · document
+  number · person · typed scalar · free text), the control that type takes, what it binds to (the catalogue / choices
+  rule / column), that `dataClass` = DTO type = column type = the catalogue's key type, who writes it and when it may
+  change. A text box is right only for free text. A value the business owns (categories, prefixes, warehouse codes,
+  role names, vocabulary labels) NEVER goes into a rule's body — it is read from its table by a business-logic method;
+  every setting row is read at run time and every key a rule reads has a row; a body defines every helper closure it
+  calls. Full procedure: 35-semantic-types-and-field-decisions.md; `validate` reports the expensive omissions.
 - ⛔ [BOTH] ONE TABLE PER PAGE — tabs are the ONLY exception, and it covers ANY two tables. Count
   `crud.table.plugin` + `crud.tree.plugin` + `process.table.pluin` PER CONTAINER, not per type: a crud-table
   next to a process-table is just as forbidden as two crud-tables. Same-type pairs additionally BREAK (shared

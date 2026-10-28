@@ -29,9 +29,9 @@ which scenarios have no test.
 | `./start.sh reset-schema all` | the same, rebuilding the table STRUCTURE — needed exactly when the export's schema changed |
 | `./start.sh -k <name>` | any other argument goes straight to pytest |
 
-⚠️ After every import — `reset` included — the workflows arrive **undeployed**, and the reset does NOT deploy
-them: deploy every workflow (its BPMN editor → Deploy, or `nct_workflow_deploy` over MCP) before running, or every
-process scenario fails on an empty queue.
+⚠️ An import — `reset` included — deploys exactly the workflows the archive marks `deployed: true`; one marked
+`deployed: false` arrives **undeployed**, and the reset does not deploy it: deploy it (its BPMN editor → Deploy, or
+`nct_workflow_deploy` over MCP) before running, or every process scenario on it fails on an empty queue.
 
 A **skipped** test is not a passed one: the run's summary counts the skips and `-ra` prints each reason. A missing
 `PGDSN` or `API_KEY` is a gap in `.env`; "no data" means the project drifted from the seed rows the

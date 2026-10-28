@@ -26,8 +26,8 @@ it wrote without being asked and checked offline but has NOT run. Importing and 
 where most of the remaining quality lives — see §7.
 
 **Optionally, you can let it do the import.** Paste an **MCP token** for the target project on the `MCP:` line of
-`prmpt.txt` (§1, §4) and the AI imports the finished export itself — snapshot first, push, all three import flags
-stated, then the per-object failure report — instead of handing you a file to upload (§6). Nothing else changes:
+`prmpt.txt` (§1, §4) and the AI imports the finished export itself — snapshot first, push, every part and option
+of the import stated, then the per-object failure report — instead of handing you a file to upload (§6). Nothing else changes:
 it builds offline exactly as before, passes the same four gates *before* the archive leaves the folder, writes the
 same `test-scenarios.md`, and still never opens a browser. **An import is not a run**, so §7 stays yours either
 way.
@@ -200,10 +200,9 @@ folder, not the project.
 the platform will grow the tools for it, but they do not exist yet — so a session given a token will tell you it
 could not find them and hand you the file, exactly like an offline one. When they do land, the AI will take a
 **snapshot tag first** (the only way back — import replaces, it never merges), push the archive, and start the
-import with all three business-logic flags stated explicitly, which is the equivalent of choosing **Override**
-or **Rebuild** below; its hand-over must then name the three values it passed. ⛔ And `DONE`
-is not proof: mail and PDF templates fail with a log warning only and never reach the per-object report, so open
-one of each before you believe it.
+import with every part and both options stated explicitly, exactly as you would tick them below; its hand-over must
+then name what it passed. ⛔ And `DONE` is not proof: a template can import and still render wrong, so open one mail
+and one PDF template before you believe it.
 
 Doing it yourself, in your project: turn on **"I am author"** at the top, then left menu → **Settings** →
 **Import/Export**, and upload `project.mrjun`.
@@ -212,26 +211,30 @@ Doing it yourself, in your project: turn on **"I am author"** at the top, then l
 Import button is gone for everyone else (Export stays), and the platform refuses the import even if it is reached
 another way. Ask the platform's operators to do it.
 
-A dialog appears **before** anything is written:
+A dialog appears **before** anything is written: one switch per part of the project — under **Content**,
+**Schedulers**, **Workflows** and **Integrations** — every part the file carries already ticked, and a line under
+the switches saying what the import will do. Whatever you untick stays in the project exactly as it is.
 
-| Choice | What it does | When |
+| What you want | Tick | When |
 |---|---|---|
-| **Override** | full import: business-schema **rows** replaced, CRUDs recreated, integration torn down and rebuilt (allow up to 10 minutes) | ⭐ **the first import, always** |
-| **Rebuild** | same, but schemas are **dropped and rebuilt from the archive** — much faster, and the only choice that makes the file authoritative about *structure* | the fix loop; after any column type/drop/rename |
-| **Ignore** | ⛔ **the database, CRUDs and sources are not imported at all** — only static content | only when a live database must survive |
-| **Cancel** | nothing | — |
+| everything replaced from the file: pages, rules, business logic, and the business schemas **dropped and rebuilt from the archive** — the file is authoritative about *structure* too | **everything** — the default (**Rebuild the table structure from the file**, under Database, starts ticked) | ⭐ **the first import, and the fix loop after any column type/drop/rename** |
+| the same, but only the **rows** of the business schemas — their structure kept | everything, with **Rebuild the table structure from the file** unticked | only when the project's tables must keep their shape |
+| the integration torn down and created again (allow up to 10 minutes) | everything + **Recreate them from scratch** (under Integration services) | only when the integration is broken |
+| ⛔ **the database, CRUDs and sources left as they are** — only pages, rules, templates, roles, workflows | untick the **Integrations** heading | only when a live database must survive |
+| nothing | **Cancel** | — |
 
-> ⛔ **`Ignore` is the dangerous one: it reports success.** The symptoms of pressing it — no data, unchanged
-> CRUDs, empty sources — are identical to a completely different failure, so the post-mortem starts in the
-> wrong place. Whoever drives the browser must know which button to press.
+> ⛔ **Unticking Integrations is the dangerous one: it reports success.** The symptoms — no new data, unchanged
+> CRUDs, unchanged SQL — are identical to a completely different failure, so the post-mortem starts in the
+> wrong place. Whoever drives the browser must know which switches to set.
 >
-> ⚠️ If **Rebuild** refuses and names objects, that is not a bug — use **Override** for that project.
+> ⚠️ If **Rebuild** refuses and names objects, that is not a bug — import that project without it.
 >
-> ⚠️ **Import replaces; it never merges.** To change one field you edit the workdir and re-import the whole
-> archive. Anything you fixed by hand in the UI is destroyed by the next import — always fix in `./work`.
+> ⚠️ **Import replaces; it never merges.** Every part you leave ticked is replaced as a whole: to change one field
+> you edit the workdir and re-import. Anything you fixed by hand in the UI is destroyed by the next import of its
+> part — always fix in `./work`.
 
 **Right after importing:** open a table whose data you changed and confirm the new rows are there (this is the
-check against `Ignore`). If contexts show no CRUDs, or rules fail with `No CRUD found with alias X in context Y`,
+check against an unticked Integrations). If contexts show no CRUDs, or rules fail with `No CRUD found with alias X in context Y`,
 open **Contexts** in the UI and just re-save the context — the export is correct, do not "fix" it.
 
 ---
@@ -283,7 +286,8 @@ are load-bearing and fail in ways no offline gate can see:
    invisible on dark
 8. **The project log** — look for `MismatchedInputException` / `InvalidFormatException`
 
-Fix in `./work` → `validate` → re-pack → re-import (**Rebuild**) → re-run the suite and re-drive the fixed
+Fix in `./work` → `validate` → re-pack → re-import (**Rebuild the table structure from the file** left ticked, as
+it starts, after a schema change) → re-run the suite and re-drive the fixed
 screens **and their neighbours**. Repeat until clean.
 
 This loop is yours, and the AI knows it: `test-scenarios.md` opens by saying that none of its scenarios has

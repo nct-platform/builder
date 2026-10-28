@@ -345,6 +345,14 @@ DB column `zone_type`):
 
 The column is `null` until localization is run for that row.
 
+#### ⚠️ Load-bearing: a seeded value keyed by LOCALE at the top is a translation that never applies
+
+`{"en_US": "Fabric", "ru_RU": "Ткань"}` has no field level: the resolver asks `localize["label"]["ru_RU"]` and finds
+nothing. A delivered project seeded every label and name this way and showed them in the authoring language in every
+session for two months — while the rows its users created through the forms (which write `{"label": {…}}`) translated.
+Write `{"<dtoField>": {"<locale>": …}}` always; `validate` ERRORs on the flat shape
+([35](35-semantic-types-and-field-decisions.md) §5).
+
 #### ⚠️ Load-bearing: a seeded key that is the COLUMN name is a translation that never applies
 
 The camelCase note above is not cosmetic. The resolver looks the key up under the **DTO field name** the CRUD

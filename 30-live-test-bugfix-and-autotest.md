@@ -50,11 +50,12 @@ is already signed in there — an import needs no human hands:
 ```
 
 `test/start.sh reset` drives the same page (`tools/import_project.py`), setting every switch of
-the import dialog explicitly ([00](00-export-format-and-import.md), the import switches).
+the Import dialog explicitly, by its label ([00](00-export-format-and-import.md) §The Export and Import dialogs):
+Everything on, so every part the archive carries is replaced, and the two options only when asked for.
 
-⛔ **But an import is never a silent step of a loop.** It REPLACES the project — content, rules,
-business logic — and, with "Replace the business logic and its database" (which the reset always
-sets), the project's DATA, back to the archive's dump. What the project's users entered since is
+⛔ **But an import is never a silent step of a loop.** It REPLACES every part it takes — content, rules,
+business logic — and, with **Database** ticked (which the reset always requires), the project's DATA, back to the
+archive's dump. What the project's users entered since is
 gone, and so is every live edit that was never written back to the export. So:
 
 * **ask first, every time.** Name the project (`<root>/<realm>/<client>`), say that its data goes
@@ -70,10 +71,10 @@ gone, and so is every live edit that was never written back to the export. So:
 
 | resets | do this after every import |
 |---|---|
-| the project's **data** (with "Replace the business logic and its database") | nothing to redo — it is why the import needs the user's yes; scenarios start again from the seed rows |
-| workflow **deployment** (all come back `deployed: false`) | re-deploy all of them; `service.workflow.start` throws `workflow_is_not_deployed` otherwise |
+| the project's **data** (with **Database** ticked) | nothing to redo — it is why the import needs the user's yes; scenarios start again from the seed rows |
+| workflow **deployment** — only what the archive marks `deployed: true` is deployed again; a `deployed: false` workflow, or one whose deploy the report names as refused, comes back a draft | deploy those; `service.workflow.start` throws `workflow_is_not_deployed` on a draft |
 | live-only edits you made over MCP but never wrote back to the export | land every fix in the EXPORT too, or the import silently reverts it |
-| process instances tied to replaced rows | re-open the cases the scenarios need |
+| the project's **processes** — every import that takes the **Workflows** removes them; only an archive an author exported with its processes, imported with **Processes** ticked, brings them back (a `work/` archive never carries any) | re-open the cases the scenarios need |
 
 The rule that follows: **fix the export, not just the environment.** An MCP write that
 is not mirrored into `work/` survives exactly until the next import.

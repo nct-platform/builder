@@ -7,9 +7,10 @@ file on import. Two real failure classes live exactly in that gap and produce **
   * a symbolic layout anchor was regenerated (e.g. `siteMapPageParsis`), so the platform CREATED a
     fresh empty node under the expected name, rendered that, and left your configured subtree beside
     it as an unrendered orphan -> a blank page, everything green offline (observed on a large real build);
-  * a rep-object threw during `initAllObjects`, so every collection saved AFTER it was silently
-    skipped (queries -> schedulers -> workflows -> rules -> contexts -> formGroups -> forms ->
-    settings -> processGroups -> mailTemplates -> pdfTemplates) while the import still reports DONE.
+  * a rep-object threw during the object import, so every collection saved AFTER it was silently
+    skipped (sources -> queries -> rules -> contexts -> formGroups -> forms -> settings -> schedulers ->
+    workflows -> processGroups -> roleGroups -> mailTemplates -> pdfTemplates — doc 00 §"How import restores
+    it"; each only when the import took its part) while the import still reports DONE.
 
 Both are one query away from obvious, and invisible otherwise. Usage:
 
@@ -116,11 +117,14 @@ def cmd_livediff(args):
 
     # rep-objects: a mid-import abort silently truncates everything after the failing collection
     r("  rep-objects (packed):")
-    for coll in ("queries", "schedulers", "workflows", "rules", "contexts", "formGroups",
-                 "forms", "settings", "processGroups", "mailTemplates", "pdfTemplates"):
-        r("      %-14s %d" % (coll, len(p.rep.get(coll) or [])))
-    r("    ^ import order is exactly this; if a live count drops to 0 from here down, that "
-      "collection threw and everything after it was skipped (check log/ui.log for the stack).")
+    for coll in ("sources", "queries", "rules", "contexts", "formGroups", "forms", "settings", "schedulers",
+                 "workflows", "processGroups", "roleGroups", "mailTemplates", "pdfTemplates"):
+        # absent is not 0: an archive that left the key's part out leaves the target's as it is (doc 00 §6)
+        value = p.rep.get(coll)
+        r("      %-14s %s" % (coll, "absent" if coll not in p.rep else len(value) if isinstance(value, list)
+                             else "null"))
+    r("    ^ import order is exactly this (each only when the import took its part); if a live count drops to 0 "
+      "from here down, that collection threw and everything after it was skipped (check log/ui.log for the stack).")
 
     if problems:
         r("")

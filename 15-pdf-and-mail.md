@@ -56,8 +56,12 @@ or ASK the user (a neutral placeholder mark is an acceptable fallback). Then emb
 - **Do NOT hand-author a `t/…` file-storage path for the logo — it is the one route that silently 404s.** A file
   you ship in `tenant-files/<relpath>` is re-homed on import to `t/<tenantId>/<relpath>`, where `<tenantId>` is a
   **number the platform assigns at import time** ([23](23-distribution-and-known-gaps.md) §1); the other shape,
-  `t/<realm>-<client>/mail-templates/<file>`, only ever exists for images the **platform itself** uploaded. Either
-  way the `src` you typed points at a path nothing ever wrote, and at send time it is expanded verbatim
+  `t/<realm>-<client>/mail-templates/<file>`, exists only for images the **platform itself** uploaded — or for a
+  file the archive carries in `template-files/mail-templates/<file>` (or `template-files/pdf-templates/`): the
+  import copies those into the recipient's own folder and rewrites the `t/<realm>-<client>/mail-templates/<file>` path
+  of each image it carried to it — a path to an image the archive does not carry stays as authored
+  ([00](00-export-format-and-import.md) §13). Otherwise the `src` you typed points at a path
+  nothing ever wrote, and at send time it is expanded verbatim
   (`src="t/…"` → `<storage-url>/t/…`), so the recipient gets a broken image and
   nothing offline can catch it. The `data:` URI above is self-healing instead: **saving** a mail template — which
   the import does for every `mailTemplates[]` entry — uploads the inline bytes to

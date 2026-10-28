@@ -141,9 +141,9 @@ if [ "$RESET" = "yes" ]; then
     die "the import failed — see the output above; not running tests on data that was not reset"
   fi
   ok "import finished"
-  warn "after an import the workflows arrive NOT deployed"
-  printf '     Re-deploy EVERY workflow of the project (Administration → Workflows → Deploy),\n'
-  printf '     otherwise work queues stay empty.\n'
+  warn "the import deploys only the workflows the archive marks deployed: true"
+  printf '     One marked deployed: false arrives as a draft: deploy it (Administration → Workflows → Deploy)\n'
+  printf '     before a scenario that needs its work queue, or that queue stays empty.\n'
   if [ "$MODE" = "safe" ] && [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
     say "Summary"
     ok "reset done; no tests were run (add 'all' to run them right away)"

@@ -39,7 +39,7 @@ rules are described in [03-generate-fields-from-crud.md](03-generate-fields-from
 | Control | pluginName | Typical share of a form's fields |
 |---|---|---|
 | Text field | `dynaform.form.text.field.plugin` | the bulk — every scalar, number and boolean |
-| Drop Down (rimm) | `dynaform.form.rimm.drop.down.field.plugin` | every foreign key and every enum |
+| Drop Down (rimm) | `dynaform.form.rimm.drop.down.field.plugin` | every foreign key and every enum — and every column that holds a CODE the logic selects by (a vocabulary name, a setting key, a category), whatever its storage type ([35](35-semantic-types-and-field-decisions.md)) |
 | Text Area | `dynaform.form.textarea.field.plugin` | descriptions, notes, remarks |
 | Date Picker | `dynaform.form.datepicker.field.plugin` | dates and timestamps |
 | List field | `dynaform.form.list.field.plugin` | one per document that has lines |

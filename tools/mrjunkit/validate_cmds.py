@@ -45,6 +45,10 @@ def _collect_identifiers(rep):
 
 def cmd_validate(args):
     p = core.Project(args.project)
+    # An export carries the parts its author ticked (doc 00 §"Export shape"): one without pages has no branches.json,
+    # one without the database no project-db.dump. Both are valid; every check reads the parts that ARE there, and a
+    # reference into a part the file does not carry is resolved by the import in the target project, not here.
+    not_carried = p.stand_in_absent_parts()
     rep = p.rep
     r = Report()
 
@@ -70,6 +74,7 @@ def cmd_validate(args):
     formgroup_ids = ids["formGroups"]
     form_ids = ids["forms"]
     rule_ids = ids["rules"]
+    rules_by_id = {x.get("identifier"): x for x in rep.get("rules", []) or [] if isinstance(x, dict)}
 
     # crud aliases declared across all contexts
     all_ctx_aliases = set()
@@ -240,7 +245,9 @@ def cmd_validate(args):
     # -- dynamic cruds ------------------------------------------------------
     for crud in cruds:
         alias = crud.get("alias")
-        if alias not in all_ctx_aliases:
+        # Only when the archive carries the contexts: without them (they travel with the pages) the import keeps the
+        # target's contexts, each still exposing the CRUDs it exposed that the target has (doc 00 §"Re-linking").
+        if isinstance(rep.get("contexts"), list) and alias not in all_ctx_aliases:
             r.err("crud alias %r is not listed in any context.crudAliases" % alias)
         si = crud.get("sourceIdentifier")
         # the rimm/platform source is valid even though it isn't in sources[]
@@ -255,18 +262,31 @@ def cmd_validate(args):
                 else:
                     _check_sql_mirror(alias, m, queries_by_id.get(m["queryIdentifier"]), r)
             if m.get("methodType") == "GROOVY" and m.get("ruleIdentifier"):
-                # A GROOVY method's ruleIdentifier is EXPECTED to be missing from
-                # rep-objects.rules[]: the backing rule is hidden, hidden rules are filtered
-                # out of the export, and the importer re-creates it from the method's own
-                # `script`. So "not in rule_ids"
+                # A GROOVY method's ruleIdentifier MAY be missing from rep-objects.rules[]: a platform export
+                # carries the hidden rule there (with the business logic), but an archive built by hand does not,
+                # and the importer then creates it from the method's own `script`. So "not in rule_ids"
                 # is only a defect when there is no script either — and that case is reported
                 # by _check_groovy_method_rule_identifier, which knows why.
                 if m["ruleIdentifier"] not in rule_ids and not (m.get("script") or "").strip():
                     r.warn("crud %r method %r references dangling ruleIdentifier %s"
                            % (alias, m.get("methodName"), m["ruleIdentifier"]))
-        # source schema must exist in project-db.dump
+                # When the archive DOES carry that rule, the import saves it as it is and builds the rule from the
+                # script only when the project has none — so the rule's body is what the method runs, and a script
+                # edited without its rule (or the reverse) changes nothing.
+                carried = rules_by_id.get(m["ruleIdentifier"])
+                if carried is not None and (m.get("script") or "").strip() and _script_text(
+                        (carried.get("rule") or {}).get("ruleScriptStr") if isinstance(carried.get("rule"), dict)
+                        else None) != _script_text(m.get("script")):
+                    r.err("crud %r method %r: its `script` and the rule it runs (rep-objects.rules %r, the same "
+                          "ruleIdentifier) are different texts — the import saves that rule as rules[] carries it and "
+                          "builds the rule from the script only when the project has none, so the method would run "
+                          "the RULE's body. Change both together, or delete the rule from rules[] so the import builds "
+                          "it from the script. (00 §The hidden Groovy rule)"
+                          % (alias, m.get("methodName"), carried.get("name") or m["ruleIdentifier"]))
+        # source schema must exist in project-db.dump — when the archive carries one. Without it the business logic
+        # is imported onto the target's OWN schemas (doc 00 §"Re-linking"), which only the target can answer for.
         schema = crud.get("sourceSchema")
-        if schema and not _schema_exists(p, schema):
+        if schema and not p.is_stand_in(core.F_DB_DUMP) and not _schema_exists(p, schema):
             r.err("crud %r sourceSchema %r not found in project-db.dump" % (alias, schema))
 
     # -- dynamic-CRUD runtime-correctness checks (schema-aware) -------------
@@ -408,6 +428,18 @@ def cmd_validate(args):
     _check_localized_maps_distinct(p, r)
     # -- an entity localize jsonb keyed by the COLUMN name instead of the DTO field name --
     _check_localize_keys(p, r)
+    # -- 35-semantic-types-and-field-decisions.md: the semantic type decides the control, data never lives in code --
+    _check_text_control_on_coded_column(p, r)
+    _check_localize_flat_shape(p, r)
+    _check_rule_label_copy(p, r)
+    _check_helper_closure_undefined(p, r)
+    _check_rule_lists_business_codes(p, r)
+    _check_case_variant_values(p, r)
+    _check_dropdown_not_searchable(p, r)
+    _check_server_clock_today(p, r)
+    _check_literal_runs_into_word(p, r)
+    _check_flag_as_text(p, r)
+    _check_alias_case_split(p, r)
     # -- a VALIDATION_RULE no form wires: a check the team believes is running --
     _check_orphan_validation_rules(p, r)
     # -- a GROOVY method delegating to a rule the export never carried --
@@ -571,6 +603,12 @@ def cmd_validate(args):
 
     # -- report -------------------------------------------------------------
     core.out("validate: %s" % p.tenant.get("alias"))
+    if not_carried:
+        missing = [label for heading, label, importable, _c, _w in core.archive_parts(p)
+                   if heading != "!" and not importable]
+        core.out("  not in this archive: %s — nothing of them was checked, and a reference into one of them is "
+                 "resolved by the import in the target project (`inspect` lists what the file carries)"
+                 % core.listed_parts(missing))
     if r.warnings:
         core.out("\nWARNINGS (%d):" % len(r.warnings))
         for w in r.warnings:
@@ -642,6 +680,9 @@ def _check_homepage_and_nav(p, root, r):
     See 21-homepage-and-redirect.md and 17-left-nav-quick-links.md.
     """
     from . import content_cmds, quicklink_cmds
+
+    if p.is_stand_in(core.F_BRANCHES):
+        return  # no pages in the archive: the import keeps the target's own front door and nav
 
     # (1) root/Home Redirect (the project front door). No Redirect is FINE when Home hosts its own
     # landing content (e.g. a dashboard) — only warn when Home is BOTH redirect-less AND empty.
@@ -3571,9 +3612,10 @@ def _check_groovy_method_rule_identifier(p, r):
     "Groovy method '<name>' has no rule identifier. Apply the CRUD first."
 
     In the UI that rule is written by the **Apply** button (saved as a hidden rule).
-    Hidden rules are filtered out of the export, so rep-objects.json legitimately
-    carries none of them — the IMPORTER re-creates each one from the method's own `script`
-    (on import). That re-creation is guarded: it is skipped when the identifier OR the script is blank,
+    A platform export carries it in rep-objects.json (with the business logic) and then that rule is what runs; an
+    archive built by hand legitimately carries none of them — the IMPORTER creates each one from the method's own
+    `script` (on import) when the project has no rule of that identifier yet. That creation is guarded: it is
+    skipped when the identifier OR the script is blank,
     so the identifier is the entire hinge, and BOTH halves have to be present:
 
     * **script, no identifier** ⇒ ERROR. The importer skips the method and every call to it dies.
@@ -4360,6 +4402,13 @@ _QUARTZ_DOM_RE = re.compile(r"^(?:\d+[LW]|L|W)$", re.I)
 
 def _blank(v):
     return v is None or v == "null" or (isinstance(v, str) and not v.strip())
+
+
+def _script_text(code):
+    """A Groovy body for comparing two copies of it: line endings and trailing blanks do not make it another body."""
+    if not isinstance(code, str):
+        return ""
+    return "\n".join(line.rstrip() for line in code.replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip()
 
 
 def _check_sources_queries_roles(p, r):
@@ -6023,7 +6072,8 @@ def _check_rule_workflow_start_targets(p, r):
     Also warns when the target exists but is `deployed:false`, which throws `workflow_is_not_deployed`.
     (16-groovy-service-api.md)"""
     # Both sources, because a CRUD GROOVY method is a first-class caller of start() and its body lives in
-    # dynamic-cruds.json - the hidden rule it delegates to is deliberately absent from rep-objects.rules[].
+    # dynamic-cruds.json - the hidden rule it delegates to is absent from rep-objects.rules[] in a hand-built archive
+    # (a platform export carries it, with the same body).
     bodies = [(where, body, rule_type) for where, body, rule_type, _access, _is_method in _groovy_bodies(p)]
     if not bodies:
         return
@@ -6132,7 +6182,8 @@ def _groovy_bodies(p):
 
     A CRUD GROOVY method runs as an EXECUTION rule whatever its hidden rule says, and its caller is checked against
     the METHOD's execution access (inherited from the CRUD unless `inheritAccess` is false) - never against the
-    hidden rule's. The hidden rule it delegates to is deliberately absent from `rules[]`."""
+    hidden rule's. The hidden rule it delegates to is absent from `rules[]` in a hand-built archive; a platform export
+    carries it there, with the same body (`validate` ERRORs when the two differ)."""
     from . import execaccess
 
     bodies = []
@@ -7721,6 +7772,8 @@ def _check_admin_base_pages(p, r):
     Sources, Queries, Contexts, Workflows, Schedulers, Roles, Users, Database, Business Logic, …). Removing them
     breaks `/settings`, the form-group `?group=` landing, template management, etc. The builder must ADD pages,
     never delete the base skeleton. ERROR on a missing REQUIRED admin alias; WARN on a missing SOFT one."""
+    if p.is_stand_in(core.F_BRANCHES):
+        return  # the archive carries no pages: the import leaves the target's own, console included, as they are
     aliases = {n.get("alias") for n, _pp, _pt in core.iter_nodes(p.root_content)
                if n.get("pluginName") == "siteMapPage" and n.get("alias")}
     missing_req = sorted(_ADMIN_BASE_ALIASES_REQUIRED - aliases)
@@ -8219,10 +8272,9 @@ def _check_method_rule_delegates(p, r):
             if rule is None:
                 # ⛔ A GROOVY method that carries its own `script` and a `ruleIdentifier` is the
                 # HIDDEN-DELEGATE shape this very toolkit writes — see `crud_cmds.cmd_crud_apply`:
-                # "Hidden rules are filtered out of the export, so rep-objects.json carries none of
-                # them — and the importer knows this: the import re-creates each one
-                # from the method's own `script` … there is deliberately
-                # no rule in rep-objects.json."
+                # an archive built here carries no hidden rule, "and the importer knows this: it creates
+                # each one from the method's own `script` … there is deliberately no rule in
+                # rep-objects.json."
                 #
                 # So the reference is not dangling: the platform creates the rule on import from the
                 # identifier plus the script. Flagging it made `validate` contradict `crud_apply` and
@@ -10389,3 +10441,324 @@ def _check_public_page_rule_access(p, cruds, r):
                "and keep the method at its default. (24-html-component-studio.md §4.3)"
                % (alias, method, pages_words(places), how_words(places), execaccess.describe(acc), source,
                   alias, method))
+
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 35-semantic-types-and-field-decisions.md — the checks that catch a field built from its STORAGE type, and business data
+# written into code. Each was a defect on a delivered project that every shape check passed.
+# ---------------------------------------------------------------------------------------------------------------------
+_CHECK_COL_RX = re.compile(r'ALTER TABLE "[^"]+"\."([^"]+)" ADD CONSTRAINT "[^"]+" CHECK \(\(\(([a-z_][a-z0-9_]*)\)::text = ANY')
+_FK_COL_RX = re.compile(r'ALTER TABLE "[^"]+"\."([^"]+)" ADD CONSTRAINT "[^"]+" FOREIGN KEY \("([^"]+)"\)')
+_CHECK_VALS_RX = re.compile(r"'([^']*)'::character varying")
+
+
+def _dump_tables(p):
+    dump = p.db if isinstance(getattr(p, "db", None), dict) else {}
+    return [t for sch in dump.get("schemas") or [] for t in sch.get("tables") or []], dump
+
+
+def _coded_columns(p):
+    """(table, column) -> ('check', {allowed values}) | ('fk', None), from the dump's constraint statements."""
+    _tables, dump = _dump_tables(p)
+    out = {}
+    for sch in dump.get("schemas") or []:
+        for stmt in sch.get("checkConstraints") or []:
+            m = _CHECK_COL_RX.search(stmt or "")
+            if m:
+                out[(m.group(1), m.group(2))] = ("check", set(_CHECK_VALS_RX.findall(stmt)))
+        for stmt in sch.get("foreignKeys") or []:
+            m = _FK_COL_RX.search(stmt or "")
+            if m:
+                out.setdefault((m.group(1), m.group(2)), ("fk", None))
+    return out
+
+
+def _crud_columns(p):
+    """crud alias -> (table, {dtoFieldName: column}) — the table read off the crud's findAll."""
+    cf = p.cruds_file
+    out = {}
+    for c in ((cf.data or {}).get("cruds") or []) if cf is not None else []:
+        table = None
+        for m in c.get("methods") or []:
+            if m.get("methodName") == "findAll" and m.get("script"):
+                mm = re.search(r"\bFROM\s+([a-z_][a-z0-9_]*)", m["script"], re.I)
+                table = mm.group(1) if mm else None
+                break
+        if table:
+            out[c.get("alias")] = (table, {f.get("fieldName"): f.get("displayName") for f in c.get("dtoFields") or []})
+    return out
+
+
+def _check_text_control_on_coded_column(p, r):
+    """ERROR. A text or textarea control bound to a column whose values are CODED — a CHECK allowed-value set (a closed
+    enum) or a foreign key (a reference). Somebody types a code by hand that a rule selects by: the settings form of a
+    delivered project took a vocabulary NAME as free text, and a typo detached the label from the data with no error.
+    The control is a dropdown over the catalogue that holds the values (35 §1-§2). A READ-ONLY text control over a code
+    is reported as a WARN: it shows the raw code instead of its label."""
+    coded = _coded_columns(p)
+    cruds = _crud_columns(p)
+    if not coded or not cruds:
+        return
+    seen = set()
+    for node, _parent, _path in core.iter_nodes(p.root_content):
+        if node.get("pluginName") not in ("dynaform.form.text.field.plugin", "dynaform.form.textarea.field.plugin"):
+            continue
+        st = core.get_inner_json(node, "settings")
+        if not isinstance(st, dict) or not st.get("crudAlias"):
+            continue
+        tc = cruds.get(st.get("crudAlias"))
+        if not tc:
+            continue
+        table, cols = tc
+        col = cols.get(st.get("fieldExpression")) or st.get("fieldExpression")
+        kind = coded.get((table, col))
+        if not kind or (table, col) in seen:
+            continue
+        seen.add((table, col))
+        what = "a CHECK allowed-value set" if kind[0] == "check" else "a foreign key"
+        msg = ("control %r writes %s.%s as free text, but the column carries %s: a coded value is chosen from its catalogue, "
+               "never typed (35-semantic-types-and-field-decisions.md §2)" % (node.get("name"), table, col, what))
+        if st.get("alwaysProhibited"):
+            r.warn(msg + " — the control is read-only, so it shows the raw code instead of its label")
+        else:
+            r.err(msg)
+
+
+def _check_case_variant_values(p, r):
+    """WARN. An EDITABLE text control over a column whose rows already hold the same value in two spellings that differ only
+    in case or outer blanks («Սև» and «սև», «Black » and «black»). The column is an OPEN classifier (35 §1, T2/T7: a group,
+    a colour, a person in charge) typed by hand: every report that groups by it splits one value in two. Make the control an
+    autocomplete over the values already in use (one spelling each, the most used first); the field stays free text, so a new
+    value is still typed — the second spelling of an old one is not. Found on a delivered project: 22 materials, 7 colours twice."""
+    cruds = _crud_columns(p)
+    tables, _dump = _dump_tables(p)
+    if not cruds or not tables:
+        return
+    rows_of = {t.get("name"): t.get("rows") or [] for t in tables}
+    seen = set()
+    for node, _parent, _path in core.iter_nodes(p.root_content):
+        if node.get("pluginName") not in ("dynaform.form.text.field.plugin", "dynaform.form.textarea.field.plugin"):
+            continue
+        st = core.get_inner_json(node, "settings")
+        if not isinstance(st, dict) or not st.get("crudAlias") or st.get("alwaysProhibited"):
+            continue
+        tc = cruds.get(st.get("crudAlias"))
+        if not tc:
+            continue
+        table, cols = tc
+        col = cols.get(st.get("fieldExpression")) or st.get("fieldExpression")
+        if (table, col) in seen:
+            continue
+        seen.add((table, col))
+        spellings = {}
+        for row in rows_of.get(table) or []:
+            v = row.get(col) if isinstance(row, dict) else None
+            if isinstance(v, str) and v.strip():
+                spellings.setdefault(v.strip().lower(), set()).add(v)
+        twice = sorted(k for k, vs in spellings.items() if len(vs) > 1)
+        if twice:
+            r.warn("control %r types %s.%s by hand and the rows already spell %d value(s) two ways (%s) — an open classifier: "
+                   "make it an autocomplete over the values in use (35 §1 T2/T7)" % (node.get("name"), table, col, len(twice),
+                                                                                  ", ".join(twice[:3])))
+
+
+def _check_dropdown_not_searchable(p, r):
+    """WARN. An editable dropdown fed by a choices rule that cannot search: the control lacks `searchEnabled`, or its rule never
+    reads `filterBy` (Select2 then narrows nothing). People type the middle of a word, in their own language — a delivered project's
+    owner asked for containment search on every list (35 §2 rule 5). One line per rule, counting its controls."""
+    bodies = {x.get("identifier"): ((x.get("rule") or {}).get("ruleScriptStr") or "") for x in p.rep.get("rules") or []}
+    names = {x.get("identifier"): x.get("name") for x in p.rep.get("rules") or []}
+    off, deaf = {}, {}
+    for node, _parent, _path in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "dynaform.form.rimm.drop.down.field.plugin":
+            continue
+        st = core.get_inner_json(node, "settings")
+        if not isinstance(st, dict) or st.get("alwaysProhibited") or not st.get("ruleIdentifier"):
+            continue
+        rid = st["ruleIdentifier"]
+        if rid not in bodies:
+            continue
+        if not st.get("searchEnabled"):
+            off[rid] = off.get(rid, 0) + 1
+        elif "filterBy" not in bodies[rid]:
+            deaf[rid] = deaf.get(rid, 0) + 1
+    for rid, n in sorted(off.items(), key=lambda x: str(names.get(x[0]))):
+        r.warn("%d dropdown(s) over rule %r cannot be searched (no searchEnabled) — 35 §2 rule 5" % (n, names.get(rid)))
+    for rid, n in sorted(deaf.items(), key=lambda x: str(names.get(x[0]))):
+        r.warn("rule %r ignores filterBy: its %d searchable dropdown(s) never narrow — 35 §2 rule 5" % (names.get(rid), n))
+
+
+_SERVER_TODAY = re.compile(r"CURRENT_DATE|LocalDate\.now\(\s*\)|LocalDateTime\.now\(\s*\)|to_char\(\s*now\(\)\s*,\s*'YYYY")
+
+
+def _check_server_clock_today(p, r):
+    """WARN. «Today» read off the server's clock (UTC): `CURRENT_DATE`, `LocalDate.now()`, the year `to_char(now(),'YYYY')`. For a
+    customer east of Greenwich that is yesterday every night until local midnight reaches UTC — a delivered project dated lots,
+    documents and report ages a day early from 00:00 to 04:00 and numbered 1 January's documents with last year (35 §4a). Route
+    every «today» through one business-time-zone expression. One line per rule / method."""
+    for x in p.rep.get("rules") or []:
+        if _SERVER_TODAY.search((x.get("rule") or {}).get("ruleScriptStr") or ""):
+            r.warn("rule %r takes «today» from the server clock (UTC) — use the business time zone (35 §4a)" % x.get("name"))
+    cruds = ((p.cruds_file.data or {}).get("cruds") or []) if getattr(p, "cruds_file", None) else []
+    for c in cruds:
+        for m in c.get("methods") or []:
+            if _SERVER_TODAY.search(m.get("script") or ""):
+                r.warn("method %s.%s takes «today» from the server clock (UTC) — use the business time zone (35 §4a)"
+                       % (c.get("alias"), m.get("methodName")))
+
+
+def _literal_then_word(body):
+    """Places where a Groovy string literal is followed by an identifier with no operator between (`as`/`in`/`instanceof` aside)."""
+    i, n, out = 0, len(body), []
+    while i < n:
+        c = body[i]
+        if body.startswith("//", i):
+            j = body.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if body.startswith("/*", i):
+            j = body.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if body.startswith("'''", i) or body.startswith('"""', i):
+            j = body.find(body[i:i + 3], i + 3)
+            i = n if j < 0 else j + 3
+        elif c in "'\"":
+            j = i + 1
+            while j < n and body[j] != c:
+                j += 2 if body[j] == "\\" else 1
+            i = j + 1
+        else:
+            i += 1
+            continue
+        m = re.match(r"[ \t]*([A-Za-z_][A-Za-z0-9_]*)", body[i:i + 40])
+        if m and m.group(1) not in ("as", "in", "instanceof"):
+            out.append(body[max(0, i - 30):i + 20].replace("\n", " "))
+    return out
+
+
+def _check_literal_runs_into_word(p, r):
+    """ERROR. A string literal followed by a bare word: `'<td style="font-family:'Helvetica Neue',…'` closes the literal at the
+    inner quote and Groovy reads `Helvetica Neue …` as a command chain. It COMPILES — the compiler gate is green — and throws
+    `MissingPropertyException` the first time the line runs: a delivered project's mismatch digest never went out (35 §4a)."""
+    for x in p.rep.get("rules") or []:
+        for hit in _literal_then_word((x.get("rule") or {}).get("ruleScriptStr") or ""):
+            r.err("rule %r: a string literal runs into a bare word (…%s…) — escape the quote (35 §4a)" % (x.get("name"), hit))
+
+
+def _check_flag_as_text(p, r):
+    """WARN. A yes/no field rendered as a text field: it prints `true` / `false` in every language. A flag is a read-only choice
+    over a yes/no vocabulary on a form, and a column with trueIcon/falseIcon in a grid (35 §4a)."""
+    for node, _parent, _path in core.iter_nodes(p.root_content):
+        if node.get("pluginName") != "dynaform.form.text.field.plugin":
+            continue
+        st = core.get_inner_json(node, "settings")
+        if isinstance(st, dict) and st.get("dataClass") == "java.lang.Boolean":
+            r.warn("field %r (%s) is a yes/no value shown as text — it prints true/false (35 §4a)"
+                   % (st.get("name"), st.get("fieldExpression")))
+
+
+def _check_alias_case_split(p, r):
+    """ERROR. One reference aliased both unquoted (`AS expenseCategory__name`, folded to lower case) and quoted
+    (`AS "expenseCategory__kind"`): the platform builds two nested objects and the columns over one of them are blank (35 §4a)."""
+    cruds = ((p.cruds_file.data or {}).get("cruds") or []) if getattr(p, "cruds_file", None) else []
+    for c in cruds:
+        for m in c.get("methods") or []:
+            sql = m.get("script") or ""
+            quoted = {x.group(1) for x in re.finditer(r'AS "([A-Za-z0-9]+)__[A-Za-z0-9]+"', sql)}
+            plain = {x.group(1) for x in re.finditer(r"AS ([A-Za-z0-9]+)__[A-Za-z0-9]+\b", sql)}
+            for ref in sorted(q for q in quoted & plain if q != q.lower()):
+                r.err("method %s.%s aliases %s both quoted and unquoted — its leaves split into two objects (35 §4a)"
+                      % (c.get("alias"), m.get("methodName"), ref))
+
+
+def _check_localize_flat_shape(p, r):
+    """ERROR. A seeded localized jsonb whose TOP-LEVEL keys are locales (`{"en_US": …, "ru_RU": …}`). The resolver reads
+    `localize[<dtoField>][<locale>]`, so this translation is never shown — in no register, no dropdown, no session — and
+    nothing logs it. A delivered project ran two months with every seeded label and name in its authoring language in the
+    English and Russian sessions, while the rows its users created through the forms translated fine (35 §5)."""
+    tables, _dump = _dump_tables(p)
+    loc_rx = re.compile(r"^[a-z]{2}_[A-Z]{2}$")
+    for t in tables:
+        for col in ("localize", "localized"):
+            if col not in (t.get("columns") or []):
+                continue
+            for row in t.get("rows") or []:
+                v = row.get(col) if isinstance(row, dict) else None
+                if not v:
+                    continue
+                try:
+                    obj = json.loads(v) if isinstance(v, str) else v
+                except Exception:
+                    continue
+                if isinstance(obj, dict) and any(loc_rx.match(k) for k in obj):
+                    r.err("table %r: %s is keyed by LOCALE at the top (%s) — the platform reads {<dtoField>: {<locale>: …}}, "
+                          "so these translations are never shown (35 §5, 20-localization.md)" % (t.get("name"), col, sorted(obj)[:3]))
+                    break
+
+
+def _check_rule_label_copy(p, r):
+    """WARN. A map literal in a rule whose keys are values of ONE CHECK allowed-value set and whose values read as labels
+    (`[DRAFT: 'Սևագիր', POSTED: 'Անցկացված']`). It is a second copy of the vocabulary's labels: renamed in the label table,
+    it keeps the old word. Show a coded value through a helper that reads the label table in the session language (35 §3)."""
+    sets = [vals for (_t, _c), (kind, vals) in _coded_columns(p).items() if kind == "check" and vals]
+    if not sets:
+        return
+    lit = re.compile(r"\[\s*((?:'?[A-Za-z_][A-Za-z0-9_]*'?\s*:\s*'[^'\n]*'\s*,\s*)+'?[A-Za-z_][A-Za-z0-9_]*'?\s*:\s*'[^'\n]*')\s*\]")
+    for rule in p.rep.get("rules") or []:
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        for m in lit.finditer(src):
+            pairs = re.findall(r"'?([A-Za-z_][A-Za-z0-9_]*)'?\s*:\s*'([^'\n]*)'", m.group(1))
+            keys = {k for k, _v in pairs}
+            if len(keys) >= 2 and any(keys <= s for s in sets) and any(re.search(r"[^\x00-\x7f]|\s", v) for _k, v in pairs):
+                r.warn("rule %r keeps its own map of vocabulary labels %s — read them from the label table instead "
+                       "(35 §3)" % (rule.get("name"), sorted(keys)[:4]))
+                break
+
+
+def _check_helper_closure_undefined(p, r):
+    """ERROR. `NAME(...)` called in a rule that never defines `def NAME = {`, while another rule of the project does — a
+    helper closure copied by use and not by definition. Groovy compiles the call and throws MissingMethodException when the
+    line runs: a delivered project's «Close» button failed on its first real press, with the compiler gate green (35 §4)."""
+    rules = p.rep.get("rules") or []
+    top_def = re.compile(r"(?m)^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\{")
+    helpers = set()
+    for rule in rules:
+        helpers |= set(top_def.findall(((rule.get("rule") or {}).get("ruleScriptStr") or "")))
+    for rule in rules:
+        src = ((rule.get("rule") or {}).get("ruleScriptStr") or "")
+        own = set(re.findall(r"\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", src))
+        for name in sorted(helpers - own):
+            if re.search(r"(?<![\w.$])%s\(" % re.escape(name), src):
+                r.err("rule %r calls %s(...) but never defines it (other rules do) — it throws MissingMethodException "
+                      "the first time that line runs; include the helper's definition (35 §4)" % (rule.get("name"), name))
+
+
+def _check_rule_lists_business_codes(p, r):
+    """WARN. A rule or SQL method that quotes two or more codes seeded in a catalogue (`*_code` columns of the dump: warehouse
+    codes, category or series prefixes). Those are rows the business owns: a new one is invisible to the code that lists the
+    old ones (a code-suggestion rule ignored the customer's new category). Read them with a business-logic method (35 §3)."""
+    tables, _dump = _dump_tables(p)
+    codes = set()
+    for t in tables:
+        for col in t.get("columns") or []:
+            if not col.endswith("_code"):
+                continue
+            for row in t.get("rows") or []:
+                v = row.get(col) if isinstance(row, dict) else None
+                if isinstance(v, str) and 2 <= len(v) <= 40:
+                    codes.add(v)
+                    if "-" in v:
+                        codes.add(v.split("-")[0])
+    if not codes:
+        return
+    bodies = [("rule", rl.get("name"), ((rl.get("rule") or {}).get("ruleScriptStr") or "")) for rl in p.rep.get("rules") or []]
+    cf = p.cruds_file
+    for c in ((cf.data or {}).get("cruds") or []) if cf is not None else []:
+        for m in c.get("methods") or []:
+            bodies.append(("method", "%s.%s" % (c.get("alias"), m.get("methodName")), m.get("script") or ""))
+    for kind, name, src in bodies:
+        hit = set(re.findall(r"'([A-Za-z0-9][A-Za-z0-9_-]{1,39})'", src)) & codes
+        if len(hit) >= 2:
+            r.warn("%s %r names business codes %s in its body — read them from their table (35 §3)" % (kind, name, sorted(hit)[:5]))

@@ -33,20 +33,171 @@ F_DB_META = "project-db-meta.json"
 F_DB_DUMP = "project-db.dump"
 F_CRUDS = "dynamic-cruds.json"
 F_INTEGRATIONS = "integrations.json"
+F_WORKFLOW_HISTORY = "workflow-history.json"
+F_PROCESSES = "processes.json"
+F_PROCESS_AUDIT = "process-audit-logs.json"
+F_DATA_AUDIT = "data-audit-logs.json"
+F_RIMM_DATA = "rimm-data.json"
 
 # The rep-objects.json collections, for READING: identifier maps, shape checks, counts.
-# `apiExposures` (the project's public API endpoints, doc 32 §6) is the one OPTIONAL key and the one whose
-# absence is the safe value: on import, absent or null leaves the target's endpoints untouched, a list
-# replaces them, and [] deletes every endpoint together with its key bindings. So nothing may ever create
-# this key — never `rep.setdefault(coll, [])` over this list, never an empty default when writing.
-# A count reads absent, null and [] all as 0 and says nothing about whether an archive is safe to import, so
-# `inspect` prints `api_exposures_state` for it instead, and `validate` refuses [] and a list.
+# Every key is OPTIONAL (doc 00 §6): an export writes the keys of the parts its author ticked and leaves the
+# others OUT, and an import leaves that part of the target as it is when its key is absent — so an absent key never
+# says "the project has none" ([] does), and a count must not read it as 0 (`inspect` says "absent").
+# `apiExposures` (the project's public API endpoints, doc 32 §6) is the key whose absence is the safe value for a
+# BUILD: on import, absent or null leaves the target's endpoints untouched, a list replaces them, and [] deletes
+# every endpoint together with its key bindings. So nothing may ever create this key — never
+# `rep.setdefault(coll, [])` over this list, never an empty default when writing. `inspect` prints
+# `api_exposures_state` for it, and `validate` refuses [] and a list.
 REP_COLLECTIONS = [
     "sources", "queries", "schedulers", "workflows", "rules", "contexts",
     "formGroups", "forms", "settings", "processGroups", "roleGroups",
-    "userRoleGroupAssignments", "mailTemplates", "pdfTemplates",
+    "userRoleGroupAssignments", "featureAccesses", "mailTemplates", "pdfTemplates",
     "apiExposures",
 ]
+
+# The parts of a .mrjun in the order the platform's Export and Import dialogs show them: (heading, label, the parts
+# it can only be imported together with). An export carries exactly the parts its author ticked; an import replaces
+# exactly the ticked parts the file CARRIES and leaves every other part of the target project as it is. Whether a
+# file carries a part is read from the file itself (doc 00 §"Which parts a file carries") — `archive_parts` below
+# mirrors those rules, so a part it reports as not carried is one the Import dialog draws "Not in this file".
+ARCHIVE_PARTS = (
+    ("Content", "Pages, forms and rules", ()),
+    ("Content", "Mail and PDF templates", ()),
+    ("Content", "Roles and access", ()),
+    ("Content", "Public API endpoints", ()),
+    ("Schedulers", "Schedulers", ()),
+    ("Workflows", "Workflows", ()),
+    ("Workflows", "Version history", ("Workflows",)),
+    ("Workflows", "Deployment", ("Workflows",)),
+    ("Workflows", "Processes", ("Version history", "Deployment")),
+    ("Workflows", "Process audit log", ("Processes",)),
+    ("Integrations", "Integration services", ()),
+    ("Integrations", "Database", ()),
+    ("Integrations", "Data change history", ("Database",)),
+    ("Integrations", "Business logic", ()),
+)
+# The entries an export leaves out with their part, and the part — for the message of a command that needs one.
+_PART_OF_ENTRY = {F_BRANCHES: "its pages (Pages, forms and rules)", F_DB_DUMP: "its database (Database)"}
+# The parts only a REPORT project has: a project of any other kind is offered the five others alone.
+REPORT_ONLY_PARTS = ("Public API endpoints", "Schedulers", "Workflows", "Version history", "Deployment",
+                     "Processes", "Process audit log", "Database", "Data change history")
+
+
+def _rep_list(rep, key):
+    """The list under `key`, or None — an explicit null says the same as no key at all."""
+    value = rep.get(key) if isinstance(rep, dict) else None
+    return value if isinstance(value, list) else None
+
+
+def listed_parts(labels):
+    """Part labels inside a sentence, as the platform's dialogs list them: "pages, forms and rules; schedulers" —
+    semicolons, because a label may hold a comma of its own."""
+    return "; ".join(label[:1].lower() + label[1:] for label in labels)
+
+
+def archive_parts(p):
+    """What the unpacked archive at `p` carries, part by part, read the way the platform's Import dialog reads it:
+    [(heading, label, importable, count, words)] in ARCHIVE_PARTS order, then one ("!", entry, False, None, words) per
+    JSON entry the platform could not read.
+
+    `importable` is False both for a part the file does not carry and for one it carries without a part it needs
+    (processes without the version history, say) — the dialog cannot tick either. `count` is None where the
+    platform does not count. An entry whose JSON cannot be read is evidence of nothing: the part it would carry is not
+    offered, and the rest of the file still is."""
+    has = p.carries
+    unreadable = []
+
+    def document(name):
+        """The parsed entry, or None — absent, or unreadable (and then remembered as such)."""
+        if not has(name):
+            return None
+        try:
+            return load_json_file(p.path(name), required=True).data
+        except ToolError:
+            unreadable.append(name)
+            return None
+
+    def elements(name, field):
+        """The `field` array of a streamed document — which the platform refuses unless it is a JSON object."""
+        data = document(name)
+        if data is None:
+            return None
+        if not isinstance(data, dict):
+            unreadable.append(name)
+            return None
+        items = data.get(field)
+        return items if isinstance(items, list) else []
+
+    rep = document(F_REP) if has(F_REP) else None
+    rep = rep if isinstance(rep, dict) else {}
+    meta = document(F_DB_META)
+    cruds = elements(F_CRUDS, "cruds") if has(F_CRUDS) else None
+    if has(F_CRUDS) and cruds is None and F_CRUDS not in unreadable:
+        cruds = []
+    integrations = document(F_INTEGRATIONS)
+    versions = elements(F_WORKFLOW_HISTORY, "versions")
+    processes = elements(F_PROCESSES, "processes")
+
+    found = {}
+    mail, pdf = _rep_list(rep, "mailTemplates"), _rep_list(rep, "pdfTemplates")
+    found["Pages, forms and rules"] = (has(F_BRANCHES), None, F_BRANCHES)
+    found["Mail and PDF templates"] = (mail is not None or pdf is not None, len(mail or []) + len(pdf or []),
+                                       "rep-objects mailTemplates / pdfTemplates")
+    for label, key in (("Roles and access", "roleGroups"), ("Public API endpoints", "apiExposures"),
+                       ("Schedulers", "schedulers"), ("Workflows", "workflows")):
+        items = _rep_list(rep, key)
+        found[label] = (items is not None, len(items or []), "rep-objects " + key)
+    found["Version history"] = (versions is not None, len(versions or []), F_WORKFLOW_HISTORY)
+    # With a (readable) history only its versions count; without one, the current rows are all there is to deploy.
+    marked = versions if versions is not None else (_rep_list(rep, "workflows") or [])
+    deployed = sum(1 for v in marked if isinstance(v, dict) and v.get("deployed") is True)
+    found["Deployment"] = (deployed > 0, deployed, "workflow version marked deployed: true")
+    found["Processes"] = (processes is not None, len(processes or []), F_PROCESSES)
+    found["Process audit log"] = (has(F_PROCESS_AUDIT), None, F_PROCESS_AUDIT)
+    found["Integration services"] = (F_INTEGRATIONS not in unreadable and has(F_INTEGRATIONS),
+                                     len(integrations) if isinstance(integrations, list) else 0, F_INTEGRATIONS)
+    # An export that knows the parts SAYS whether it carries the database (`database` in the meta: the sources travel
+    # with the content too, and a database with nothing to dump has no dump); an older file shows it by what it has.
+    if isinstance(meta, dict) and "database" in meta:
+        carried_db = meta.get("database") is True or str(meta.get("database")).lower() == "true"
+        db_words = "%s says \"database\": %s" % (F_DB_META, "true" if carried_db else "false")
+    else:
+        own_sources = any(isinstance(s, dict) and not str(s.get("name") or "").startswith("RIMM_")
+                          for s in (_rep_list(rep, "sources") or []))
+        carried_db = (has(F_DB_DUMP) and meta is not None) or has(F_RIMM_DATA) or own_sources
+        if has(F_DB_DUMP) and meta is not None:
+            db_words = "%s together with %s" % (F_DB_DUMP, F_DB_META)
+        elif has(F_RIMM_DATA):
+            db_words = "the legacy %s" % F_RIMM_DATA
+        elif own_sources:
+            db_words = ("a data source of the project's own in rep-objects sources, and no dump: the import replaces "
+                        "the target's data sources with no data behind them")
+        else:
+            db_words = "%s with %s, %s or a data source of the project's own" % (F_DB_DUMP, F_DB_META, F_RIMM_DATA)
+        db_words += " — an older file, without the meta's \"database\" mark"
+    found["Database"] = (carried_db, None, db_words)
+    found["Data change history"] = (has(F_DATA_AUDIT), None, F_DATA_AUDIT)
+    found["Business logic"] = (cruds is not None, len(cruds or []), F_CRUDS)
+
+    parts, importable = [], set()
+    for heading, label, needs in ARCHIVE_PARTS:
+        carried, count, evidence = found[label]
+        missing = [n for n in needs if n not in importable]
+        if carried and not missing:
+            importable.add(label)
+            words = evidence
+        elif carried:
+            words = "carried, but it cannot be ticked: the file does not carry %s" % " or ".join(missing)
+        else:
+            words = "not in this archive (%s)" % ("no " + evidence if label != "Database" else evidence)
+        if label == "Processes" and carried:
+            running = sum(1 for c in processes if isinstance(c, dict) and c.get("runtime") is not None)
+            words += ", %d running" % running
+        parts.append((heading, label, carried and not missing, count, words))
+    for name in unreadable:
+        parts.append(("!", name, False, None, "cannot be read — the Import dialog does not offer the part it is "
+                                                "evidence of (the rest of the file still is)"))
+    return parts
 
 def api_exposures_state(rep):
     """What `rep-objects.apiExposures` does on import (doc 32 §6), as (state, count, words).
@@ -470,12 +621,40 @@ class Project:
             raise ToolError("project dir not found: %s" % root)
         self._cache = {}
         self._dirty = set()
+        self._stand_ins = set()
 
     def path(self, name):
         return os.path.join(self.root, name)
 
+    def carries(self, name):
+        """True when the archive has this entry (a file or a folder) on disk — a stand-in does not count."""
+        return os.path.exists(self.path(name))
+
+    def stand_in_absent_parts(self):
+        """For READ-ONLY commands. An export that left its pages out has no branches.json, one that left the database
+        out no project-db.dump — both are valid archives (doc 00 §"Export shape"), and an import of either leaves
+        the target's own pages / database as they are. So that every check still reads the parts that ARE there,
+        an empty content tree and an empty dump stand in for the absent ones, IN MEMORY: `save` refuses to write a
+        stand-in. Returns the entries stood in for."""
+        stood = []
+        for name, data in ((F_BRANCHES, [{"name": "master", "virtualPlugins": [],
+                                          "rootContent": {"children": [], "properties": {}}}]),
+                           (F_DB_DUMP, {"format": "nct-jdbc-dump-v1", "schemas": []})):
+            if name not in self._cache and not self.carries(name):
+                self._cache[name] = JsonFile(self.path(name), data, None)
+                self._stand_ins.add(name)
+                stood.append(name)
+        return stood
+
+    def is_stand_in(self, name):
+        return name in self._stand_ins
+
     def _get(self, name, required=True):
         if name not in self._cache:
+            if required and name in _PART_OF_ENTRY and not self.carries(name):
+                raise ToolError("missing file: %s — this archive does not carry %s (an export that left that part "
+                                "out); `inspect` and `validate` read it as it is" % (self.path(name),
+                                                                                       _PART_OF_ENTRY[name]))
             self._cache[name] = load_json_file(self.path(name), required=required)
         jf = self._cache[name]
         if jf is None and required:
@@ -544,6 +723,10 @@ class Project:
         self._dirty.add(name)
 
     def save(self):
+        stand_ins = sorted(self._dirty & self._stand_ins)
+        if stand_ins:
+            raise ToolError("refusing to write %s: this archive does not carry it, and what was read in its place "
+                            "is an in-memory stand-in" % ", ".join(stand_ins))
         for name in self._dirty:
             save_json_file(self._cache[name])
         self._dirty.clear()

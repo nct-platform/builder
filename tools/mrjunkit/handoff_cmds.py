@@ -625,7 +625,7 @@ def _router_body(facts):
     L.append("### ⛔ Step 6 — RECONCILE WHAT ARRIVED. The import reports DONE either way.")
     L.append("")
     L.append("`validate` proves the file is well-formed; it cannot prove the platform accepted it.")
-    L.append("`importDynamicCruds` is the **last** step of `initAllObjects` and it **skips in silence** —")
+    L.append("The business-logic import is the **last** step of the object import and it **skips in silence** —")
     L.append("a parse error in `dynamic-cruds.json` (a scalar typed `\"1.0\"` where the DTO wants the")
     L.append("integer `1` is enough) costs you the ENTIRE business-logic layer while pages, rules,")
     L.append("queries, forms, workflows, templates and the database all land normally. The project then")

@@ -678,8 +678,10 @@ a project by hand: **the schema tables go in `project-db.dump`; the schema's sou
 the CRUDs go in `dynamic-cruds.json`** (see [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md) and
 [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md)).
 
-> **Import-time source materialization.** `project-db-meta.json` has four keys:
-> `{"databaseName":"<db>", "databases":["<db>"], "schemaPrefix":"<realm>_<client>_<hash>", "rimmSourceIdentifier":"<uuid>"}`.
+> **Import-time source materialization.** `project-db-meta.json` has four storage keys:
+> `{"databaseName":"<db>", "databases":["<db>"], "schemaPrefix":"<realm>_<client>_<hash>", "rimmSourceIdentifier":"<uuid>"}`
+> — and, from an export that knows the parts, `database` (whether the archive carries the database; the import trusts
+> it over any other evidence), `businessSchemas` and `integrationSources` ([00](00-export-format-and-import.md) §4).
 > `databaseName` duplicates `project-db.dump.database`; `rimmSourceIdentifier` points to the rimm source;
 > **`schemaPrefix` is the donor's schema prefix** and is what tells the import which of the dump's schemas
 > belong to this project — every schema you add by hand must carry it, and the import renames each one into

@@ -29,7 +29,7 @@
 | The five option keys | `owner`, `roleGroups`, `emails`, `businessKey`, `groupIdentifier` — every other key is ignored without a word |
 | Idempotency | **entirely the author's job.** Nothing asks "does a case already exist for this row" on your behalf. `service.workflow.list(...)` ([16](16-groovy-service-api.md) §2.13) can look, but only through a process table's INDEXED values and at a query per row — a claim column in the data is exact, free, and needs no table |
 | Offline gate | `validate` checks the scheduler's rule TYPES, its cron, `enabled:true`, a literal `start("<id>")` against `workflows[]`, and ERRORs when a rule a scheduler NAMES reads the bare `contextDataMap` binding. It cannot see idempotency, the process group, a SQL method's `parameters[]`, or any key inside the document |
-| Dead on arrival | import forces every workflow to `deployed:false`, so the chain throws `workflow_is_not_deployed` until somebody opens the BPMN editor and presses **Deploy** |
+| Dead on arrival | a workflow the archive marks `deployed:false` imports as a draft, so the chain throws `workflow_is_not_deployed` until somebody presses **Deploy**; mark it `deployed:true` and the import deploys it — or names it in its report when the engine refuses the diagram |
 
 > **🔧 Tooling.** There is **no** `mrjun.py` command for a scheduler and **none** for a process group — both are
 > hand-authored JSON in `rep-objects.json`. The rest of the chain has commands, and they must run in this order.
@@ -359,10 +359,12 @@ method in its own phase; never author it inline here.
 settings. A duplicate scheduler `name` throws on the second save and everything after it is silently skipped —
 which is why `validate` ERRORs on it.
 
-⚠️ **The last step is not in any file.** Import clears `externalId` / `processDefinitionId` /
-`processDefinitionKey` and forces `deployed:false` on every workflow, so the chain is inert until someone opens
-the BPMN editor and presses **Deploy**. Put that in the hand-over notes as an acceptance step, or the chain will
-be reported as broken.
+⚠️ **Deployed is a mark you set, not a state you can ship.** Import clears `externalId` / `processDefinitionId` /
+`processDefinitionKey` and deploys exactly the workflows marked `deployed:true` — after the rules, forms, settings
+and process groups they need. One left `deployed:false` arrives as a draft, and one whose diagram the engine
+refuses is named in the import's report and stays a draft; either way the chain is inert until someone presses
+**Deploy**. So mark the chain's workflow `deployed:true`, and read the import report as an acceptance step, or the
+chain will be reported as broken.
 
 ---
 
@@ -987,7 +989,7 @@ a scheduler tick, a service-task callback.
 | The rule runs and **does nothing** | it read `contextDataMap[...]` or `context.<ctx>.<alias>.data` and died on line 1 — the exception is swallowed into a FAILURE response, so all that exists is an error line in the executor log; or it guards itself with `service.security.hasAnyRoleGroup(...)` while the schedule has no `serviceUserId`, which returns **false** with no error; or it reads `param.x`, which is null in a headless rule | §2.1, §4.7. Fetch everything through `service.crud.*`; drop role guards from headless rules; set `serviceUserId`/`serviceUserEmail` on the schedule |
 | `service.workflow.start is not available in predicates …` | the start was written into the gate | split trigger / gate / action into three objects (§4.5); `validate` ERRORs on it |
 | `Could not find workflow with identifier '<id>'` (404) | the first argument is the workflow **name**, or a UUID from another project | use `rep-objects.workflows[].identifier`; `validate` ERRORs when the literal is not in `workflows[]` |
-| `Workflow '<id>' exists but is not deployed` (409) | import forced `deployed:false` — the normal state of **every** freshly imported project | open the BPMN editor and press **Deploy**; `validate` WARNs when the target is `deployed:false` |
+| `Workflow '<id>' exists but is not deployed` (409) | the archive marks it `deployed:false`, so it imported as a draft — or the engine refused its deploy on import (the import report names it) | mark it `deployed:true` and re-import, or press **Deploy** in the BPMN editor; `validate` WARNs when the target is `deployed:false` |
 | `service.workflow.start: the context data must be a map, got ArrayList` | `[]` was written where the empty map `[:]` belongs | `[:]` everywhere a map is meant — both `attrs` slots included |
 | `service.workflow.start: the context data map could not be read - …` | the document's shape does not bind (a list where an object belongs, a scalar under `crudDataMap`) | compare against §4.2; the three levels are `contextDataMap` → `crudDataMap` → `value` |
 | `Maximum number of active processes (N) reached for this project` | the project's process quota, not your code — usually the visible end of a per-tick duplicate storm | fix idempotency (§5) before raising the quota |
@@ -999,7 +1001,7 @@ a scheduler tick, a service-task callback.
 | A rule throws `No context found with alias: X` | the RULE does not list that context in its `contextIdentifiers` | attach the context, or address the CRUD as `service.crud.<alias>` |
 | A rule throws `No CRUD found with alias: X in context: Y` | the alias is not in that context's `crudAliases[]` | `context add-alias <ctx> <alias>` |
 | **A case per tick**, the queue grows forever, no error anywhere | there is no claim | §5 |
-| The whole chain works locally and not after import | the workflow was not re-deployed; **or** the process group identifier differs between the node and the rule; **or** `serviceUserEmail` names an account that does not exist in the TARGET tenant — nothing checks that it does | §3, §6 |
+| The whole chain works locally and not after import | the workflow came back a draft (marked `deployed:false`, imported with Deployment unticked, or its deploy refused — the report names it); **or** the process group identifier differs between the node and the rule; **or** `serviceUserEmail` names an account that does not exist in the TARGET tenant — nothing checks that it does | §3, §6 |
 | Mail from the case is in the wrong language | the start document carried no `localeKey`; or it carried a hard-coded one where the letters are addressed to a subject; or it read it with `getAttr("localeKey")`, which is always null — `localeKey` is a document FIELD, not an attribute | pass the subject's own language from the claimed row, or `context.contextData?.localeKey` when forwarding (§4.6, §6) |
 
 ---
@@ -1044,7 +1046,8 @@ Nothing offline runs a rule, so everything below stays green in a broken chain:
   `No CRUD data available for CRUD: <alias>` (§7);
 * **whether `serviceUserEmail` exists in the target tenant** — nothing checks, and the case ends up owned by an
   address nobody can log in as;
-* **whether the workflow was deployed after import** — it never is, until a human does it;
+* **whether the workflow was deployed after import** — the import deploys it only when the archive marks it
+  `deployed:true` and Deployment is ticked, and names it in the report when the engine refuses the diagram;
 * a `start(...)` whose first argument is a variable or a GString — deliberately unchecked.
 
 One item that looks like it belongs here does **not**: **whether a hand-authored SQL method declares every
@@ -1057,7 +1060,8 @@ run needed (§4.1).
 
 Follow [26](26-orchestration-and-testing.md) §5, with these steps added for this chain:
 
-1. Import. Open the **BPMN editor** and press **Deploy** on the workflow — every imported workflow is a draft.
+1. Import, with Deployment ticked. Check the workflow is deployed — a workflow marked `deployed:false`, or one the
+   import report names as refused, arrives a draft: open the **BPMN editor** and press **Deploy**.
 2. Confirm the process group exists and that the worklist node's `processGroupIdentifier` is the same string the
    rule passes. Both are visible offline; check them again here because the auto-creation path rewrites the node.
 3. Run the action rule **once, by hand**, from the rule editor before enabling any scheduler. Exactly **one**
@@ -1096,7 +1100,7 @@ Follow [26](26-orchestration-and-testing.md) §5, with these steps added for thi
 - [ ] Every process in the Phase 1 inventory carries a **"what starts it"** value: `FORM` / `SCHEDULER` /
       `CRUD METHOD` / `SERVICE TASK` (§1)
 - [ ] No workflow has both a start form and a rule that starts it — the two shapes are a choice, not a pair
-- [ ] The workflow exists, and the hand-over notes say **Deploy it after import** (§3)
+- [ ] The workflow exists and is marked `deployed:true`, and the hand-over notes say **check it is deployed after import** (§3)
 - [ ] `rep-objects.processGroups[]` carries the group, with the **same** identifier in the `process.table.pluin`
       node model, in its settings mirror and in the rule's `groupIdentifier` (§3, §6)
 - [ ] The worklist page exists, is linked in the left nav, and every column names a scope the starting rule

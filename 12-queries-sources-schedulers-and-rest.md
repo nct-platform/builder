@@ -284,15 +284,19 @@ This `identifier` is what nearly every query's `sourceIdentifier` points at, as 
 
 ### 2.4 What happens to sources on import (critical for building)
 
-On import:
+On an import that takes the **Database** part — only then are the project's sources replaced; otherwise the file's
+`sources` are only read, to re-link its queries and CRUDs to the project's own ([00](00-export-format-and-import.md)
+§Re-linking):
 
 1. **RIMM sources are excluded**: any source whose name starts with `RIMM_` is skipped. So the RIMM source **must not be put in the export** — it is recreated, and `project-db-meta.json` has a `rimmSourceIdentifier`, while queries reference the old RIMM `identifier` (see gotcha).
 2. **dbName is remapped**: the old `dbName` (from `project-db-meta.json.databaseName`) is replaced by the name of the new project DB.
-3. **INTERNAL credentials are rewritten**: `userName`/`password` of INTERNAL sources are replaced with the assigned project-level role. Whatever password string sits in the export is **ignored** on import. `EXTERNAL` — credentials are kept as-is.
+3. **INTERNAL credentials are rewritten**: `userName`/`password` of INTERNAL sources are replaced with the assigned project-level role. Whatever password string sits in the export is **ignored** on import. `EXTERNAL` — the export carries no password; the import keeps this project's own password when the project already had the very same connection (identifier, host, port, database, user), otherwise someone re-enters it.
 4. **hostName** is normalized by the execution platform after import.
 5. **SYSTEM/INTEGRATION sources** are created in place (filter them out on export), they are not in the export.
-6. **Integration data sources are rebound** (after the integrations are RUNNING):
-   every source identifier listed in `integrations.json.dataSourceIdentifiers` is pointed at THIS tenant's
+6. **Integration data sources are rebound** (after the integrations are RUNNING; on every import that takes the
+   pages, the database, the business logic or the integrations): every source identifier listed in
+   `integrations.json.dataSourceIdentifiers` — or, without that file, in `project-db-meta.json.integrationSources` —
+   is pointed at THIS tenant's
    `int_<realm>_<client>_<id>` schema — the imported row is repointed (host/port/db/schema/user/password), or
    recreated under the same identifier if the donor's row was an `INTEGRATION` one. Queries and chart embeds
    keep their `sourceIdentifier`, so they follow automatically. **Without this declaration a statically

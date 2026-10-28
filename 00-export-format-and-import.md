@@ -27,72 +27,119 @@ explicitly, but the target build scenario is dynamic. A breakdown of the two sty
 > **🔧 Tooling.** For these entities, run the [`tools/mrjun.py`](tools/mrjun.py) commands instead of manually
 > editing JSON: `unpack <f.mrjun> <dir>`, `pack <dir> <f.mrjun>`, `inspect`, `validate`.
 > The full index and rules are in [`tools/README.md`](tools/README.md); before re-importing, always run
-> `mrjun.py validate`.
+> `mrjun.py validate`. `inspect` opens with what the file carries, part by part, exactly as the Import dialog
+> will read it ([§Which parts a file carries](#which-parts-a-file-carries)).
+
+> **⚠️ An archive is made of PARTS.** The Export dialog writes exactly the parts its author ticks, and the Import
+> dialog replaces exactly the ticked parts the file carries — every other part of the target project stays as it
+> is ([§The Export and Import dialogs](#-the-export-and-import-dialogs--and-why-an-automated-import-must-set-them)).
+> So an archive may legitimately lack `branches.json`, the dump or any `rep-objects` key; what is absent is not
+> "none", it is "not in this file".
 
 > **⚠️ Two owners.** The base export layer (`tenant.json`, `branches.json`, `branch-metadata.json`, the zip
 > itself) belongs to the **CMS library** the platform embeds; everything else (`rep-objects`,
-> `project-db.dump`, `dynamic-cruds`, favicon, tenant-files) belongs to the **Dokie application**.
+> `project-db.dump`, `dynamic-cruds`, favicon, tenant-files, template-files, the history and audit files) belongs
+> to the **Dokie application**.
 
-> **⚠️ Key precondition (see Gotcha #12): the export and restore of `rep-objects`/DB work
-> only for projects with the tenant property `type == REPORT`.** A populated `rep-objects` plus a DB riding
-> in the dump is itself evidence that the source project was a REPORT project. If the target tenant on
-> import is **not** REPORT, the entire `rep-objects`/DB block is silently skipped, and only
-> `roleGroups`/`mailTemplates`/`pdfTemplates` are restored. When building by hand, target a REPORT tenant.
+> **⚠️ Key precondition (see Gotcha #12): only a project with the tenant property `type == REPORT` has every
+> part.** A project of any other type is offered — and exports — only Pages, forms and rules; Mail and PDF
+> templates; Roles and access; Integration services; Business logic — and even its Pages carry only the content
+> trees and files, never the rules, contexts, queries, forms or settings of `rep-objects`. A populated
+> `rep-objects` plus a DB riding in the dump is itself evidence that the source project was a REPORT project. If
+> the target tenant on import is **not** REPORT, everything but the content trees and files, the roles, the
+> templates and the business logic is silently skipped. When building by hand, target a REPORT tenant.
 
 ---
 
 ## Export shape — what's inside the archive
 
-`.mrjun` is a flat ZIP (entries relative to the root, no nested wrapper folder). After unpacking:
+`.mrjun` is a flat ZIP (entries relative to the root, no nested wrapper folder) of the **parts** its author ticked
+in the Export dialog. A full export, unpacked — each entry with the part (the dialog's box) it belongs to:
 
 ```
 <archive>/
-  tenant.json              ← base layer
-  branches.json            ← base layer — content trees of the branches
-  branch-metadata.json     ← base layer
-  rep-objects.json         ← rules, forms, contexts, queries, source, roles, mail, etc.
-  project-db.dump          ← JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1 format)
-  project-db-<db>.dump     ← dump of each ADDITIONAL distinct CRUD-source DB (multi-source projects)
-  project-db-meta.json     ← {databaseName (primary), databases:[…all], schemaPrefix, rimmSourceIdentifier} for remapping
-  dynamic-cruds.json       ← DYNAMIC ONLY — CRUD business-logic definitions
-  integrations.json        ← the execution-platform integrations (the `bl` deployable and any other)
-  favicon/                 ← favicon assets (tenant/{id}/favicon/*)
-  tenant-files/            ← tenant files (t/{id}/*: logos, avatars, etc.)
+  tenant.json              ← base layer — ALWAYS
+  branches.json            ← base layer — content trees of the branches            [Pages, forms and rules]
+  branch-metadata.json     ← base layer                                            [Pages, forms and rules]
+  rep-objects.json         ← one list per kind of object — ALWAYS; each key only with its part (§6)
+  project-db.dump          ← JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1) [Database]
+  project-db-<db>.dump     ← dump of each ADDITIONAL distinct CRUD-source DB        [Database]
+  project-db-meta.json     ← {databaseName, databases:[…], schemaPrefix, rimmSourceIdentifier} — the re-linking
+                             metadata, written with or WITHOUT the dump (§4)
+  dynamic-cruds.json       ← DYNAMIC ONLY — the CRUDs and the enumerations          [Business logic]
+  integrations.json        ← the execution-platform integrations                    [Integration services]
+  workflow-history.json    ← every version of every workflow, oldest first          [Version history]
+  processes.json           ← the project's processes, running and ended             [Processes]
+  process-audit-logs.json  ← the audit-log entries of those processes               [Process audit log]
+  data-audit-logs.json     ← the data change history: who changed which record      [Data change history]
+  favicon/                 ← favicon assets (tenant/{id}/favicon/*)                 [Pages, forms and rules]
+  tenant-files/            ← the project's own files (t/{id}/*)                     [Pages, forms and rules]
+  template-files/          ← the images the mail and PDF templates show            [Mail and PDF templates]
 ```
 
-Always present: `tenant.json`, `branches.json`, `branch-metadata.json`, `rep-objects.json`,
-`favicon/`, `tenant-files/`. Conditional:
+**Always present: `tenant.json` and `rep-objects.json` — and, from a REPORT project, `project-db-meta.json`.** Every
+other entry is there only when its part was ticked AND the project has something for it (a zip carries no empty
+folder):
 
-- `dynamic-cruds.json` **may be absent** (static only, or the project has no dynamic CRUD, or `bl` is not
-  deployed).
-- `integrations.json` is present when the project has integrations — and the bundled baseline already carries
-  one (the **Business Logic** integration). ⛔ **Keep it.** The import is two-pass: the integrations are
-  recreated and started FIRST, because importing `dynamic-cruds.json` binds each dynamic CRUD to a **running**
-  integration. Drop this file from a hand-assembled archive and the dynamic CRUDs have nothing to bind to.
-- `project-db.dump` + `project-db-meta.json` are present when at least one project DB is dumpable. The export
-  now dumps the **DISTINCT UNION** of the primary project DB (`projectDatabaseName`) **and every dynamic-CRUD's
-  own `sourceDb`**: the first → `project-db.dump`, each
+| Entry | Present when |
+|---|---|
+| `branches.json`, `branch-metadata.json` | Pages, forms and rules is ticked. Absent, an import leaves the target's pages, its published branch **and its languages** as they are |
+| `tenant-files/`, `favicon/` | Pages, forms and rules is ticked and the project has such files ([§8](#8-favicon-and-tenant-files)) |
+| `template-files/` | Mail and PDF templates is ticked and the templates show images ([§13](#13-template-files--the-images-the-templates-show)) |
+| `dynamic-cruds.json` | Business logic is ticked, the project has a dynamic CRUD or an enumeration, and its business logic could be read WHOLE (a file missing some CRUDs would delete them on import, so it carries none instead); absent too when `bl` is not deployed — a static project never has it ([§7](#7-dynamic-crudsjson--dynamic-only)) |
+| `integrations.json` | Integration services is ticked and the project has at least one integration (their data-source bindings travel in `project-db-meta.json` either way) ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)) |
+| `project-db.dump` (+ `project-db-<db>.dump`) | Database is ticked and at least one project database could be dumped |
+| `rimm-data.json` | legacy last resort: Database ticked and NOTHING was dumpable |
+| `project-db-meta.json` | every export of a REPORT project, Database ticked or not — it says whether the file carries the database (`database`) and what the other parts are re-linked through ([§4](#4-project-db-metajson)) |
+| `workflow-history.json` | Version history is ticked; also absent when the workflow service could not be read — the file then carries the current workflows only ([§10](#10-workflow-historyjson--every-version-of-every-workflow)) |
+| `processes.json` | Processes is ticked — the export FAILS rather than leave them out ([§11](#11-processesjson-and-process-audit-logsjson--the-projects-processes)) |
+| `process-audit-logs.json` | Process audit log is ticked (it needs Processes) |
+| `data-audit-logs.json` | Data change history is ticked (it needs Database) ([§12](#12-data-audit-logsjson--the-data-change-history)) |
+
+A part whose data could not be read when the file was made — the business logic, the mail or PDF templates, the
+integrations, the feature grants, the API endpoints — is left OUT rather than written empty (empty would delete the
+target's on import); when the file is ready, the Export dialog lists the business logic, templates or integrations it
+left out, and why.
+
+- `integrations.json` — the bundled baseline already carries one (the **Business Logic** integration). ⛔ **Keep
+  it.** When Integration services is imported, the integrations the target lacks are created and started, and the
+  dynamic CRUDs are bound to a **running** integration — in a second pass when one had to be brought up. Drop this
+  file from a hand-assembled archive and nothing brings an integration up for the CRUDs.
+- `workflow-history.json`, `processes.json`, `process-audit-logs.json` — ⛔ **never author or edit them**; see
+  [§10](#10-workflow-historyjson--every-version-of-every-workflow) and
+  [§11](#11-processesjson-and-process-audit-logsjson--the-projects-processes).
+- `project-db.dump` — the export dumps the **DISTINCT UNION** of the primary project DB (`projectDatabaseName`) **and
+  every dynamic-CRUD's own `sourceDb`**: the first → `project-db.dump`, each
   additional distinct source DB → `project-db-<db>.dump`, and `project-db-meta.json.databases[]` lists them all.
   This fixed the old data-loss bug where an export whose tenant snapshot lacked `projectDatabaseName` (async/tag
   export) — or whose CRUDs lived under a non-main source — fell through to the row-by-row `rimm-data.json` export,
   which dumps ONLY the RIMM schema and so shipped `tables:[]` (all CRUD data gone). `rimm-data.json` (legacy) is
-  now a **last resort** only when nothing is dumpable. A healthy export therefore always carries
+  now a **last resort** only when nothing is dumpable. A healthy export with the Database therefore carries
   `project-db.dump` **and** `project-db-meta.json` together — if you see `rimm-data.json` instead, the dump path
   failed and data is missing.
 
-**⚠️ The `type==REPORT` gate.** The contents of `rep-objects.json` (`sources`, `queries`, `schedulers`,
-`workflows`, `rules`, `contexts`, `formGroups`, `forms`, `settings`, `processGroups`) are assembled
-**only** when the tenant property `type` is `REPORT`. If the tenant type is not
-REPORT, all of these keys are exported as **empty arrays**; only `roleGroups`,
-`userRoleGroupAssignments`, `mailTemplates` and `pdfTemplates` are assembled unconditionally. So a `rep-objects.json` that is
-populated at all came from a REPORT-type tenant — and an all-empty one is the first symptom to check.
+**What an export nobody chose carries.** A project created from a template, a version-tag snapshot and an
+environment copy export **everything except Processes, Process audit log and Data change history** — none of them is a
+copy of a running project, and a template would hand one project's cases and change history to every project created
+from it. Their import takes every part the file carries except those three, restores the database **additively**
+(it never empties a schema), and never recreates an integration or rebuilds a table.
 
-**⚠️ A malformed rep-object aborts the whole import — same symptoms as a non-REPORT target.** Even against a REPORT
-tenant, if any rep-object fails Jackson deserialization while reading `rep-objects.json`, the exception aborts the
-entire REPORT-path block: **contexts,
-sources, and `project-db.dump` are all skipped**, and the dynamic-CRUD replay (a separate `bl/execute/importCruds`
-path) still runs. Because ONE bad object skips the WHOLE block, the symptoms are **scattered and data-shaped, not
-error-shaped** — they show up together:
+**⚠️ The `type==REPORT` gate.** The `rep-objects.json` keys `sources`, `queries`, `rules`, `contexts`,
+`formGroups`, `forms`, `settings`, `schedulers`, `workflows`, `processGroups` and `apiExposures` are written **only**
+when the tenant property `type` is `REPORT`. A project of any other type leaves every one of them **out** (an older
+platform wrote them as empty arrays); only `roleGroups`, `userRoleGroupAssignments`, `featureAccesses`,
+`mailTemplates` and `pdfTemplates` are written for any type — each with its part. So a `rep-objects.json` that holds
+rules or queries at all came from a REPORT-type tenant — and one that lacks them although `branches.json` is there is
+the first symptom to check.
+
+**⚠️ A malformed rep-object fails the whole import — before anything changes.** Even against a REPORT tenant, if any
+rep-object fails Jackson deserialization while reading `rep-objects.json`, the import stops before it touches the
+project — not one page, source, rule or row is replaced — and ends **Import failed** with *"The file's
+rep-objects.json could not be read (<the Jackson message>). Nothing has been changed."*; the file is kept and Retry
+runs it again. The same happens when the import cannot read the project to decide what it replaces, or cannot remove
+what it replaces. An older platform skipped the block instead and reported success, and the symptoms were
+**scattered and data-shaped, not error-shaped** — they show up together, and on the current platform they point at
+the other causes in the right column:
 
 | Symptom (in the app / business-logic UI) | Actually caused by |
 |---|---|
@@ -100,12 +147,14 @@ error-shaped** — they show up together:
 | The project's context (whatever you named it) shows **no CRUDs**; rules fail at runtime with `No CRUD found with alias X in context Y` | **Two causes.** (a) the context rep-object (its `crudAliases`) was never saved — cruds carry **no** context reference, so `crudAliases` is the ONLY crud↔context link (see [08](08-groovy-rules-and-context.md)). (b) **the dominant cause even for a byte-correct export:** the import STRIPPED `crudAliases`. Each dynamic-CRUD delete/recreate fires `crud.unregister`, which removes the CRUD's alias from every context, and `crud.register` never re-adds it; the inline import path self-heals but the pass-2 dynamic-CRUD import (the orchestrator REIMPORTING stage — every empty→dynamic and every re-import) historically did NOT, leaving `crudAliases=[]`. **Fix:** re-save the context in the Contexts UI (writes `crudAliases` straight to the entity), or import on a build where the pass-2 dynamic-CRUD import snapshots+restores `crudAliases`. Do NOT "fix" the export — the linkage is already correct. |
 | All data / dates "gone" | `project-db.dump` was not restored |
 
-All three at once ⇒ suspect **one deserialization abort**, not three separate bugs; find the Jackson stack in
-`log/ui.log` (`Cannot deserialize … from …`). The gotcha we actually hit: `rep-objects.settings[].content` is a
+All three at once after an import that reported success (an older platform) ⇒ suspect **one deserialization
+abort**, not three separate bugs; find the Jackson stack in `log/ui.log` (`Cannot deserialize … from …`). The gotcha
+we actually hit: `rep-objects.settings[].content` is a
 Jackson **`ObjectNode` (JSON object)**, NOT a string — a JSON *string* there throws `MismatchedInputException:
 Cannot deserialize ObjectNode from String value` (at `settings[].content`). It is
-the exact inverse of the node's `properties.model.stringValue`, which IS a string. **The failure is only visible in
-`log/ui.log`**, not in `mrjun.py validate` output (validate now ERRORs on a string `content` AND on any rep-object
+the exact inverse of the node's `properties.model.stringValue`, which IS a string. **The import's failure names only
+the Jackson message; the stack is in `log/ui.log`**, and
+`mrjun.py validate` sees it only partly (validate ERRORs on a string `content` AND on any rep-object
 field that is a string where the same field is an object/array elsewhere — but it does not deserialize into the
 DTOs, so a live import + `log/ui.log` scan remains the real test). Don't be misled by `Saved Context … {id}` — that
 log prints the DB **id** (freshly assigned; `id=null` on export), not the `identifier`, which is preserved. Prefer
@@ -113,11 +162,48 @@ log prints the DB **id** (freshly assigned; `id=null` on export), not the `ident
 
 ### File write order on export
 
-1. **The base export** creates a temp folder (UUID), writes `tenant.json`, `branches.json`,
-   `branch-metadata.json`, then calls the application hook that appends its own files, then zips the folder.
-2. **The application hook** appends into the same
-   folder: `rep-objects.json`, `project-db.dump` + `project-db-meta.json`
-   `tenant-files/`, `favicon/`, `dynamic-cruds.json`.
+1. **The base export** creates a temp folder (UUID), writes `tenant.json` — and, with Pages, forms and rules,
+   `branches.json` + `branch-metadata.json` — then calls the application hook that appends its own files, then zips
+   the folder (files only: an empty folder does not reach the zip).
+2. **The application hook** appends into the same folder, part by part in the dialog's order (the order the
+   export's progress names them in): the content's lists and `sources` (held for `rep-objects.json`),
+   `tenant-files/` + `favicon/`; the templates' lists and `template-files/`; the roles; the API endpoints, the
+   schedulers, the workflows — then **`rep-objects.json`**, once every part has put its keys there; then
+   `workflow-history.json`, `processes.json` (+ `process-audit-logs.json`); `integrations.json`;
+   `project-db.dump` (+ `project-db-<db>.dump`, or the legacy `rimm-data.json`) and `project-db-meta.json`;
+   `data-audit-logs.json`; `dynamic-cruds.json`.
+
+### Which parts a file carries
+
+The Import dialog decides it from **the file itself** — there is no manifest. A part whose evidence is missing is
+drawn **"Not in this file"**, disabled and unticked, and is never imported: the target keeps its own. This is also
+how an archive exported before the parts existed, and one assembled by hand, is read — as carrying exactly what it
+does carry. The evidence, part by part (`mrjun.py inspect` prints the same reading):
+
+| Part | Carried when the file has |
+|---|---|
+| Pages, forms and rules | `branches.json` |
+| Mail and PDF templates | a `mailTemplates` **or** a `pdfTemplates` list in `rep-objects.json` |
+| Roles and access | a `roleGroups` list |
+| Public API endpoints | an `apiExposures` list — `null` reads exactly as absent; `[]` IS carried (and deletes every endpoint) |
+| Schedulers | a `schedulers` list |
+| Workflows | a `workflows` list |
+| Version history | `workflow-history.json` |
+| Deployment | any workflow version marked `deployed: true` — in `workflow-history.json` when the file has it, else in `rep-objects.workflows` |
+| Processes | `processes.json` |
+| Process audit log | `process-audit-logs.json` |
+| Integration services | `integrations.json` |
+| Database | `project-db-meta.json` → `"database": true`. A file whose meta lacks that key (older exports, the baseline): `project-db.dump` **together with** `project-db-meta.json`, or the legacy `rimm-data.json`, or any source in `rep-objects.sources` not named `RIMM_*`. A dump without its meta is NOT a database ([§4](#4-project-db-metajson)) |
+| Data change history | `data-audit-logs.json` |
+| Business logic | `dynamic-cruds.json` |
+
+A part is offered only together with the parts it needs (Version history and Deployment need Workflows; Processes
+need Version history **and** Deployment; Process audit log needs Processes; Data change history needs Database): a
+file with `processes.json` but no `workflow-history.json` carries processes nobody can tick, and their switch says so —
+*"Needs version history, not in this file"*. An entry whose JSON cannot be read is evidence of nothing: the part it
+would carry is "Not in this file", and the rest of the file is still offered. A file that carries nothing the project
+can take is refused outright — *"This file is not a project export, or it is damaged: nothing in it can be
+imported."*
 
 ---
 
@@ -236,29 +322,45 @@ base-layer file and node ids are **not** remapped on import — they are preserv
 
 ### 4. `project-db-meta.json`
 
-Metadata for DB remapping on import:
+Metadata for DB remapping on import — what the archive says about the storage of the project it came from, and
+whether it carries that project's database at all. Written by **every** export of a REPORT project, **whether or not
+the Database was ticked**: an import that takes the pages or the business logic without the database still re-points
+their SQL and their data sources through it ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)).
+Without a dump, `databases` is `[]` and `databaseName` names the project's own database.
 
 ```json
 {"databaseName":"org_<realm>_<hash>",
  "databases":["org_<realm>_<hash>"],
  "schemaPrefix":"<realm>_<client>_<hash>",
- "rimmSourceIdentifier":"74f8ea9d-9e06-4a05-9f89-3144d3321e18"}
+ "rimmSourceIdentifier":"74f8ea9d-9e06-4a05-9f89-3144d3321e18",
+ "database":true,
+ "businessSchemas":["<realm>_<client>_<hash>_app"],
+ "integrationSources":[{"name":"erp","dockerImage":"dokie/erp","external":false,
+                        "dbSchemaName":"int_<realm>_<client>_5557500e",
+                        "dataSourceIdentifiers":["d403c908-…"],"dataSourceNames":["<source-name>"]}]}
 ```
 
 | Field | Type | Meaning | Required |
 |---|---|---|---|
 | `databaseName` | string | Name of the donor's project DB. On the current storage model one database holds a whole **organisation** and each project is a set of prefixed schemas inside it, so this is an org-level name — not `prj_<realm>_<client>`. Used to remap `dbName` in source rows and to locate the RIMM schema in the dump | yes |
-| `databases` | array | every database the archive carries a dump for (a multi-source project has more than one) | yes |
+| `databases` | array | every database the archive carries a dump for (a multi-source project has more than one); `[]` without a dump | yes |
 | `schemaPrefix` | string | **the DONOR's schema prefix.** This is the single field that tells the import which of the dump's schemas belong to this project; the import renames each one into the RECIPIENT's own prefix. A schema you add to the dump by hand must carry it. Absent only for a legacy donor whose schemas were unprefixed — the import then infers the prefix from the dump's own `_system`/`_rimm`/`_data` names | yes, whenever the dump's schemas are prefixed |
-| `rimmSourceIdentifier` | string(uuid) | identifier of the RIMM-source source. Written **only if** a RIMM source was found. On import, old `query.sourceIdentifier == this` → remapped to the new RIMM source | no (only if a RIMM source exists) |
+| `rimmSourceIdentifier` | string(uuid) | identifier of the RIMM-source source. Written **only if** a RIMM source was found. On import, old `query.sourceIdentifier == this` → remapped to the project's own RIMM source (every import has one under a new identifier) | no (only if a RIMM source exists) |
+| `database` | boolean | **whether the archive carries the Database part.** The import trusts it over any other evidence ([§Which parts a file carries](#which-parts-a-file-carries)) — `true` even when nothing could be dumped, `false` while the file still has data sources (they travel with the pages and the business logic too, for re-linking). Absent from every archive written before the parts existed | no — absent: the import reads the file as an older one |
+| `businessSchemas` | string[] | the schemas the business logic reads — the ONLY ones a database replace may empty or drop when the archive carries no `dynamic-cruds.json` (with it, the CRUDs' `sourceSchema` decide). Written when the database is exported and those schemas could be read | no |
+| `integrationSources` | array | per integration that provides data sources, its binding fields — `name`, `dockerImage`, `external`, `dbSchemaName`, `dataSourceIdentifiers`, `dataSourceNames`, the same shape as an `integrations.json` entry ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)). What the import binds those sources through when the archive has no `integrations.json`. Written whenever any integration provides data sources | no |
 
 See [10-database-management.md](10-database-management.md) §"Import-time source materialization" — the two
 sections describe one file and must not drift.
 
-**⚠️ DB staging requires BOTH files.** The import stages the dump only when
-both files exist.
-If at least one is absent — the DB is **not** staged and not restored. When building by hand, write
-`project-db.dump` and `project-db-meta.json` as a pair.
+**⚠️ The Database part.** A file with `"database"` in its meta carries the Database exactly when that says `true`.
+A file without the key (every older export, and the bundled baseline) carries it when `project-db.dump` and
+`project-db-meta.json` are both there, or the legacy `rimm-data.json`, or `rep-objects.sources` holds any source not
+named `RIMM_*` — an older archive whose database could not be dumped imports its data sources as it always did. A dump
+without its meta is never staged nor restored. When building by hand, write `project-db.dump` and
+`project-db-meta.json` as a pair; to ship an archive that leaves the target's database alone, write `"database": false`
+(what an export writes with Database unticked) — removing the dump alone is not enough while `sources` holds a source
+of the project's own.
 
 ### 5. `project-db.dump` — the `nct-jdbc-dump-v1` format
 
@@ -377,22 +479,51 @@ Management plugin — in [10-database-management.md](10-database-management.md).
 
 ### 6. `rep-objects.json` — object
 
-All project objects except content and DB. Fields in this order. 14 keys **always present** (may be empty arrays), plus a
-15th, `apiExposures`, that only an export of a live project writes:
+All project objects except content and DB, one list per kind. **Every key is optional and belongs to one part**
+([§Which parts a file carries](#which-parts-a-file-carries)): an export writes the keys of the parts it was asked
+for — each list complete, `[]` when the project has none — and leaves every other key **out** (never `null`, never
+`[]`). An archive written before the parts existed carries all of them. The keys, by part (their order in the
+file means nothing):
 
 ```
-sources, queries, schedulers, workflows, rules, contexts, formGroups, forms,
-settings, processGroups, roleGroups, userRoleGroupAssignments, mailTemplates, pdfTemplates,
-apiExposures        <- optional; LEAVE IT OUT of anything you author (below)
+rules, queries, sources, contexts, formGroups, forms, settings,   <- Pages / Business logic / Database (below)
+mailTemplates, pdfTemplates,                                     <- Mail and PDF templates
+roleGroups, userRoleGroupAssignments, featureAccesses,          <- Roles and access
+apiExposures,                                                    <- Public API endpoints — LEAVE IT OUT of anything you author (below)
+schedulers,                                                      <- Schedulers
+workflows, processGroups                                         <- Workflows
 ```
+
+What each key does on import — **"evidence"** marks the keys that decide whether their part is carried at all; for
+the others the part's evidence is elsewhere (`branches.json`, the dump, `dynamic-cruds.json`), and once that part is
+imported an **absent key means "none"**, not "keep the target's":
+
+| Key | Part | When its part is imported |
+|---|---|---|
+| `sources` | Database — and written with Pages or Business logic too, as what their references are re-linked through | with Database: the target's sources are replaced by the list (a live integration's own rows are kept unless its integrations are recreated). Without it the list is only READ, to re-link ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)) |
+| `rules`, `queries` | split: the ones a dynamic-CRUD method names (`ruleIdentifier` / `queryIdentifier`) belong to **Business logic**, every other one — hidden ones included — to **Pages, forms and rules** | each half replaces the target's same half; the other half stays |
+| `contexts`, `formGroups`, `forms`, `settings` | Pages, forms and rules | replaced |
+| `mailTemplates` | Mail and PDF templates — **evidence** (either list) | a non-empty list replaces EVERY mail template of the target (the four system ones are put back if it lacks them); `[]` clears them in a REPORT project (the system ones are re-created) and leaves them in any other; absent = the target's mail templates stay |
+| `pdfTemplates` | Mail and PDF templates — **evidence** (either list) | a NON-EMPTY list replaces every PDF template; `[]` or absent = the target's stay |
+| `roleGroups` | Roles and access — **evidence** | reconciled **by name**: a group on both sides keeps its id and its members and takes the file's roles; a new one is created; one the list lacks is DELETED with everyone's membership of it (Author and Developer never) |
+| `userRoleGroupAssignments` | Roles and access | ADDED to what each member already holds — never removed; the member is found by external id, else by `userEmail` |
+| `featureAccesses` | Roles and access | absent = the target's grants stay; a list REPLACES every grant — a feature it does not name is granted to no group; `[]` takes every grant away |
+| `apiExposures` | Public API endpoints — **evidence** (a list; `null` = absent) | reconciled by `identifier` as ONE list — see the box below |
+| `schedulers` | Schedulers — **evidence** | replaced |
+| `workflows` | Workflows — **evidence** | replaced; the target's processes go with its workflows |
+| `processGroups` | Workflows | replaced |
+
+⛔ **The rule for a hand-built archive: write every key of every part it carries; leave a key out only together
+with its part.** An archive with `branches.json` and no `settings` key does not keep the target's settings rows — it
+removes them and brings none, and every plugin that reads its settings on the backend comes up empty.
 
 > ⛔ **`apiExposures` — the project's public API endpoints — is the one key whose ABSENCE is the safe value.**
-> An export of a REPORT project writes it (as `null` when the export could not read the endpoints, and for any
-> other project type), and an import reads it like this:
+> An export writes it when Public API endpoints is ticked (a REPORT project only; it is left out when the export
+> could not read the endpoints), and an import reads it like this:
 >
 > | in the archive | on import |
 > |---|---|
-> | absent, or `null` | the target's API endpoints and their key bindings are left exactly as they are |
+> | absent, or `null` | the target's API endpoints and their key bindings are left exactly as they are — the part is "Not in this file" |
 > | a list | the target's endpoints become exactly that list — matched by `identifier`; the ones not listed are **deleted with their key bindings** |
 > | `[]` — what a project with no endpoints exports | ⛔ **every endpoint of the target is deleted, with every key binding** |
 >
@@ -404,14 +535,12 @@ apiExposures        <- optional; LEAVE IT OUT of anything you author (below)
 > and a list until it is gone. An entry may carry `aiDescriptions` — the texts for AI assistants, one per
 > operation; absent or `null` there keeps the target's, `{}` clears them ([32](32-public-api.md) §3.16, §6).
 
-(`pdfTemplates[]` — a PDF-template object, `id` nulled on export like the rest — is exported for **all**
-project types, and imported for all types alongside `roleGroups`/`mailTemplates` (not gated on REPORT); see
-[15](15-pdf-and-mail.md).)
+(`mailTemplates[]`/`pdfTemplates[]`, `roleGroups[]`, `userRoleGroupAssignments[]` and `featureAccesses[]` travel for
+**all** project types, and are imported for all types (not gated on REPORT); see [15](15-pdf-and-mail.md).)
 
 **⚠️ Population is gated on `type==REPORT`.** `sources/queries/schedulers/workflows/rules/contexts/
-formGroups/forms/settings/processGroups` are populated only if the tenant is REPORT-type
-(see §Export shape). `roleGroups`/`userRoleGroupAssignments`
-`mailTemplates` are assembled for any type.
+formGroups/forms/settings/processGroups/apiExposures` are written only if the tenant is REPORT-type — for any other
+type they are absent (see §Export shape).
 
 **⚠️ `id` is nulled, but the KEY IS PRESENT as `null`.** On export, each object's `id` is set to null, which serializes the field as `"id": null` — the key is **not
 removed**. Check it yourself on any export: `jq '.rules[0]|has("id")'` == `true`, `.rules[0].id` == `null`
@@ -441,7 +570,8 @@ Sub-object schemas (verified by the SPEC, details in the topical docs):
 | `settings` | a settings object | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `processGroups` | a process-group object | [07-...](07-workflows-and-tasks.md) |
 | `roleGroups` | a role-group object (id is **not** nulled on export — the only exception to the id=null rule) | [12-...](12-queries-sources-schedulers-and-rest.md) |
-| `userRoleGroupAssignments` | `{userId, roleGroupId, roleGroupName}` | — |
+| `userRoleGroupAssignments` | `{userId, userEmail, roleGroupId, roleGroupName}` — `userId` is the member's external id in the DONOR's realm; `userEmail` is what finds the member in a project on another realm. Bound by `roleGroupName` | [12-...](12-queries-sources-schedulers-and-rest.md) |
+| `featureAccesses` | `{feature, roleGroups[]}` — who may use which feature (Settings → Accesses): `feature` is the feature's NAME (`USER_MANAGEMENT`, `ROLE_MANAGEMENT`), `roleGroups` the group names. A name this platform does not know is skipped on import, never refused | — |
 | `mailTemplates` | a mail-template object | [12-...](12-queries-sources-schedulers-and-rest.md) |
 | `pdfTemplates` | a PDF-template object (`id` nulled on export; saved into the PDF service on import for **all** project types) | [15-pdf-and-mail.md](15-pdf-and-mail.md) |
 | `apiExposures` | one public API endpoint: `kind`, `name`, `slug`, `enabled`, `tableUid`, the operations and actions switched on, who calls act as — or, for a rule call (`kind:"RULE"`, no table), its `operations` (method, path, rule identifier, inputs) and the `roleGroups` it is open to; `aiDescriptions` — one text per operation, for AI assistants; never a credential (`id` nulled, `identifier` kept). **Optional — leave it out** | [32-public-api.md](32-public-api.md) |
@@ -477,12 +607,13 @@ Rather than memorising numbers, know what each list scales with — that is how 
 | `queries` | **CRUDs × SQL methods** in a dynamic project (hundreds); a handful of hand-written ones in a static project |
 | `schedulers` | scheduled queries only — usually 0 |
 | `workflows` | one per BPMN process |
-| `rules` | Groovy authored by hand; hidden CRUD-method rules are **excluded** |
+| `rules` | Groovy authored by hand, plus one hidden rule per GROOVY method of a dynamic CRUD (with Business logic) and the hidden rules autocomplete controls and tree settings generate for themselves (with Pages) |
 | `contexts` | usually exactly 1 per project |
 | `formGroups` / `forms` | the number of authored form pages |
 | `settings` | one per settings-bearing plugin node |
 | `processGroups` / `roleGroups` / `mailTemplates` | the baseline defaults plus whatever you add |
 | `userRoleGroupAssignments` | number of users with an explicit role-group binding |
+| `featureAccesses` | one per feature that has a grant (Settings → Accesses) — at most the platform's features |
 | `apiExposures` | absent from anything you author; in an export of a live project, the API endpoints configured there |
 
 **Why a dynamic project has hundreds of queries**: every **SQL method** of a dynamic CRUD references a saved
@@ -491,21 +622,28 @@ Rather than memorising numbers, know what each list scales with — that is how 
 So *queries ≈ CRUDs × 6* plus any hand-written ones. Breakdown in
 [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md).
 
-**Hidden rules are absent from rep-objects**: the rules export filters out `hidden=true`, so `rules[]`
-never contains one. Hidden Groovy rules of CRUD methods are **recreated** on
-import separately (see §Import).
+**Hidden rules ARE in rep-objects — and the `hidden` flag says nothing about whose they are.** The export carries
+every rule, hidden ones included, and splits `rules[]` and `queries[]` by **who names them**: the rule a GROOVY CRUD
+method runs (its `ruleIdentifier`) and the query a SQL method is edited through (its `queryIdentifier`) travel with
+**Business logic**; every other rule and query — the hidden ones an autocomplete control or a tree's settings generate
+for themselves among them — travels with **Pages, forms and rules**. So an export of the pages alone carries no
+`crud_<alias>_<method>` rule or query, and one of the business logic alone carries nothing else. An archive built
+by hand carries no hidden CRUD-method rule at all: the import creates it from the method's own `script`
+([§The hidden Groovy rule](#the-hidden-groovy-rule)).
 
 ### 7. `dynamic-cruds.json` — **DYNAMIC only**
 
-Present only if the system CRUD `bl` (dynamic-integration) is deployed and returned a non-empty
-list. Present in dynamic projects; **absent** in static ones and in the
-empty baseline. Top level:
+The **Business logic** part. Written when it is ticked, the system CRUD `bl` (dynamic-integration) is deployed,
+and the project has a dynamic CRUD or an enumeration. Present in dynamic projects; **absent** in static ones and in
+the empty baseline. Top level:
 
 ```json
-{ "exportVersion": 1, "cruds": [ { CRUD }, ... ] }
+{ "exportVersion": 1, "cruds": [ { CRUD }, ... ], "enums": [ { enumeration }, ... ] }
 ```
 
-`exportVersion` is `1`, and `cruds[]` holds one entry per CRUD. One full CRUD:
+`exportVersion` is `1`, `cruds[]` holds one entry per CRUD (`[]` in a project that has enumerations and no CRUD),
+and `enums[]` — optional — the enumerations (below). Imported, the business logic is a **clean slate**: every
+dynamic CRUD of the target is deleted and the file's are created. One full CRUD:
 
 ```json
 { "alias": "equipment_event_types_cruid",
@@ -601,9 +739,45 @@ The full CRUD recipe (dtoFields, filterFields, the standard set of methods) —
 [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md); queries —
 [12-queries-sources-schedulers-and-rest.md](12-queries-sources-schedulers-and-rest.md).
 
+#### `enums[]` — the enumerations
+
+The enumerations the CRUD fields are typed with (a field's `fieldType` names one). Optional: absent from every
+archive written before they travelled.
+
+```json
+{ "name": "invoice_status", "kind": "FREE", "baseType": "STRING",
+  "extraFieldDefs": [ { ... } ],
+  "values": [ { "name": "DRAFT", "intCode": null, "displayName": "Draft",
+                "extras": { "<extra field>": "<value>" },
+                "localizations": { "hy_AM": { "displayName": "<text>" } },
+                "valueOrder": 0 } ] }
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | the enumeration's name — what a field's `fieldType` and `service.enums['<name>']` refer to |
+| `kind` | `FREE` — a list kept by the business logic itself (absent = `FREE`); `DB` — mirrors a PostgreSQL enum type, whose definition travels in the dump (`enumTypes[]`) |
+| `baseType` | `STRING` or `INTEGER` (then each value carries an `intCode`) |
+| `sourceSchema`, `sourceType` | `DB` only: the schema and the type it mirrors |
+| `extraFieldDefs` | the extra columns each value carries in `extras` |
+| `values[]` | `name` (the constant; fixed for a `DB` one), `intCode`, `displayName`, `extras`, `localizations` (`{locale → {field → text}}`), `valueOrder` |
+
+On import, with Business logic — and before the CRUDs, which no longer use any by then:
+
+| in the archive | on import |
+|---|---|
+| absent | the target's enumerations are left as they are |
+| a list | it replaces the target's: a `FREE` one is replaced whole, values and all; a `DB` one is materialised over the type the database already has (it cannot be deleted while the type exists) and its values take the file's labels, extras, translations and order; a `FREE` enumeration the list lacks is **deleted**. A name that is `FREE` in the file but `DB` in the target is left as it is, and the report says so |
+| `[]` | every `FREE` enumeration of the target is deleted |
+
+So a FREE enumeration **can** be authored by hand now: write it here, with its values, and type the field with its
+`name`.
+
 ### 8. `favicon/` and `tenant-files/`
 
-Flat file trees (binaries). Both are copied recursively on export and import.
+Flat file trees (binaries) of the **Pages, forms and rules** part: copied recursively on export when it is
+ticked, and on import when it is taken — files are ADDED and OVERWRITTEN, never deleted, so a file the target has and
+the archive lacks stays. Unticked, the import leaves both folders out of the archive before reading it.
 
 - `favicon/` ← from the storage `tenant/{tenantId}/favicon`; on import placed in
   `tenant/{newTenantId}/favicon`. Several dozen files: `favicon.ico`
@@ -620,14 +794,23 @@ Flat file trees (binaries). Both are copied recursively on export and import.
   (`fixed/90-60/logo1.png`), the 404 image (`fixed/400-250/404.png`), avatars
   (`{id}/profile/camera_*.png`).
 
-⚠️ `tenant-files/` sometimes contains a stray `project-db.dump` — an artifact of import staging:
-the import temporarily puts the dump in `t/{tenantId}/project-db.dump`, and if the source tenant was itself imported the file lingers there. When building
-by hand, `tenant-files/*.dump` files can be ignored.
+⚠️ What `tenant-files/` does NOT carry: the project's version-tag snapshots (`t/{tenantId}/tags/…`, each one a
+whole `.mrjun` holding every earlier one) and a database dump an earlier import left at the top of the project's
+files (`project-db.dump`, `project-db-<db>.dump` — the import stages the dump there). The current export leaves
+both out; an archive exported before may still carry `tenant-files/tags/` and a stray `tenant-files/*.dump` — delete
+them from a base you build on: they are junk, and heavy.
 
 ### 9. `integrations.json` — the project's integrations, and the data sources they provide
 
-An **array** of the project's execution-platform integrations. On import they are recreated and started BEFORE
-`dynamic-cruds.json` is replayed, and their data sources are bound (below).
+An **array** of the project's execution-platform integrations — the **Integration services** part. Imported, the
+ones the target does not have yet are created and started (always at the registry's latest version) and the dynamic
+CRUDs are bound to a running one — after the object import, in a second pass, when an integration had to be brought
+up; before it when the table structure is rebuilt. Unticked, no integration is created, recreated or waited for. The
+data sources they provide are bound (below) on every import that takes the pages, the database, the business logic or
+the integrations — whether or not Integration services is ticked, because the charts that read an integration's data
+come with the pages — from `integrations.json`, or, when the archive has none, from the same binding fields
+`project-db-meta.json` carries in `integrationSources` ([§4](#4-project-db-metajson)). An import of the templates or
+the roles alone binds nothing.
 
 ```json
 [{ "identifier": "5557500e-…",        // the DONOR's id — the target mints its own
@@ -680,144 +863,475 @@ legitimate deployment and keeps importing exactly as before. Idempotent.
 > the target already runs **under a different name** reuses that pod instead of creating a duplicate
 > (two pods of one type answer the same CRUD aliases).
 
+### 10. `workflow-history.json` — every version of every workflow
+
+```json
+{ "versions": [
+  { "id": "6f0c…",                       // the DONOR's version id — what processes.json binds to; the target mints its own
+    "identifier": "<workflow-identifier>", // the same identifier as in rep-objects.json
+    "name": "…", "description": "…", "contextIdentifiers": ["…"],
+    "bpmnContent": "<definitions …>",
+    "deployed": true,                      // deployed on the donor → deployed again on import (with Deployment)
+    "latest": false,                       // true on the workflow's current version — the one rep-objects.json carries
+    "workflowStatus": "ACTIVE",            // DELETED on a deleted workflow's versions
+    "creationTime": "2026-05-01T10:15:30Z" } ] }
+```
+
+The **Version history** part (it needs Workflows). Oldest first. An export that leaves **Deployment** out writes
+every version — here and in `rep-objects.workflows` — as `deployed: false`, so the file then says nothing was
+deployed. On import (REPORT only, Version history ticked) every version of each workflow `rep-objects.json` also has
+comes back in this order, and — with Deployment ticked — each one marked `deployed` is deployed again (unticked,
+every version comes back a draft) — so a process comes back on the version it was
+started on, and a call activity reaches the callee version it reached on the donor. A deploy the engine refuses
+is named in the import's report, and that version comes back undeployed. A **deleted** workflow's versions
+(`workflowStatus: "DELETED"`) come back as rows only, never deployed: deleting a workflow deleted its deployments,
+and deployed again its timer or message start events would start cases again. A workflow whose current version
+the restore could not bring back (named in the report) is imported from `rep-objects.json` instead, as it would
+have been without the history — it is never lost with its versions.
+
+⛔ **Change a workflow in `rep-objects.json`, never here.** `rep-objects.json` keeps the last word on each
+workflow's current version: when its row differs from this file's current one (`latest: true`) — name,
+description, BPMN, contexts or the `deployed` mark — the import saves it on top, as the newest version, and
+deploys it when it is marked `deployed: true`. A workflow taken out of `rep-objects.json` does not come back from
+its history; a workflow only `rep-objects.json` has imports as it always did. Deleting the whole file is legal
+(and so is unticking Version history): the workflows then come back from `rep-objects.json` alone, current versions
+only — and Processes can no longer be ticked, because no process would have a version to land on.
+
+### 11. `processes.json` and `process-audit-logs.json` — the project's processes
+
+```json
+{ "processes": [
+  { "identifier": "…",                    // KEPT on import: business data and audit entries name it
+    "workflowVersionId": "6f0c…",         // a workflow-history.json "id" — the version it was started on
+    "workflowIdentifier": "…", "workflowName": "…", "groupIdentifier": "…", "businessKey": "PO-1",
+    "status": "STARTED",                  // or COMPLETED, CANCELED, …
+    "paramsToFilter": {}, "contextData": {}, "data": {},
+    "accesses": [], "snapshots": [],      // who may see it; its node-by-node history
+    "runtime": {} } ] }                   // ONLY on a running process: where it waits, its variables, tasks, timers
+```
+
+`process-audit-logs.json` is `{"logs": [ … ]}`: the audit-log entries that name one of those processes, oldest
+first.
+
+The **Processes** part (it needs Version history and Deployment) and the **Process audit log** part (it needs
+Processes). ⚠️ An import that takes **Workflows** removes the target's processes with its workflows, whatever the
+Processes box says — only the file's come back, and only with Processes ticked; an import that leaves Workflows
+unticked leaves the target's processes alone. The import takes them only into a REPORT project, and as the very LAST
+step of the whole import — after the integrations and their CRUDs — because a restored process may be due at once
+and its next step calls what the rest of the import brings in
+([order](#how-import-restores-it-operation-order-and-id-remapping), the last step):
+
+- a **running** process comes back where it waited, on the version it was started on, and nothing it already did
+  runs again: its tasks keep assignee, owner, priority and due date; its variables keep their types; its timers are
+  due when they were due on the donor (one that fell due in the meantime fires right after the import), a repeating
+  one keeps its cycle and the repetitions it has left, and a reminder that had already fired does not fire again;
+  an asynchronous user task comes back entered, or still queued if it was; a failed step stays failed; a suspended
+  process — or the process it called — stays suspended; and its next rule step runs as the user who completed its
+  last task on the donor, as it would have there;
+- an **ended** one comes back as an ended row with its data and its node history;
+- then — with Process audit log ticked — their audit-log entries, moved into this project.
+
+A process that cannot come back exactly as it was is **not imported at all**, and the import's report names it
+with the reason: a multi-instance activity or an event sub-process in progress, a call activity waiting in
+parallel with other branches, a called process that itself waits on a call activity or waits inside a
+sub-process, a sub-process running twice at once, a step that also waits after it has run (an asynchronous leave,
+a triggerable service task), a timer that failed and waits for its retry, a variable of a type an archive cannot
+carry, a version that did not come back, an identifier the project already has. The rest still come. The same
+checks run again on import against the version the process is rebuilt on, so a file edited since the export cannot
+get a process rebuilt on a step that would run.
+
+Processes come back only once the import has finished everything else. When its object import did not finish (the
+report says why), they are not restored at all and the report says that too: retry once the cause is fixed. A
+Retry — and an import resumed after a restart — imports the processes from the file again, so a step that fell
+due and ran after the first attempt runs once more.
+
+An export with Processes ticked fails rather than leave them out — when the processes, their audit log or the
+workflow history they are bound to cannot be read, there is no file. An export without them never fails for want of
+the history: the file then carries the current workflows only.
+
+⛔ **Never author, edit or merge these two files.** They carry engine state only the platform writes and reads; a
+changed byte can get a process refused, and a hand-made one is a process that never ran. To ship an archive without
+processes, delete BOTH files; to import one without them, untick Processes. Keep `workflow-history.json` beside
+them — every process names one of its versions.
+
+
+### 12. `data-audit-logs.json` — the data change history
+
+```json
+{ "logs": [
+  { "identifier": "…",                     // KEPT on import; an entry the target already has is skipped
+    "service": "crud-service",             // every entry of this file is a change to a record
+    "level": "INFO", "userId": "…", "traceId": "…",
+    "logTimestamp": "…", "creationTime": "…", "modificationTime": "…",
+    "content": { "scope": "CRUD", "crudAlias": "invoice", "entityId": "42", "action": "…",
+                 "userId": "…", "timestamp": "…", "totalDifferences": 2, "diffs": [ … ] } } ] }
+```
+
+The **Data change history** part (it needs Database): who changed which record, and when — the history a CRUD
+table's record shows, oldest first. It goes with the database it describes: imported, it **replaces** the target's
+own data change history, because the records that history was about have just been replaced by the file's, under the
+same ids — and so it is imported ONLY when the database restore really replaced the data. A restore that added to the
+project's rows instead (no schema to scope the replace with, an import nobody chose, a database service that did not
+confirm the replace) leaves the target's own history, and the report says why. The target's entries are removed first
+— when that fails, nothing is imported and the report says so — then the file's are written as this project's (their
+realm and client rewritten, their original times kept). The processes' audit entries are not in it; they travel in
+`process-audit-logs.json`. Never author it: to ship an archive without it, delete the file; to import one without it,
+untick Data change history.
+
+### 13. `template-files/` — the images the templates show
+
+```
+template-files/
+  mail-templates/<path>     ← from t/<realm>-<client>/mail-templates/<path>
+  pdf-templates/<path>      ← from t/<realm>-<client>/pdf-templates/<path>
+```
+
+The images the mail and PDF templates show live outside the project's own files — under the project's realm and
+client, not under its tenant id — so they travel in a folder of their own, with the **Mail and PDF templates**
+part. On import (when that part is taken) they are copied into the TARGET's two folders (added and overwritten,
+never deleted), and every stored image path inside a template — `t/<anything>/mail-templates/<path>` or
+`t/<anything>/pdf-templates/<path>`, in a mail template's HTML, CSS and editor data and in a PDF template's JSON and
+preview image — whose image the archive CARRIES here (`template-files/mail-templates/<path>`) is rewritten to point at
+the target's copy. A path to an image the archive does not carry stays exactly as authored: it keeps showing whatever
+that path holds (a project made from a template still shows the template project's images). A hand-built template
+that shows an image therefore puts the file here and writes its path as
+`t/<any realm>-<any client>/mail-templates/<path>`; the import fixes the prefix.
+
 ---
 
-## ⛔ The four switches on the import dialog — and why an automated import must SET them
+## ⛔ The Export and Import dialogs — and why an automated import must SET them
 
-Uploading the archive opens a dialog whose switches decide which of the legs below actually
-run. Read live, in this order, with these labels:
+**One Export dialog and one Import dialog**, both opened from Settings → Import / Export and from the site toolbar's
+Export / Import. Both draw the same switches under four headings — **Content**, **Schedulers**, **Workflows**,
+**Integrations** — each heading with a switch of its own that ticks or unticks all of it ("2 of 4" beside it), and an
+**Everything** switch at the top. A part that needs another is drawn under it and can be ticked only while that one
+is; unticking a part unticks every part under it. A heading with a single part (Schedulers) is that part's switch.
+The labels are not translated — they read the same in every interface language:
 
-| # | Label (en) | Default | Effect |
+| Heading | Part (label) | What it carries | Needs |
 |---|---|---|---|
-| 0 | `Import pages, forms and rules` | **on, DISABLED** | the content tree and the rep-objects; always happens |
-| 1 | `Replace the business logic and its database` | **on** | dynamic CRUDs, queries, and the data from `project-db.dump` |
-| 2 | `Rebuild the table structure from the file` | **off** | DDL: creates/recreates the tables from the dump's `ddl` |
-| 3 | `Recreate the integration` | **off** | tears down and re-creates `integrations.json` |
+| Content | `Pages, forms and rules` | the pages with their files, forms, rules, contexts, queries, plugin settings and the project's languages | — |
+| Content | `Mail and PDF templates` | with the images they show | — |
+| Content | `Roles and access` | role groups, who is in them, who may use which feature (Settings → Accesses) | — |
+| Content | `Public API endpoints` | the endpoints only — API keys never travel | — |
+| Schedulers | `Schedulers` | the schedulers (they run rules by identifier: the rules they name must be in the project) | — |
+| Workflows | `Workflows` | each workflow's current version, and the process groups | — |
+| Workflows | `Version history` | every earlier version of each workflow | Workflows |
+| Workflows | `Deployment` | which versions were deployed — deployed again | Workflows |
+| Workflows | `Processes` | the cases, running ones continuing where they stopped, on the version they were started on | Version history, Deployment |
+| Workflows | `Process audit log` | the audit entries of those processes | Processes |
+| Integrations | `Integration services` | the integrations the project runs | — |
+| Integrations | `Database` | the project's schemas, their tables and data, and its data sources | — |
+| Integrations | `Data change history` | who changed which record, and when | Database |
+| Integrations | `Business logic` | the dynamic CRUDs with their SQL and Groovy methods, and the enumerations | — |
+
+A project that is not a REPORT project shows only Pages, forms and rules; Mail and PDF templates; Roles and access;
+Integration services; Business logic.
+
+**Export.** Everything starts ticked. **Export** collects the file in the background, like an import, and the PAGE
+shows it (below), not the dialog: the progress card says the part being collected with a live line within it, and
+under the four headings each part's state — collected (with what it brought: *"12 workflows · 3 process groups"*,
+*"48 versions"*), being collected, or still to come (*"Waiting for another project's export to finish…"* while it
+queues). The file downloads by itself when it is ready, once, to the person who started it; **Your export is ready**
+then stays with **Download** and **Dismiss** (and what the file does NOT carry after all, and why — business logic,
+templates or integrations that could not be read are left out rather than written empty). The file waits thirty
+minutes; a platform restart loses it. One export of a project runs at a time — anyone who opens the project sees it
+running, and who started it. An export that would split the rules and
+queries between Pages and Business logic (one ticked without the other) fails with a message saying so when the
+business logic cannot be read: nothing could tell its rules from the pages'. Leaving a part out leaves its entries
+out of the file (§Export shape), and an import of the file then leaves that part of the target as it is.
+
+**Import.** Every upload opens the dialog — there is no import without it. The uploaded file is staged on the
+server and the import runs exactly that file; Cancel — or closing the dialog by its X, Esc or the backdrop — discards
+it. Opening the dialog clears the outcome of the previous import (its Retry would otherwise run the new file). A part
+the file does not carry is drawn disabled and unticked, and says why: **"Not in this file"**, or **"Needs <parts>, not
+in this file"** for one whose parents are missing ([§Which parts a file carries](#which-parts-a-file-carries));
+everything the file carries starts ticked, with how many beside it ("12", or "12 · 3 running" for the processes). A
+line under a ticked part says what importing it does beyond bringing it in, and a summary under the switches says
+the whole import in one sentence ("Imports … Leaves … as they are."). **The import replaces exactly the ticked parts
+the file carries and leaves every other part of the project exactly as it is.** Two options belong to the Import
+dialog alone and sit under their part. **`Rebuild the table structure from the file` starts ticked** whenever
+Database is — also when Database is unticked and ticked again; **`Recreate them from scratch` never does** (no "tick
+all" ticks it):
+
+| Option (label) | Under | Starts | What it does |
+|---|---|---|---|
+| `Recreate them from scratch` | Integration services | off | undeploys and deletes the project's integrations first, then creates and starts the file's — adds several minutes; only needed when an integration is broken or must come back on a newer version |
+| `Rebuild the table structure from the file` | Database | **on** | DROPS each business schema and builds it again from the dump, so the tables are exactly the file's; unticked, each is emptied and reloaded and the tables keep their current structure |
+
+What a ticked part does to the project beyond bringing its objects in (each one is said under its switch):
+
+- **Roles and access** — groups the file does not have are removed, and with them everyone's membership of them.
+- **Public API endpoints** — endpoints the file does not have are removed, together with the keys bound to them.
+- **Workflows** — the project's processes are removed with the workflows they run on; only the file's come back,
+  and only with Processes ticked. **Deployment** unticked: every workflow comes back a draft.
+- **Integration services** — the ones this project does not have yet are created and started.
+- **Database** — the data in the business schemas is **replaced**, and this project's own schemas the file does not
+  contain are removed along with their data (on the storage model where a project's schemas carry its prefix; never
+  the platform's own schemas). The replace reaches only the schemas the file names as its business logic's — the
+  CRUDs' `sourceSchema` in `dynamic-cruds.json`, else `project-db-meta.json` → `businessSchemas`; a file with neither
+  restores its dump ADDITIVELY, removes nothing, and the report says so as an error. With Pages unticked, the schemas
+  this project's own data sources pointed at are kept; with Business logic unticked, the schemas this project's own
+  business logic reads are kept — and when that business logic cannot be read, no schema is removed at all, and the
+  report says so. The project's queries, chart copies and CRUDs that stay are re-linked to the sources the file
+  brought (§Re-linking).
+- **Data change history** — replaces this project's, because its data is replaced — and only when the restore really
+  replaced it; otherwise the project keeps its own history and the report says why.
+- **Business logic** with Database unticked: the CRUDs are attached to this project's own data sources and schemas
+  (§Re-linking).
+
+A file that carries nothing the project can take is refused before the dialog opens, and so is any upload while an
+export, an import, a version tag or an environment job of the project is running (the message says which); the
+Export dialog likewise refuses to start while an import runs — an export and an import of one project never overlap.
+**While anything of the project runs that Export and Import wait for — an import, an export, a version tag, an
+environment job — neither button is drawn**, in Settings → Import / Export or on the site toolbar. Settings shows the
+running job's progress card in their place (or a line saying what else runs); the toolbar shows a small ring with
+"Importing" / "Exporting" and the percentage — a click opens the same card in a dialog. A page reloaded meanwhile
+draws the same card: it is read from the job itself. The card lists the job's steps under the four headings, with
+the step running now and what each finished one brought — inside Workflows: the workflows, the version history, the
+deployment, the processes, the process audit log, each on its own. An import that succeeded reloads the page; one that
+failed or ended with warnings shows its outcome with **Retry** and **Dismiss** (on the toolbar: "Import failed" /
+"Imported with warnings"). Unticking a whole heading is how to keep a
+part of the target: Integrations off keeps the live database, the
+CRUDs and the sources (what the old dialog's "Ignore" did), and only the content, templates, roles, endpoints,
+schedulers and workflows are replaced.
 
 Two consequences, both of which have cost a real debugging session:
 
-* **A schema change needs #2, and nothing tells you so.** Ship a new column in
-  `project-db.dump` (and the SQL that selects it) with #2 off and the import reports
-  **success**: the new SQL arrives, the old table stays, and the first page that reads it
-  fails with `column t.<new> does not exist`. The failure surfaces in the UI, minutes later,
-  looking like a code defect. So: **changed the schema → tick #2; did not → leave it off**,
-  because it recreates the tables and the tenant's data goes back to the dump.
+* **Unticking `Rebuild the table structure from the file` keeps the project's tables as they are, and nothing tells
+  you what that costs.** It starts ticked. Untick it over a schema change — a column whose type changed, one the
+  file dropped or renamed — and the import reports **success**: the new SQL arrives, the old table stays, and the
+  first page that reads it fails (`column t.<new> does not exist`, a type mismatch). The failure surfaces in the UI,
+  minutes later, looking like a code defect. So: **leave it ticked; untick it only to keep tables the file must not
+  reshape**, or a schema the rebuild refuses (Gotcha #19). The same goes for the SQL itself: it travels with
+  **Business logic** — unticked, every table keeps the SQL it runs now (Gotcha #19).
 * **An automated importer must set the switches explicitly, not inherit the defaults.** They
   are defaults of a dialog, not a contract — and a script that only clicks *Import* silently
-  imports whatever the build happens to default to. Read each checkbox WITH ITS LABEL (match
-  the label, never the index — the order changes), set what the change requires, log what you
-  set, and abort when a switch you need is disabled instead of importing half the change.
+  imports whatever the file happens to carry and the build happens to default to. Read each switch WITH ITS LABEL
+  (match the label, never the index — the order changes), set what the change requires, log what you set and the
+  summary line, and abort when a part you need is "Not in this file" or a switch you need is disabled instead of
+  importing half the change. The suite's `tools/import_project.py` ([30](30-live-test-bugfix-and-autotest.md)) does
+  exactly that.
 
-⚠️ After ANY full import every workflow comes back `deployed: false` — deploy them again
-(`nct_workflow_deploy` per workflow, or the BPMN editor) or every worklist is empty and every
-`service.workflow.start` throws `workflow_is_not_deployed`.
+⚠️ **Deployed is a mark the archive carries, not a state it ships.** With Deployment ticked, the import clears every
+engine id and deploys again exactly what the archive marks deployed — every version `workflow-history.json` marks so,
+in order, or, without that file, each workflow `rep-objects.json` marks `deployed: true` (its current version only).
+A file in which nothing is marked deployed carries no Deployment at all ("Not in this file"). A workflow marked
+`deployed: false`, one imported with Deployment unticked, and one whose deploy the engine refused (named in the
+import's report) comes back a draft: every worklist on it is empty and every `service.workflow.start` throws
+`workflow_is_not_deployed` until it is deployed (`nct_workflow_deploy`, or the BPMN editor).
 
 ## How import restores it (operation order and id remapping)
 
-The full import pipeline (after unpacking the ZIP):
+The full import, in the order it runs. **Every step acts only when the import takes its part — ticked in the
+Import dialog AND carried by the file** ([§The Export and Import dialogs](#-the-export-and-import-dialogs--and-why-an-automated-import-must-set-them));
+a step whose part is not taken leaves that part of the project exactly as it is. A Retry, and an import resumed after
+a restart, replay the same choice.
 
-**Phase A — base layer:**
-1. Unpack the ZIP. ⚠️ Everything below assumes the upload was answered **Override**; an import into an existing
-   project first raises a business-logic choice dialog, and **Ignore** strips `project-db.dump`,
-   `project-db-meta.json`, `dynamic-cruds.json` and `integrations.json` out of the archive before this step —
-   steps 4 and 12 then do nothing at all. **Rebuild** runs every step below, but drops each business schema
-   instead of emptying it at step 4, and skips the integration teardown/recreate entirely. See Gotcha #19.
-2. Read `tenant.json`; take `locales`, overwrite
-   `template=isTemplate`, `status=published`, `name=projectName`.
-3. Stage the application files
-   into tenant properties (**the actual import of rep-objects/db/cruds is launched from here**, see phase B).
-4. Save the tenant.
-5. Read `branches.json`, remove existing virtual plugins and branches, set
-   `tenantId`/`virtualContent=true` recursively, save the branches.
-   **Content node ids are NOT remapped.**
-6. Determine the published branch from `branch-metadata.json`.
+**Before the file is read:**
 
-**Phase B — application objects:**
+1. Read what the file carries ([§Which parts a file carries](#which-parts-a-file-carries)) and narrow the choice to
+   it. Then the entries of every part NOT taken are **left out of the archive** before anything reads it:
+   `branches.json`, `branch-metadata.json`, `tenant-files/`, `favicon/` (Pages, forms and rules); `template-files/`
+   (Mail and PDF templates); `workflow-history.json` (Version history); `processes.json` and
+   `process-audit-logs.json` (Processes); `process-audit-logs.json` (Process audit log); `project-db.dump` and every
+   `project-db-<db>.dump` (Database); `data-audit-logs.json` (Data change history). `rep-objects.json`,
+   `project-db-meta.json`, `rimm-data.json`, `dynamic-cruds.json` and `integrations.json` always stay: the parts that
+   ARE taken are re-linked through what they say.
+2. **Recreate them from scratch** ticked: every integration of the project is undeployed and deleted.
+3. **Rebuild the table structure from the file** ticked (the default) with Integration services: the integrations
+   are brought up now, before the objects, so the business logic goes in with them (step 15) in one pass — the
+   project's running one reused (matched by name, then by docker image, so a second pod of the same type is never
+   started), a stopped one deployed, and one the project does not have — a new project's first import, a file from
+   another project — created (always at the registry's latest version); each waited for until RUNNING.
 
-The staging step reads `rep-objects.json` into a tenant property, puts `project-db.dump` into file storage and
-records its path together with `project-db-meta.json` **only if both files
-are present**, stages `dynamic-cruds.json` the same way, then
-(for a non-admin realm) runs the object import.
+**The objects** — the CMS library reads `tenant.json` (`status=published`, `name=projectName`,
+`template=isTemplate`; with `branches.json` also the languages: `locales`, and `defaultLocale` when it is one of
+them — without it the target keeps its own), then hands over to the application, which stages its files into tenant
+properties — `rep-objects.json`; `project-db.dump` into file storage **only together with** `project-db-meta.json`
+(the meta is staged on its own too, as re-linking metadata); each `project-db-<db>.dump`; `rimm-data.json` when
+there is no dump; `dynamic-cruds.json` — and (for a non-admin realm) runs the object import. **⚠️ Steps 4–11 run
+only into a REPORT project**; into any other type the object import is steps 12–15 alone (steps 16–18 run for every
+type). When the file cannot be staged, `rep-objects.json` cannot be read, or the project cannot be read to tell what
+to replace, the import stops HERE — **Import failed**, nothing changed, not even the pages; the file is kept and
+Retry runs it again. A failure later in the object import is reported (*"Project object import failed: …"*, the
+import ends with warnings) and is never replayed at the next sign-in.
 
-The object import — the order. **⚠️ Step 1 and steps 3–9 are gated on the REPORT type**
-(the gate opens before the cleanup and wraps the whole restore of sources/DB/queries/rules/contexts/formGroups/forms/
-settings/processGroups). For a non-REPORT
-tenant, only steps **10** (roleGroups), **11** (mailTemplates) and **PdfTemplates** below run.
+4. **Clean-up** — exactly the parts about to be replaced, nothing else: forms, form groups, plugin settings rows
+   and contexts (Pages, forms and rules); schedulers (Schedulers); workflows — with their processes — and process
+   groups (Workflows); data sources (Database; a live integration's own source rows are kept unless its
+   integrations are recreated); rules and queries — the content's half with Pages, the business logic's half (the
+   ones its CRUD methods name) with Business logic, all of them with both, none with neither; with Business logic
+   alone, also whatever the project holds under the identifiers of the file's business-logic rules and queries, so no
+   rule exists twice. A clean-up that fails half-way stops the import as above (**Import failed**, the pages not
+   touched, Retry).
+5. **Database** (Database): the sources first — RIMM rows skipped (the restore rebuilds the RIMM source); every
+   INTERNAL row moved onto THIS project's database (and, where a project's schemas carry its prefix, onto the
+   prefixed schema name) and rewritten to this project's database role, whose credentials are taken from the
+   project record and never rotated; an EXTERNAL row, which travels without its password, keeps this project's own
+   password when the project had the very same connection (identifier, host, port, database, user); then saved.
+   The SYSTEM schema is (re)provisioned. Then the dump: build the schema remap (`public→null` (skip);
+   `rimm_<old>→rimm_<realm>_<client>`; **and `int_*`/`system_*`→null (skip)** unless the name is the target's own
+   `system_<realm>_<client>` — a schema mapped to null is silently dropped, so a business schema must never carry
+   those prefixes, see [10-database-management.md](10-database-management.md) §Export shape) and restore. Each
+   schema in its own transaction; the order within a schema: `CREATE SCHEMA` → enums → sequences → tables (DDL,
+   then data) → `setval` sequences → unique → check → FK → indexes → views. Schema-qualified names in the DDL are
+   rewritten on remap. Imported from the dialog, each business schema the file names — the CRUDs' `sourceSchema` in
+   `dynamic-cruds.json`, else `project-db-meta.json` → `businessSchemas` — is **emptied and reloaded inside that
+   transaction**, or DROPPED and rebuilt with *Rebuild the table structure from the file*; an import nobody chose
+   (template, tag revert, environment), and a file that names no business schema, restore **additively** (the latter
+   reported as an error). Then each `project-db-<db>.dump`, the security tables and the RIMM source, the grants, the
+   internal-source hosts; and — only once the restore confirmed it replaced the data — this project's own schemas
+   the file does not bring are dropped: never a platform schema, never one the project's own data sources pointed at
+   when Pages is not imported, never one this project's business logic still reads when Business logic is not
+   imported — and none at all when that business logic cannot be read (reported). Then, when Pages or Business logic
+   stays, what the project keeps is **re-linked** to the sources the file brought: its queries and its CRUDs
+   ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)); a query whose source nothing stands for is
+   named in the report. Database not taken: the staged dump is discarded unread.
+6. **Data change history** (Data change history) — only when step 5 really replaced the data (else reported): the
+   project's own is removed, the file's written ([§12](#12-data-audit-logsjson--the-data-change-history)).
+7. **Re-linking** is decided — which source of this project each of the file's stands for, and where each of the
+   file's schemas lands here ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)).
+8. **Queries, then rules** — the halves taken: each query re-pointed at this project's source and schemas, then
+   saved; an object the project keeps under the same identifier (its own business logic's, when only the pages are
+   imported) is not imported over it. Then (Pages) the **contexts**, the **form groups → forms** (save the groups,
+   build an `identifier→saved` map, rebind `form.formGroup` by identifier, save the forms; a form whose group the
+   file lacks is dropped) and the **plugin settings rows**.
+9. **Schedulers** (Schedulers).
+10. **Workflows** (Workflows): every workflow `workflow-history.json` does not cover saved as a draft, then the
+    process groups, then the **deploy step** — LAST of the object kinds, because a deployed workflow's first step
+    resolves rules, forms, settings and process groups. With Version history: every version restored oldest first,
+    and — with Deployment — each one the donor had deployed deployed again; then each workflow whose
+    `rep-objects.json` row differs from the history's current one saved on top and deployed if marked; then the
+    workflows only `rep-objects.json` has, deployed if marked. Without the history: every workflow marked
+    `deployed: true` is deployed ([§10](#10-workflow-historyjson--every-version-of-every-workflow)). Without
+    Deployment nothing is deployed.
+11. **Public API endpoints** (Public API endpoints — `apiExposures` a list) — the last object step of the block,
+    after every definition an endpoint names. The archive's list replaces the project's endpoints in ONE step:
+    matched by `identifier`, the ones it lacks deleted with their key bindings, the kept ones keeping theirs. All or
+    nothing — one invalid entry refuses the whole list, changes nothing, and the import's failure report names each
+    endpoint with its reason. Keys never travel, so an endpoint new to the project arrives with none
+    ([32](32-public-api.md) §6). End of the REPORT-only block.
+12. **Roles and access** (any type): role groups reconciled BY NAME (§6 — the ones the file lacks deleted, Author
+    and Developer never); members ADDED by external id, else by `userEmail`; feature grants replaced when
+    `featureAccesses` is there.
+13. **Mail and PDF templates** (any type): with a non-empty `mailTemplates` list every mail template is deleted and
+    the file's saved (in a REPORT project an empty list clears them too); PDF templates are replaced only by a
+    non-empty `pdfTemplates` list; every image path whose image the file carries in `template-files/` is re-pointed at
+    this project's copy, every other path stays as authored ([§13](#13-template-files--the-images-the-templates-show),
+    [15](15-pdf-and-mail.md)).
+14. **Always**, whatever was imported: the four system mail templates put back if missing (one the file brought
+    under a system alias is kept as the file has it); the Author and Developer groups with the platform's roles,
+    the configured accounts in them, the project's owner among the authors and both platform accounts as members;
+    the importing user becomes the owner.
+15. **Business logic** (any type): imported here when the project's integration already runs — or when no second
+    pass will follow (Integration services not taken, or the table structure rebuilt): see below. Otherwise at
+    step 17.
+16. The base layer finishes: the project's files (`tenant-files/`, `favicon/`) and the templates' images
+    (`template-files/`) copied — added and overwritten, never deleted; the tenant saved; with `branches.json`, every
+    branch and virtual plugin of the project deleted and the file's saved (`tenantId` overwritten,
+    `virtualContent=true` recursively — **content node ids are NOT remapped**), and the published branch chosen
+    from `branch-metadata.json` (by name → `master` → the first). Without `branches.json` the content is not touched.
 
-1. Clean up: delete all existing project data (**REPORT only**).
-2. Parse `rep-objects.json`.
-3. **Sources** (REPORT only): skip RIMM (`RIMM_`); remap `dbName` old DB → new;
-   fetch the project-level Postgres role (creds are **not** rotated — taken from
-   the project record); recreate the SYSTEM schema; rewrite INTERNAL sources to
-   new creds; save.
-4. **Restore the project DB** from `project-db.dump` (REPORT only): build the schema remap
-   (`public→null` (skip); `rimm_<old>→rimm_<realm>_<client>`; **and `int_*`/`system_*`→null (skip)** unless the
-   name is the target's own `system_<realm>_<client>` — a schema mapped to null is silently dropped, so a
-   business schema must never carry those prefixes, see
-   [10-database-management.md](10-database-management.md) §Export shape) and restore. Each schema in its own transaction; the order within a schema:
-   `CREATE SCHEMA` → enums → sequences → tables (DDL, then data) → `setval` sequences → unique →
-   check → FK → indexes → views. Schema-qualified names in the DDL are rewritten
-   on remap.
-5. Recreate the security tables and the RIMM source; re-apply grants; sync the internal-source hosts;
-   delete the staged dump file.
-6. **Queries** (REPORT only): remap `sourceIdentifier` old RIMM → new;
-   save with a null id.
-7. **Workflows, rules, contexts** (REPORT only) — save with a null id.
-8. **FormGroups → forms** (REPORT only): save formGroups, build an `identifier→saved` map,
-   rebind `form.formGroup` by identifier, save forms.
-9. **Settings, processGroups** (REPORT only), then **API endpoints** (REPORT only, and only when
-   `apiExposures` is present and not `null`) — the last object step of the block, after every definition an
-   endpoint names. The archive's list replaces the project's endpoints in ONE step: matched by `identifier`,
-   the ones it lacks deleted with their key bindings, the kept ones keeping theirs. All or nothing — one
-   invalid entry refuses the whole list, changes nothing, and the import's failure report names each endpoint
-   with its reason. Keys never travel, so an endpoint new to the project arrives with none
-   ([32](32-public-api.md) §6). End of the REPORT-only block.
-10. **RoleGroups** (for any type): delete existing ones, recreate with a null id
-    ensure `Author`/`Developer`; restore `userRoleGroupAssignments` by
-    role-group name.
-11. **MailTemplates** (for any type): delete existing ones, recreate; ensure the
-    system ones. **PdfTemplates** are restored the same any-type way (outside the
-    REPORT gate) — each PDF template saved into the PDF service
-    ([15](15-pdf-and-mail.md)).
-12. **Dynamic CRUDs**: import them (below), then
-    rebind every CRUD to its source. Runs **last**, after sources/rules/queries/
-    contexts are already saved (Groovy methods resolve identifiers at runtime).
-13. **Integration data sources** (orchestration, after the integrations are RUNNING):
-    the import points every source declared in
-    `integrations.json.dataSourceIdentifiers` at THIS tenant's integration schema — repointing the
-    imported row, or recreating it under the same identifier ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)).
-    Runs on the Override **and** the Ignore path (Ignore imports the static content, which is what
-    carries the charts). Without it a statically integrated project imports with its charts still
-    querying the donor's database.
+**After the objects:**
+
+17. **Integration services** (taken, table structure not rebuilt): the integrations the file has and the project
+    does not run are created (always at the registry's latest version), deployed and waited for until RUNNING;
+    when one had to be brought up and Business logic is taken, a second pass imports the CRUDs into it.
+18. **Integration data sources** — on every import that takes the pages, the database, the business logic or the
+    integrations: every source declared in `dataSourceIdentifiers` (of `integrations.json`, or of
+    `project-db-meta.json` → `integrationSources` when the file has no `integrations.json`) is pointed at THIS
+    tenant's integration schema — repointing the imported row, or recreating it under the same identifier
+    ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)). Without it a statically
+    integrated project imports with its charts still querying the donor's database.
+19. **Processes** (Processes, REPORT only) — after every step that brings something in, the integrations' second
+    CRUD pass included: a restored process may be due at once (a timer that fell due while the archive travelled)
+    and its next step calls rules, CRUDs, mail templates and integrations. Each process on the version step 10
+    restored it from, then — with Process audit log — their audit-log entries
+    ([§11](#11-processesjson-and-process-audit-logsjson--the-projects-processes)). Every refusal is named in the
+    import's report; the import then finishes "with errors".
+20. **Charts** (Pages or Database): the copy of its query every chart keeps is re-synced from the query the project
+    now holds and re-pointed at this project's schemas and sources — only now, because step 16 replaced the content
+    tree wholesale.
+21. **Feature grants onto the pages** (Roles and access): the imported grants are applied to the pages that carry
+    each feature's plugin and to the sidebar links to them, once the tree is final.
+
+The import ends **Import complete**, or **Imported with warnings** when a step recorded a problem it swallowed (the
+message names each one), or **Import failed**. The progress card shows one step per part being imported (*Saving
+pages and files…* whenever pages or templates are; *Deploying workflows…* only with Deployment), in this
+order — *Removing old integrations…* (Recreate them from scratch), *Importing project…*, *Restoring the database…*,
+*Importing the data change history…*, *Importing pages, forms and rules…*,
+*Importing schedulers…*, *Importing workflows…*, *Deploying workflows…*, *Importing API endpoints…*, *Importing roles
+and access…*, *Importing mail and PDF templates…*, *Importing the business logic…*, *Saving pages and files…*,
+*Creating integrations…*, *Deploying integrations…*, *Waiting for integrations to start…*, *Importing the business
+logic…* (the second pass), *Restoring processes…* — and a part not taken has no step. With the table structure
+rebuilt, the three integration steps come right after *Importing project…* instead, and there is no second pass; an
+integration step nothing needs — the pod already runs — is dropped before it starts.
+
+### Re-linking — when one part arrives without the other
+
+Nothing in a project points at another part by database id — a query names its source by `sourceIdentifier`, a CRUD
+its source and `sourceSchema`, a context its CRUDs by alias, a rule its context by identifier. So when one half
+arrives and the other stays, the import re-links what arrives to what stays:
+
+| Arrives | Stays | How it is re-linked |
+|---|---|---|
+| queries, CRUDs (Pages, Business logic) | the data sources (Database not imported) | each of the file's `sources` is matched to one of THIS project's: by `identifier`; for an INTERNAL source, by the schema it lands in here; else by the same type and name. A reference to a source matched to nothing is imported as it is, and the report names the queries that read it ("Import the database too, or add the source"). The donor's RIMM source (`project-db-meta.json` → `rimmSourceIdentifier`) always maps to this project's own |
+| the SQL — queries, SQL method scripts, CRUDs' `sourceSchema`, charts' own queries | the schemas | every `<donor schema>.` qualifier rewritten to where that schema lives here: the map the restore used when a dump was restored, else the one derived from the file's INTERNAL `sources` and the donor's `schemaPrefix` in `project-db-meta.json` — which is why the meta travels without the dump |
+| the business logic | the database | each CRUD bound to this project's source the mapping above names; a RIMM-backed one to the project's RIMM source; else to the project's own INTERNAL source on the schema the CRUD reads. The dialog says it: *"The database stays as it is: the CRUDs are attached to this project's own data sources and schemas, matched by name."* |
+| the database | the business logic | the schemas this project's own CRUDs read are never dropped by the database replace — and when that business logic cannot be read, no schema is dropped at all (the report says so) |
+| the database | the pages | the schemas this project's own data sources pointed at are never dropped by the database replace |
+| the pages (their contexts) | the business logic | each context exposes what it exposed here plus what the file's context exposes — minus only the aliases of DYNAMIC CRUDs that are gone; a static integration's CRUDs and `bl` itself always stay |
+| the business logic | the pages | each of the project's contexts gets back what it exposed before, plus what the file's context of the same identifier exposed — minus only the aliases of dynamic CRUDs that are gone now |
+| the database (its sources) | the pages or the business logic | each source the import replaced is mapped to the one standing for it now — the RIMM source to the rebuilt one, any other to the same type on the same schema, then the same type and name — and the project's own queries, the copies its charts hold and its CRUDs are re-pointed to it. A query whose source nothing stands for is named in the report |
+| the pages (their rules and queries) | the business logic | the project's own CRUD-method rules and queries are spared by the clean-up and never imported over |
+| the business logic | the pages | only the CRUD-method rules and queries are replaced; every other rule and query stays |
+| schedulers | the rules | nothing to re-link — a scheduler names its rules by identifier, and they must be in the project |
+| role assignments | the members | a member is found by the external id the file names, else by `userEmail` (the id is the donor realm's) |
 
 ### The dynamic-CRUD import — in detail
 
+The **Business logic** part, at step 15 or step 17 above:
+
 1. Parse `dynamic-cruds.json`.
-2. Check that `bl` (dynamic-integration) is deployed (a probe `bl.getCruds`); otherwise — skip.
-3. Delete existing dynamic CRUD of this (realm, client) — idempotency.
-4. Load live sources by identifier.
-5. For each CRUD:
-   - `bl.create({alias, name[, access]})` → new `crudId` (`access` only when the archive carries one; absent =
-     signed-in users).
-   - `bl.setSource(crudId, sourceIdentifier, host, port, db, schema, user, password)` — **creds
-     are taken from the live source by `sourceIdentifier`**, exported values are only a fallback.
-   - `bl.setLocalizationField(crudId, localizationField)`.
-   - For each method: **ensure the hidden Groovy rule** (GROOVY with ruleIdentifier+script only; see below),
-     then `bl.addMethod(crudId, {methodName, methodType, script, returnType, returnsArray,
-     methodOrder, ruleIdentifier, queryIdentifier, contextIdentifiers[, inheritAccess, access]})` → `newMethodId`;
-     `bl.addParameter` for each parameter; `bl.setReturnFields`.
-   - `bl.addDtoField` / `bl.addFilterField` for each field.
-6. After all CRUD — rebind every CRUD to its source: push the current src_source creds into
-   each `dynamic_crud` row via `bl.setSource`.
+2. No integration deployed for the project yet → skipped here, for the second pass to do; then a probe
+   `bl.getCruds` checks that `bl` (dynamic-integration) answers — otherwise skipped. On the LAST pass either skip is
+   reported ("…none of the N integration table(s) could be imported").
+3. **Clean slate**: every dynamic CRUD of this (realm, client) is deleted — `cruds: []` in the file leaves the
+   project with none.
+4. The enumerations — when the file has `enums` — replace the project's ([§7](#7-dynamic-crudsjson--dynamic-only)).
+5. Load the live sources by identifier.
+6. For each GROOVY method with a `ruleIdentifier` and a `script`: **ensure the hidden Groovy rule** (below).
+7. Every CRUD with its whole graph in ONE call (an older `bl` gets the per-CRUD calls instead: `bl.create({alias,
+   name[, access]})` — `access` only when the archive carries one; absent = signed-in users — `bl.setSource`,
+   `bl.setLocalizationField`, `bl.addMethod({methodName, methodType, script, returnType, returnsArray, methodOrder,
+   ruleIdentifier, queryIdentifier, contextIdentifiers[, inheritAccess, access]})`, `bl.addParameter`,
+   `bl.setReturnFields`, `bl.addDtoField` / `bl.addFilterField`). Each CRUD is bound to a source of THIS project —
+   the one its `sourceIdentifier` is re-linked to ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)),
+   a RIMM-backed CRUD to the project's own RIMM source, else the project's INTERNAL source on its `sourceSchema` —
+   and **its credentials are taken from that live source**; the exported coordinates are only a fallback, and carry
+   no password. A CRUD that resolves to no source is left without credentials (logged only).
+8. Rebind every CRUD to its source: push the current credentials of the source each one names — or, when the
+   project has no source of that identifier, of its own source on the schema the CRUD reads — into every
+   `dynamic_crud` row via `bl.setSource`.
+9. The contexts get their CRUDs back. Deleting a CRUD strips its alias from every context, and creating it never
+   adds it back; so with Pages imported, the file's contexts get the `crudAliases` the file gives them; without
+   Pages, every context of the project gets back what it exposed before the import, plus what the file's context of
+   the same identifier exposed — minus only the aliases of dynamic CRUDs that are gone now (a static integration's
+   CRUDs and `bl` itself always stay).
+10. Fewer CRUDs than the file declares → the integration is asked what it actually holds, and a real shortfall is
+    reported ("N of M integration table(s) are present after the import").
 
 ### The hidden Groovy rule
 
-The import recreates the **hidden** rule that authoring writes for each Groovy CRUD method but
-which is filtered out of the export (`rep-objects.rules` contains no hidden=true). Without this the first call
-to a Groovy method fails with `"Rule not found with identifier: <ruleIdentifier>"`. The rule:
+A GROOVY method runs the **hidden** rule its `ruleIdentifier` names. A platform export carries that rule in
+`rep-objects.rules[]` — with Business logic — and the import saves it like any other rule; an archive built by hand
+does not, and the import then **creates** it from the method's own `script`, but only when the project has no rule
+of that identifier yet: a rule the file brought is never overwritten by the script. Without either, the first call to
+the method fails with `"Rule not found with identifier: <ruleIdentifier>"`. The rule it creates:
 `name="crud_<alias>_<methodName>"`, `executor="GroovyExecutionRule"`,
 `ruleType=EXECUTION_RULE`, `status=ACTIVE`, `rule.ruleScriptStr=<script>`, `hidden=true`,
-`identifier=<method.ruleIdentifier>`. Idempotent (save by identifier). It is created with **no** `access`, and
+`identifier=<method.ruleIdentifier>`. It is created with **no** `access`, and
 needs none: a hidden rule's own access is ignored — callers are checked against the method's
 ([11 §"Execution access"](11-business-logic-dynamic-crud.md)).
 
@@ -827,17 +1341,29 @@ needs none: a hidden rule's own access is ignored — callers are checked agains
 |---|---|
 | Content (branches.json) | node ids are **preserved as-is**; `branch.tenantId` is overwritten |
 | rep-objects (all except roleGroups) | `id:null` on export (key present, value null) → new id on import; relationships by `identifier` |
-| roleGroups | id is **not** nulled on export, but on import created with `id(null)` |
+| roleGroups | id is **not** nulled on export; on import reconciled BY NAME — a group the project has keeps its own id and members and takes the file's roles, a new one is created with a new id |
+| userRoleGroupAssignments | the member found by `userId` (the donor realm's external id), else by `userEmail`; the group by `roleGroupName`; added, never removed |
+| featureAccesses | by feature name; a name this platform does not know is skipped |
 | `form.formGroup.id` | nulled on export → import maps the form to the group by `identifier` |
-| `query.sourceIdentifier` (RIMM) | remap old RIMM identifier → new |
+| `query.sourceIdentifier` (RIMM) | remap old RIMM identifier → this project's RIMM source |
+| `query.sourceIdentifier`, CRUD `sourceIdentifier` (Database not imported) | re-linked to this project's source: by identifier, by the schema it lands in, by type and name; unmatched → imported as it is, named in the report ([§Re-linking](#re-linking--when-one-part-arrives-without-the-other)) |
 | `query.sourceIdentifier` (integration data) | **not** remapped — the SOURCE ROW is rebound instead (repointed, or recreated under the declared identifier), so queries, chart embeds and CRUDs all follow without being touched ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)) |
-| `source.dbName` | remap old DB name → new |
+| schema qualifiers in SQL (queries, SQL method scripts, CRUD `sourceSchema`, charts' own queries) | rewritten donor schema → this project's — from the restore's map, else from the file's INTERNAL `sources` and `project-db-meta.json.schemaPrefix` |
+| `source.dbName` | INTERNAL rows forced onto this project's database (and prefixed schema) |
 | INTERNAL source creds | rewritten to the new project-level role |
+| EXTERNAL source password | travels empty; kept from this project's own row when it is the same connection |
 | DB schema `rimm_<old>` | remap → `rimm_<realm>_<client>` |
 | DB schema `public` | **skipped** (mapped to null) — Kafka-managed tables |
 | DB schema `int_*` / `system_*` (≠ the target's own `system_<realm>_<client>`) | **skipped** (mapped to null) — assumed to be the donor's integration/liquibase registries. Silent: logged only. A business schema named this way loses ALL its tables and rows on import ([10](10-database-management.md) §Export shape) |
 | dynamic CRUD | recreated entirely via `bl.*`; new ids; source creds from the live src_source |
-| hidden Groovy rules of methods | recreated on import from `method.ruleIdentifier` |
+| hidden Groovy rules of methods | carried in `rules[]` with Business logic; created from the method's `script` only when the project lacks the `ruleIdentifier` |
+| contexts' `crudAliases` (Pages without Business logic, or the reverse) | what the context exposed here plus what the file's exposes, minus only the aliases of dynamic CRUDs that are gone (static CRUDs and `bl` stay) |
+| the project's own queries, chart copies and CRUDs (Database imported, Pages or Business logic kept) | re-pointed from each replaced source to the one standing for it now: RIMM → the rebuilt RIMM source, else same type + schema, else same type + name |
+| template images (`template-files/`) | copied into this project's folders; the path of each image the file carries rewritten to its copy here, every other path left as authored ([§13](#13-template-files--the-images-the-templates-show)) |
+| workflow versions (`workflow-history.json`) | each gets a new id; `identifier`, order and creation times kept; the deployed ones deployed again (with Deployment), under new engine ids |
+| processes (`processes.json`) | new row ids and new engine instances; `identifier`, business key, data and node history kept; the process's own row id among its variables rewritten to the new row |
+| process audit entries (`process-audit-logs.json`) | moved into this project; `identifier` kept; an entry the project already has is skipped |
+| data change entries (`data-audit-logs.json`) | moved into this project (realm and client rewritten); `identifier` and times kept; an entry the project already has is skipped |
 | `apiExposures` (API endpoints) | `id` nulled on export, `identifier` kept; reconciled by `identifier` as one list; their descriptions for AI assistants travel with them; key bindings never travel and survive only on the endpoints the list keeps, and the keys themselves (with their marks) are never touched by an import ([32](32-public-api.md) §6) |
 
 ---
@@ -978,8 +1504,10 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    (SQL, each with `queryIdentifier` → the query from step 3)). Full CRUD recipe —
    [11-business-logic-dynamic-crud.md](11-business-logic-dynamic-crud.md).
 6. **ZIP** flat (entries relative to the root; any zip tool works), extension `.mrjun`,
-   import via authoring **into a REPORT tenant**. Import itself will: restore the DB, remap
-   ids/source creds, recreate dynamic CRUD via `bl` and the hidden Groovy rules of methods.
+   import via authoring **into a REPORT tenant**, with every part the file carries ticked (the dialog's default —
+   `mrjun.py inspect` lists them first). Import itself will: restore the DB, remap
+   ids/source creds, recreate dynamic CRUD via `bl` and the hidden Groovy rules of methods. Keep every
+   `rep-objects` key the baseline has: a part's key left out is "none", not "keep" (Gotcha #20).
 
 ---
 
@@ -996,9 +1524,11 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
 3. **The config slot depends on the plugin.** Form controls → `properties.settings.stringValue`; table
    plugins (`crud.table.plugin`/`crud.tree.plugin`/`process.table.pluin`) → `properties.model.stringValue`.
    Confusing the two = the plugin won't read its config.
-4. **`dynamic-cruds.json` may be absent.** It's absent if `bl` isn't deployed OR the project has no
-   dynamic CRUD. For a static project it should not be there. And import will silently skip it
-   if `bl` isn't deployed on the target side — then the CRUD won't be created.
+4. **`dynamic-cruds.json` may be absent.** It's absent if `bl` isn't deployed, the project has no
+   dynamic CRUD and no enumeration, or the export left Business logic out — and then an import leaves the target's
+   business logic exactly as it is. For a static project it should not be there. An import that takes it into a
+   target where no `bl` answers skips it — and says so in the report once no later pass will try again; then the
+   CRUDs are not created.
 
    ⛔ **A type error in the envelope is skipped just as silently, and it is the worse one.**
    `exportVersion` is the **integer** `1` — a platform-produced export carries `1`, and the toolkit
@@ -1011,9 +1541,13 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    Business Logic console — a symptom that reads like a dead runtime rather than two characters in the
    archive. `validate` now ERRORs on it; nothing else does — `pack`
    never reads the file's types and the import report does not name the step it skipped.
-5. **Hidden Groovy rules of methods are not in rep-objects.** The export filters out `hidden=true`. They
-   are recreated on import from `dynamic-cruds.json`. If you manually delete
-   `dynamic-cruds.json`, Groovy CRUD methods will fail with "Rule not found".
+5. **Hidden Groovy rules of methods travel in rep-objects — with the Business logic.** A platform export carries
+   every hidden rule; the ones a CRUD method names go with Business logic, the rest (autocomplete, tree settings)
+   with Pages. The import saves the archive's copy as it is and creates a method's rule from its `script` ONLY when
+   the project has no rule of that identifier — so in a base exported from a live project, **a changed `script`
+   alone changes nothing**: change the rule in `rules[]` with it, or delete that rule so the import builds it from the
+   script (`validate` ERRORs while they differ). A hand-built archive carries none and gets every one from the
+   scripts ([§The hidden Groovy rule](#the-hidden-groovy-rule)).
 6. **SQL placeholder syntax differs.** `method.script` in `dynamic-cruds.json` uses
    `:param`; `query.query` in `rep-objects.json` uses `{name:'param', type:'integer'}`. These are **different**
    representations of the same query; keep them consistent.
@@ -1058,19 +1592,23 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
    there's a corresponding source row of the required type. When building by hand, don't rely on
    automatic exclusion — put in the dump only what should be restored. **But an `int_`-prefixed schema
    can also be the *business* schema** — see Gotcha #16.
-10. **`tenant-files/*.dump` is junk.** If `tenant-files/` got a `project-db.dump`,
-    it's a leftover of import staging (`t/{tenantId}/project-db.dump`); ignore it when building.
+10. **`tenant-files/*.dump` and `tenant-files/tags/` are junk.** The current export leaves both out; an archive
+    exported before may still carry a `project-db.dump` left over from import staging (`t/{tenantId}/project-db.dump`)
+    and every version-tag snapshot of the project (`tags/`, each a whole `.mrjun`) — delete them when building.
 11. **Source creds are overwritten on import.** Don't count on `sourcePassword`/`sourceUser` from
     the export surviving: INTERNAL sources and dynamic CRUD get the project-level role of the target cluster. `sourceIdentifier` must point to an
     actually existing (imported) source, otherwise it falls back to stale exported creds with
     a warning.
-12. **⚠️ The `type==REPORT` gate — the most important precondition.** `rep-objects` are assembled on export
-    and restored on import **only** for the REPORT type. If the source tenant is not REPORT — `rep-objects`
-    exports empty; if the target is not REPORT — import restores only `roleGroups`/`mailTemplates`/`pdfTemplates`,
-    and everything else (sources/DB/queries/rules/contexts/forms/settings) is skipped silently.
-    Build for a REPORT tenant.
+12. **⚠️ The `type==REPORT` gate — the most important precondition.** Only a REPORT project has every part. If
+    the source tenant is not REPORT, its export carries only the pages (content trees and files, no rules, forms,
+    contexts, queries or settings), the templates, the roles, the integrations and the business logic — the other
+    `rep-objects` keys are absent; if the target is not REPORT, its Import dialog offers only those five parts, and an
+    import nobody chose skips everything else (sources/DB/queries/rules/contexts/forms/settings/schedulers/workflows/
+    endpoints) silently. Build for a REPORT tenant.
 13. **DB staging requires BOTH files.** `project-db.dump` **and** `project-db-meta.json` must
-    both be present, otherwise the DB isn't staged and not restored. Write them as a pair.
+    both be present, otherwise the dump is never staged nor restored — and the file carries the Database at most
+    through its own data sources (an older file without the meta's `"database"` mark), which then replace the
+    target's with no data behind them. Write them as a pair ([§4](#4-project-db-metajson)).
 14. **`branch-metadata.publishedBranchName` must match** `branches[].name`, otherwise the published
     branch is selected by fallback (`master` → the first).
 15. **A form with a "dangling" group is dropped.** The `forms` export drops a form only if its
@@ -1089,18 +1627,20 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     every `int_*`/`system_*` schema on restore (step 4 above). So an `int_`-named business schema is readable and
     correct as a *description*, and yet cannot be re-imported: rename it first
     ([10-database-management.md](10-database-management.md) §Adding an entity to a FILLED dump).
-17. **⚠️ Import is DESTRUCTIVE — a full REPLACE, not a merge.** Into a REPORT tenant, **step 1** of the import
-    (the cleanup of all existing project data, [§How import restores it](#how-import-restores-it-operation-order-and-id-remapping),
-    REPORT only) **wipes ALL existing project data first**; and the dynamic-CRUD import runs its own
-    clean-slate — `bl.deleteCrud` for **every** existing dynamic CRUD of the (realm, client) before recreating. So re-importing a modified `.mrjun` **replaces the whole project**; you cannot
-    incrementally import a delta into a populated tenant, and there is no "merge" mode. To change one entity in a live
-    project, edit the source `.mrjun` and re-import the entire archive (the modify-and-reimport scenario C in
-    [19-build-decision-procedure.md](19-build-decision-procedure.md)). That re-import first asks how to treat the
-    business logic — which of Ignore / Override / Rebuild you need depends on what your delta touched, Gotcha #19.
+17. **⚠️ Import is DESTRUCTIVE — every part it takes is a full REPLACE, not a merge.** Into a REPORT tenant, the
+    clean-up the object import opens with ([§How import restores it](#how-import-restores-it-operation-order-and-id-remapping),
+    step 4) **wipes the target's objects of every part it takes** before saving the file's; and the dynamic-CRUD
+    import runs its own clean-slate — `bl.deleteCrud` for **every** existing dynamic CRUD of the (realm, client)
+    before recreating. What the import does NOT take stays exactly as it is — that, not a merge, is how to keep a part:
+    untick it. Within a part there is no "merge" mode: you cannot import ONE changed rule into a populated tenant,
+    only the whole list it belongs to. To change one entity in a live project, edit the source `.mrjun` and re-import
+    the part that holds it (the modify-and-reimport scenario C in
+    [19-build-decision-procedure.md](19-build-decision-procedure.md)) — which parts and options you need depends on
+    what your delta touched, Gotcha #19.
 
 18. **⚠️ The file is not the platform — and "the setting didn't save" usually means "the archive was never
     imported".** Editing `branches.json`/`rep-objects.json` and re-packing changes **nothing** in a running
-    tenant until the archive is imported (and the import is a full replace, Gotcha #17). The failure looks
+    tenant until the archive is imported (and the import replaces every part it takes, Gotcha #17). The failure looks
     like a platform bug: the settings panel shows the field **empty**, because a stored rule identifier is
     looked up by identifier — an id that
     does not exist in the tenant renders as "nothing selected", not as an error. Before debugging the
@@ -1123,36 +1663,36 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     a runtime question. This is a common false alarm: a List action's On Before Complete rule wired correctly
     in the file, an empty field in the panel, and both probes empty — the archive had simply never been imported.
 
-19. **⚠️ Uploading into an existing project asks which business-logic treatment you want first — the answer
-    decides whether your DB and CRUD work lands at all.** Settings → Import/Export is the only route a
-    hand-assembled `.mrjun` takes into the platform, and before importing it the upload opens a choice dialog
-    whenever the archive carries business logic — a non-empty
-    `dynamic-cruds.json`, **or** an `integrations.json` entry with `external:false` — or the target project
-    already runs an internal integration. The bundled baseline ships exactly such an `integrations.json` entry
-    (§Export shape), so in practice **every** archive built on it raises the dialog, including a first
-    content-only import.
+19. **⚠️ Every upload asks which parts the file replaces — and the answer decides whether your DB and CRUD work
+    lands at all.** Settings → Import/Export (or the site toolbar's Import) is the only route a hand-assembled
+    `.mrjun` takes into the platform, and every upload opens the Import dialog first
+    ([§The Export and Import dialogs](#-the-export-and-import-dialogs--and-why-an-automated-import-must-set-them)).
+    Everything the file carries starts ticked, so an archive built on the baseline replaces its whole project by
+    default; what decides the rest is what you untick, and the two options:
 
-    | Choice | What the platform does |
-    |---|---|
-    | **Ignore** (keep the existing business logic + database) | the platform **removes `project-db.dump`, `project-db-meta.json`, `dynamic-cruds.json` and `integrations.json` from the archive** and imports only the static content (branches, rep-objects, tenant files, favicon). The live integration, its schema and its data are left untouched |
-    | **Override** business logic + database | the full import described in [§How import restores it](#how-import-restores-it-operation-order-and-id-remapping): the existing integration is torn down and recreated, `project-db.dump` replaces the ROWS of every business schema it carries, `dynamic-cruds.json` is replayed. Table **structure is preserved** — tables the dump carries are emptied and reloaded, and a column the archive adds is added, but a column whose type changed, or one the archive dropped, stays as the project has it |
-    | **Rebuild** business logic + database | the same replacement, done by **dropping each business schema and rebuilding it from the archive**, with the project's integration left running the whole time. Structure comes from the archive, not the project. Refuses the import — changing nothing — if a schema holds something the archive cannot put back (see below) |
-    | **Cancel** | nothing is imported |
+    | What your delta touched | Tick | What the platform does |
+    |---|---|---|
+    | everything — a first import, a build from the empty baseline, the fix loop after a schema change | everything (the defaults, **Rebuild the table structure from the file** included) | every part replaced; each business schema DROPPED and rebuilt from the dump, so the tables are exactly the archive's; the project's running integration reused, or — on a project that has none — the file's created and started before the objects. Refuses a schema, changing nothing in it, that holds something the archive cannot put back (see below) |
+    | only the rows — the project's tables must keep the structure they have | **Database**, with **Rebuild the table structure from the file** unticked | the business schemas' ROWS replaced from the dump with their **structure preserved** — tables the dump carries are emptied and reloaded, and a column the archive adds is added, but a column whose type changed, or one the archive dropped, stays as the project has it |
+    | only pages, forms, rules, templates — a project whose live database must survive | untick the **Integrations** heading (Integration services, Database, Data change history, Business logic) | the live integration, its schema, its data, the CRUDs and the data sources are left untouched — what the old dialog's "Ignore" did. ⛔ Your SQL does not arrive either (below) |
+    | SQL, a CRUD, a method | **Business logic** — with **Database** also ticked, the rows go back to the dump; unticked, the CRUDs attach to the project's own schemas | the CRUDs replaced as a clean slate, with their SQL and their hidden rules |
+    | a broken integration, or one that must come back on a newer version | **Integration services** + **Recreate them from scratch** | the project's integrations torn down and recreated before anything else — adds several minutes (a wait allowed ten minutes) |
+    | — | **Cancel** | nothing is imported, and the uploaded file is discarded |
 
-    ⛔ **Ignore does not merely skip the database — it skips your SQL.** A dynamic CRUD's SQL method runs the
-    `script` stored on the METHOD (`dynamic-cruds.json` → the `bl` integration), **not** the `queries[]` entry in
-    `rep-objects.json` that carries the same statement. Proven live: saving a new statement onto the query row
-    (its id, its identifier, accepted and echoed back by the API) changed nothing — the method kept returning
-    what the old text selected. The `queries[]` copy is what the import writes and what an offline validator can
-    diff; the method's own script is what executes. Two consequences. First, an Ignore import leaves every SELECT
-    exactly as it was while the pages, forms and rules become the new ones — and it reports success either way.
-    Second, the only live channel for a SQL change is the method itself (`updateMethod` in the business-logic
-    API), so a query-level write is not a shortcut around a full import. The failure is silent
-    and the screen cannot show it — a register looks identical whether or not the join you added took effect.
-    **Check a SQL change by calling the method** (execute it over MCP, or open a row and read the field the
-    change was supposed to add), never by reloading the page. When the delta touches any SQL, the import has
-    to be Override or Rebuild — which also means it will replace the rows, so plan the live test data you
-    will have to re-enter afterwards.
+    ⛔ **Business logic unticked does not merely skip the CRUDs — it skips your SQL.** A dynamic CRUD's SQL method
+    runs the `script` stored on the METHOD (`dynamic-cruds.json` → the `bl` integration), **not** the `queries[]` entry
+    in `rep-objects.json` that carries the same statement — and that query travels with the business logic too. Proven
+    live: saving a new statement onto the query row (its id, its identifier, accepted and echoed back by the API)
+    changed nothing — the method kept returning what the old text selected. The `queries[]` copy is what the import
+    writes and what an offline validator can diff; the method's own script is what executes. Two consequences. First,
+    an import without Business logic leaves every SELECT exactly as it was while the pages, forms and rules become the
+    new ones — and it reports success either way. Second, the only live channel for a SQL change is the method itself
+    (`updateMethod` in the business-logic API), so a query-level write is not a shortcut around a full import. The
+    failure is silent and the screen cannot show it — a register looks identical whether or not the join you added
+    took effect. **Check a SQL change by calling the method** (execute it over MCP, or open a row and read the field
+    the change was supposed to add), never by reloading the page. When the delta touches any SQL, Business logic has
+    to be ticked — and with Database ticked too it will replace the rows, so plan the live test data you will have to
+    re-enter afterwards (untick Database to keep them).
 
     ⚠️ **A full import is not free, and a series of them can exhaust the server.** Each one restores the
     dump and replays the business logic inside the same JVM; after roughly a dozen in one working day an
@@ -1161,27 +1701,22 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     TAIL of the pipeline — content, rules, cruds, queries, the dump and the workflows had all been applied,
     only roles and deployment had not — so the project was left running but undeployed rather than broken,
     and the "Retry" button failed the same way. Two practical consequences: **batch your edits** so one
-    import carries many of them instead of one each, and after such a failure **check what actually landed**
+    import carries many of them instead of one each — and untick what the delta did not touch, which is also
+    the cheapest import — and after such a failure **check what actually landed**
     (call a changed method, list the workflows) before assuming the import did nothing.
 
-    **Which one to ask for.** **Override** whenever your delta touched `project-db.dump`, `project-db-meta.json`
-    or `dynamic-cruds.json` — i.e. always for a build from the empty baseline, and for any change that adds a
-    table, rows, a CRUD or a method. **Ignore** only for a content-only delta (`branches.json` /
-    `rep-objects.json`) into a project whose live database must survive — there Override would restore the
-    archive's older dump snapshot over live data and tear the running integration down.
+    **Rebuild the table structure from the file** starts ticked, and it is the only choice that makes the archive
+    authoritative about **structure** — after you change a column's type, drop a column, or rename one, the import
+    without it leaves the project's old shape in place and the reload then fails or half-lands, while the rebuild
+    produces exactly the tables the archive describes. Untick it only to keep the project's tables as they are.
 
-    **Rebuild** is the one to reach for on the build-import-fix loop against a project you own, for two reasons.
-    It is much faster: Override spends most of its wall-clock destroying the integration and waiting for a new
-    one to reach RUNNING (a wait that is allowed ten minutes), and Rebuild skips all of it. And it is the only
-    choice that makes the archive authoritative about **structure** — after you change a column's type, drop a
-    column, or rename one, Override leaves the project's old shape in place and the reload then fails or
-    half-lands, while Rebuild produces exactly the tables the archive describes.
-
-    ⚠️ **Rebuild needs the archive's integration to be the one already running.** It reuses this project's
-    live integration rather than creating one, so if `integrations.json` names an internal integration the
-    project does not have, the import stops before anything is written and tells you to use Override (which
-    creates it). This is deliberate: integrations are matched by name and nothing de-duplicates them, so
-    proceeding would leave two pods answering the same business-logic alias.
+    ⚠️ **With the rebuild, the integrations come up BEFORE the objects** — when Integration services is ticked and
+    Recreate them from scratch is not — because the business logic then goes in in one pass, into a running pod. The
+    project's live integration is reused (matched by name, then by docker image, so a second pod of the same type is
+    never started), a stopped one is deployed, and one `integrations.json` names that the project does not have — a
+    new project's first import, a file from another project — is created and waited for until RUNNING. One that
+    cannot be brought up does not cost the rest: the import goes on, says the business logic was not imported, and
+    Retry runs it all again.
 
     ⚠️ **Rebuild refuses rather than destroys.** Before dropping anything it inventories what the dump format
     provably cannot recreate, and if the schema holds any of it the import stops with those objects named and
@@ -1189,16 +1724,36 @@ To build a dynamic project by hand (producing an exact `.mrjun` on output):
     on both dump and restore, so it is never exported); a materialized view, foreign table or partitioned table;
     an identity or `GENERATED … STORED` column; a column with a non-default `COLLATE`; a standalone composite
     type or domain; an aggregate or window function; or a foreign key with one end in another schema, in either
-    direction. Every one of those survives **Override** — that is what "preserves structure" buys — so a refusal
-    is a signal to use Override for that project, not a bug. A schema built through the platform's own CRUD
-    builder trips none of them.
+    direction. Every one of those survives the default (Database without the rebuild) — that is what "preserves
+    structure" buys — so a refusal is a signal to import that project without the rebuild, not a bug. A schema built
+    through the platform's own CRUD builder trips none of them.
 
     Rebuild is also stricter about the reload itself: after a drop, "already exists" is impossible, so a table,
     constraint, index, view, function or trigger the archive describes and that does not come back is a hard
-    failure for that schema (rolled back intact) rather than a line in a service log. Override keeps warning
+    failure for that schema (rolled back intact) rather than a line in a service log. The default keeps warning
     and carrying on, because there the object it failed to create is usually still there from before.
-    ⚠️ **Ignore succeeds silently.** Nothing errors, the import reports done, and the symptoms of the wrong
-    answer — data missing, CRUDs unchanged, sources untouched — are the same set the deserialization-abort table
-    above attributes to a different cause, so the post-mortem starts in the wrong place. Whoever drives the
-    browser must be told which button to press; after the import, verify that a table you changed really carries
-    its new rows.
+    ⚠️ **A part left unticked succeeds silently.** Nothing errors, the import reports done, and the symptoms of
+    the wrong answer — data missing, CRUDs unchanged, sources untouched — are the same set the deserialization-abort
+    table above attributes to a different cause, so the post-mortem starts in the wrong place. Whoever drives the
+    browser must be told which switches to set; the summary line under them says what the import will do — read it
+    before pressing Import — and after the import, verify that a table you changed really carries its new rows.
+
+20. **Leave a `rep-objects` key out only together with its part.** Only the evidence keys (`mailTemplates`,
+    `pdfTemplates`, `roleGroups`, `apiExposures`, `schedulers`, `workflows`) decide whether their part is carried;
+    every other key is read once its part is imported, and absent then means **none** — an archive with
+    `branches.json` and no `settings` removes the target's settings rows and brings none (§6). Equally, ADDING one
+    object to a list the archive does not carry turns that part ON: `mailtemplate add` into an archive without
+    `mailTemplates` makes it carry the templates, and the import then replaces every mail template of the target
+    with that one.
+21. **`[]` is a statement; absent is not.** `apiExposures: []` deletes every endpoint with its key bindings;
+    `roleGroups: []` deletes every role group but Author and Developer, with everyone's membership of them;
+    `featureAccesses: []` takes every feature grant away; `mailTemplates: []` deletes every mail template of a REPORT
+    project (the four system ones come back); `enums: []` deletes every FREE enumeration. Only `pdfTemplates: []`
+    leaves the target's PDF templates alone. Absent keeps the target's in every one of these cases.
+22. **What a file carries is read from the file — so a missing piece silently drops a whole part, and a stray one
+    adds a part.** A dump without `project-db-meta.json`, no workflow version marked `deployed: true` (Deployment),
+    `processes.json` without `workflow-history.json`, an entry whose JSON does not parse — each makes its part "Not in
+    this file" ("Needs …, not in this file"), and the import never takes it. The other way round, a meta without the
+    `"database"` key and a `rep-objects.sources` holding any source of the project's own make the file carry the
+    Database even with no dump — and its import replaces the target's data sources; say `"database": false` to keep
+    them. `mrjun.py inspect` prints what the file carries before you upload it.

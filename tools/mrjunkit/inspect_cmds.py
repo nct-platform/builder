@@ -1,6 +1,7 @@
 """Read-only inspection: inspect, tree, find, list, show."""
 
 import json
+import os
 from collections import Counter
 
 from . import core
@@ -11,8 +12,46 @@ from . import core
 # ---------------------------------------------------------------------------
 
 
+def _files_under(p, folder):
+    """How many files the archive holds under `folder`, or None when it has no such folder."""
+    top = p.path(folder)
+    if not os.path.isdir(top):
+        return None
+    return sum(len(names) for _base, _dirs, names in os.walk(top))
+
+
+def _carries_lines(p):
+    """What an import of this file offers, part by part — the platform's own rules (doc 00 §"Which parts a file
+    carries"), so the Import dialog's "Not in this file" can be read here before anything is uploaded."""
+    lines = ["Carries — an import offers these parts; every part it does not carry stays in the target as it is:"]
+    for heading, label, importable, count, words in core.archive_parts(p):
+        if heading == "!":
+            lines.append("  ! %s %s" % (label, words))
+            continue
+        state = "yes" if importable else "no"
+        if importable and count is not None:
+            state += " (%d)" % count
+        lines.append("  %-13s %-23s %-9s %s" % (heading, label, state, words))
+    lines.append("  (a project that is not a REPORT project is offered only: %s)" % core.listed_parts(
+        label for _h, label, _n in core.ARCHIVE_PARTS if label not in core.REPORT_ONLY_PARTS))
+    return lines
+
+
+def _rep_count(rep, coll):
+    """A collection's count — or "absent": an export that left the key's part out wrote no key, and an import then
+    leaves that part of the target as it is, which is not the same as carrying an empty list."""
+    if coll not in rep:
+        return "absent"
+    value = rep.get(coll)
+    if value is None:
+        return "null (= absent)"
+    return str(len(value)) if isinstance(value, list) else "not a list (%s)" % type(value).__name__
+
+
 def cmd_inspect(args):
     p = core.Project(args.project)
+    # An archive that carries no pages, or no database, is a valid export of its other parts — read it as such.
+    absent = p.stand_in_absent_parts()
     root = p.root_content
 
     plugin_hist = Counter()
@@ -52,12 +91,21 @@ def cmd_inspect(args):
     lines.append("Project: %s (%s)" % (p.tenant.get("name"), p.tenant.get("alias")))
     lines.append("Locales: %s" % ", ".join(p.locales()))
     lines.append("")
-    lines.append("Content tree:")
-    lines.append("  pages (siteMapPage): %d" % pages)
-    lines.append("  total nodes: %d" % sum(plugin_hist.values()))
-    lines.append("  pluginName histogram (top 25):")
-    for pn, n in plugin_hist.most_common(25):
-        lines.append("    %5d  %s" % (n, pn))
+    lines.extend(_carries_lines(p))
+    lines.append("")
+    if core.F_BRANCHES in absent:
+        lines.append("Content tree: not in this archive (no branches.json) — an import leaves the target's pages, "
+                     "its languages and its files as they are")
+    else:
+        lines.append("Content tree:")
+        lines.append("  pages (siteMapPage): %d" % pages)
+        lines.append("  total nodes: %d" % sum(plugin_hist.values()))
+        lines.append("  pluginName histogram (top 25):")
+        for pn, n in plugin_hist.most_common(25):
+            lines.append("    %5d  %s" % (n, pn))
+    files = [(folder, _files_under(p, folder)) for folder in ("tenant-files", "favicon", "template-files")]
+    lines.append("  files: " + ", ".join("%s/ %s" % (folder, "absent" if n is None else "%d file(s)" % n)
+                                         for folder, n in files))
     lines.append("")
     lines.append("rep-objects:")
     for coll in core.REP_COLLECTIONS:
@@ -65,19 +113,52 @@ def cmd_inspect(args):
             # A count would read absent, null and [] alike — and only the first two are safe to import.
             lines.append("  %-24s %s" % (coll, core.api_exposures_state(rep)[2]))
             continue
-        lines.append("  %-24s %d" % (coll, len(rep.get(coll, []) or [])))
+        lines.append("  %-24s %s" % (coll, _rep_count(rep, coll)))
     lines.append("  rules by type:")
     for t, n in rules_by_type.items():
         lines.append("    %-16s %d" % (t, n))
     lines.append("  contexts:")
     lines.extend(ctx_lines or ["    (none)"])
     lines.append("")
-    lines.append("dynamic cruds: %d" % len(cruds))
-    lines.extend(crud_lines[:60])
+    if cruds_file is None:
+        lines.append("dynamic cruds: not in this archive (no dynamic-cruds.json)")
+    else:
+        lines.append("dynamic cruds: %d" % len(cruds))
+        lines.extend(crud_lines[:60])
+        enums = cruds_file.data.get("enums") if isinstance(cruds_file.data, dict) else None
+        lines.append("  enums: %s" % ("absent — an import leaves the target's enumerations as they are"
+                                      if enums is None else "%d" % len(enums) if isinstance(enums, list)
+                                      else "not a list"))
     lines.append("")
-    lines.append("database (%s):" % db.get("database"))
-    lines.extend(schema_lines or ["    (none)"])
+    if core.F_DB_DUMP in absent:
+        lines.append("database: no project-db.dump in this archive")
+    else:
+        lines.append("database (%s):" % db.get("database"))
+        lines.extend(schema_lines or ["    (none)"])
+    lines.extend(_meta_lines(p))
     core.out("\n".join(lines))
+
+
+def _meta_lines(p):
+    """What project-db-meta.json says (doc 00 §4): the `database` mark the import trusts over any other evidence, the
+    donor's prefix and RIMM source, and the re-linking hints it carries whatever parts the archive does."""
+    try:
+        meta = core.load_json_file(p.path(core.F_DB_META), required=False)
+    except core.ToolError as exc:
+        return ["  project-db-meta.json: cannot be read (%s)" % exc]
+    if meta is None:
+        return ["  project-db-meta.json: absent"]
+    data = meta.data if isinstance(meta.data, dict) else {}
+    if "database" in data:
+        mark = "database=%s" % ("true" if data.get("database") is True else "false")
+    else:
+        mark = "no \"database\" mark (an older file: its dump, rimm-data.json or own sources decide)"
+    business = data.get("businessSchemas")
+    bindings = data.get("integrationSources")
+    return ["  project-db-meta.json: %s; schemaPrefix=%s rimmSourceIdentifier=%s; businessSchemas=%s; "
+            "integrationSources=%s" % (mark, data.get("schemaPrefix"), data.get("rimmSourceIdentifier"),
+                                       ", ".join(business) if isinstance(business, list) and business else "absent",
+                                       "%d" % len(bindings) if isinstance(bindings, list) else "absent")]
 
 
 # ---------------------------------------------------------------------------

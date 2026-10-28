@@ -10,25 +10,31 @@ only when asked for explicitly: `./start.sh reset`, or this script directly.
 
     ./.venv/bin/python tools/import_project.py [path-to-mrjun] [--rebuild-structure] [--recreate-integration]
 
-Every switch of the import dialog is SET, never inherited (doc 00, "the import switches"): they are
-defaults of a dialog, not a contract, and a script that only clicks Import imports whatever the
-platform happens to default to. Each switch is found by its LABEL, set, and logged; when one that
-must change is disabled or missing, the import is cancelled instead of half-done.
+Every switch of the Import dialog is SET, never inherited (doc 00, "The Export and Import dialogs"): they
+are defaults of a dialog, not a contract, and a script that only clicks Import imports whatever the
+platform happens to default to. Each switch is found by its LABEL, set, and logged; when one that must
+change is disabled, or the file does not carry its part ("Not in this file"), the import is cancelled
+instead of half-done.
 
-* "Replace the business logic and its database" — always ON: it brings the SQL and the data.
-* `--rebuild-structure` turns on "Rebuild the table structure" (OFF otherwise). It is needed
-  EXACTLY when the SCHEMA in the export changed (a column, a table or an index was added): without
-  it the new SQL arrives but the column does not — and the CRUD table fails with
-  `column ... does not exist`, although the import reported success. When the schema has not
-  changed, leave it off: it rebuilds the tables, i.e. it wipes the tenant's data back to the dump.
-* `--recreate-integration` turns on "Recreate the integration" (OFF otherwise) — it tears the
-  project's integration down and builds it again; a data reset never needs it.
+* "Everything" — always ON: the reset brings back every part the archive carries. "Pages, forms and
+  rules" and "Database" must be among them (the content and the seed data); "Business logic" too
+  whenever the file carries it — it brings the SQL each table actually runs.
+* `--rebuild-structure` turns on "Rebuild the table structure from the file" (OFF otherwise). It is
+  needed EXACTLY when the SCHEMA in the export changed (a column, a table or an index was added):
+  without it the new SQL arrives but the column does not — and the CRUD table fails with
+  `column ... does not exist`, although the import reported success. When the schema has not changed,
+  leave it off: it drops the tables and builds them again from the file.
+* `--recreate-integration` turns on "Recreate them from scratch" under Integration services (OFF
+  otherwise) — it tears the project's integration down and builds it again, which adds minutes; a data
+  reset never needs it.
 
-⛔ An import does NOT deploy the workflows: they arrive `deployed: false`, and every work queue
-stays empty until each one is deployed again (the BPMN editor, or `nct_workflow_deploy` over MCP).
+⚠️ The import deploys exactly the workflows the archive marks `deployed: true`; one marked
+`deployed: false` arrives as a draft, and every work queue on it stays empty until it is deployed (the
+BPMN editor, or `nct_workflow_deploy` over MCP).
 
-Returns 0 when the import ran to the end; 1 when the platform reported an error
-(including `Java heap space`, which happens after a series of imports in a row).
+Returns 0 when the import ran to the end; 1 when the platform reported an error — "Import failed", or
+"Imported with warnings" (a part did not land; the reason is printed) — including `Java heap space`,
+which happens after a series of imports in a row.
 """
 from __future__ import annotations
 
@@ -52,9 +58,93 @@ DEFAULT_FILE = os.path.join(
 # a mid-sized project took a minute and a half to two; leave a margin, but not an infinite one.
 TIMEOUT_S = 420
 
+# The dialog's labels. The platform does not translate them, so they read the same in every UI language.
+EVERYTHING = "Everything"
+MUST_ARRIVE = ("Pages, forms and rules", "Database")
+IF_CARRIED = ("Business logic",)
+REBUILD = "Rebuild the table structure from the file"
+RECREATE = "Recreate them from scratch"
+
+# Every switch of the dialog with what its label says. Read again after every click: a click repaints the whole
+# block, and a box its parent unticked is unticked in the DOM only after that repaint.
+_READ_SWITCHES = """() => [...document.querySelectorAll('.naf input[type=checkbox]')].map((c, i) => {
+     const box = c.closest('.naf-all, .naf-head, .naf-row');
+     let title = '';
+     if (box) {
+       const head = box.querySelector('.naf-all__title, .naf-head__title, .naf-row__title');
+       const first = head && [...head.querySelectorAll('span')]
+           .find(s => !s.classList.contains('naf-count') && !s.classList.contains('naf-missing'));
+       title = ((first || head || {}).innerText || '').trim();
+     }
+     const missing = box ? ((box.querySelector('.naf-missing') || {}).innerText || '').trim() : '';
+     return {i, title, missing, checked: c.checked, disabled: c.disabled};
+   })"""
+
 
 def log(msg: str) -> None:
     print(f"  {msg}", flush=True)
+
+
+def choose_parts(page, rebuild_structure: bool, recreate_integration: bool):
+    """Set the open Import dialog's switches for a reset. Returns None when every switch is as it must be, else the
+    reason the import must not start."""
+
+    def switches() -> list:
+        return page.evaluate(_READ_SWITCHES)
+
+    def find(title: str):
+        return next((s for s in switches() if s["title"] == title), None)
+
+    def want(title: str, value: bool) -> str:
+        """Bring the switch to the required state: "ok", "missing", "not in this file" or "stuck"."""
+        s = find(title)
+        if s is None:
+            return "missing"
+        if s["checked"] == value:
+            log(f"«{title}»: {'on' if value else 'off'} (as it was)")
+            return "ok"
+        if s["missing"]:
+            return "not in this file"
+        if s["disabled"]:
+            return "stuck"
+        page.evaluate("(i) => [...document.querySelectorAll('.naf input[type=checkbox]')][i].click()", s["i"])
+        page.wait_for_timeout(1200)
+        now = find(title)
+        log(f"«{title}»: set {'on' if now and now['checked'] else 'off'}")
+        return "ok" if now and now["checked"] == value else "stuck"
+
+    for s in switches():
+        log(f"switch {s['title']!r} = {s['checked']}" + (" (disabled)" if s["disabled"] else "")
+            + (f" — {s['missing']}" if s["missing"] else ""))
+
+    state = want(EVERYTHING, True)
+    if state != "ok":
+        return f"«{EVERYTHING}» could not be turned on ({state})"
+    for title in MUST_ARRIVE:
+        s = find(title)
+        if s is None or s["missing"]:
+            return (f"«{title}» is {'not on this dialog' if s is None else 'not in this file'} — the reset needs "
+                    "it (pack the whole project: mrjun.py pack work project.mrjun)")
+        if not s["checked"]:
+            return f"«{title}» stayed off"
+    for title in IF_CARRIED:
+        s = find(title)
+        if s is not None and not s["missing"] and not s["checked"]:
+            return f"«{title}» stayed off — without it every table keeps the SQL it runs now"
+    for title, value in ((REBUILD, rebuild_structure), (RECREATE, recreate_integration)):
+        state = want(title, value)
+        if state == "missing" and not value:
+            log(f"«{title}»: not on this dialog — nothing to switch off")
+            continue
+        if state != "ok":
+            extra = (" (the schema in the export changed: without the rebuild the new SQL meets the old table and "
+                     "the CRUD tables fail)") if title == REBUILD else ""
+            return f"«{title}» could not be turned {'on' if value else 'off'} ({state}){extra}"
+
+    summary = page.evaluate("() => ((document.querySelector('.naf-summary') || {}).innerText || '').trim()")
+    if summary:
+        log(f"the dialog says: {summary}")
+    return None
 
 
 def main(path: str, rebuild_structure: bool = False, recreate_integration: bool = False) -> int:
@@ -141,118 +231,79 @@ def main(path: str, rebuild_structure: bool = False, recreate_integration: bool 
                     return 1
                 page.wait_for_timeout(2000)
             page.locator("input[type='file']").first.set_input_files(path)
-            page.wait_for_timeout(4000)
-            log("file uploaded, the options dialog is open")
 
-            # ⛔ The checkboxes of this dialog decide what exactly arrives, and stay silent when
-            # something did not: "Replace the business logic and its database" governs the SQL
-            # and the data, "Rebuild the table structure" the schema itself. Without the first,
-            # the import reports success while the rules stay as they were; without the second,
-            # the new SQL meets the old table. So the state is read TOGETHER WITH THE LABEL and
-            # set to the required value explicitly, instead of trusting the defaults.
-            boxes = page.evaluate(
-                """() => [...document.querySelectorAll('input[type=checkbox]')].map((c, i) => {
-                     let t = '';
-                     const id = c.getAttribute('id');
-                     if (id) { const l = document.querySelector(`label[for="${id}"]`);
-                               if (l) t = l.innerText; }
-                     if (!t) { let p = c.parentElement;
-                               for (let k = 0; k < 4 && p && !t; k++) { t = (p.innerText || '').trim(); p = p.parentElement; } }
-                     return {i, checked: c.checked, disabled: c.disabled, name: c.getAttribute('name') || '',
-                             label: (t || '').split(String.fromCharCode(10))[0].slice(0, 80)};
-                   })"""
-            )
-            for b in boxes:
-                log(f"checkbox [{b['i']}] {b['label']!r} = {b['checked']}"
-                    + (" (disabled)" if b["disabled"] else ""))
-
-            def want(wicket_id: str, patterns: tuple[str, ...], value: bool, what: str) -> str:
-                """Bring the switch to the required state: "ok", "missing" or "stuck". Found by its component id —
-                the end of its `name` attribute, the same in every language — and only failing that by its label."""
-                by_id = [b for b in boxes if (b.get("name") or "").endswith(wicket_id)]
-                by_label = [b for b in boxes if any(pt in (b["label"] or "").lower() for pt in patterns)]
-                match = by_id or by_label
-                if not match:
-                    return "missing"
-                b = match[0]
-                if b["checked"] == value:
-                    log(f"{what}: {'on' if value else 'off'} (as it was)")
-                    return "ok"
-                if b["disabled"]:
-                    print(f"✗ {what}: the checkbox is disabled, it cannot be turned {'on' if value else 'off'}")
-                    return "stuck"
-                page.evaluate(
-                    """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].click()""",
-                    b["i"])
-                page.wait_for_timeout(800)
-                now = page.evaluate(
-                    """(i) => [...document.querySelectorAll('input[type=checkbox]')][i].checked""",
-                    b["i"])
-                log(f"{what}: set {'on' if now else 'off'}")
-                return "ok" if now == value else "stuck"
-
-            # Each switch by its component id, with its caption fragments (en / ru / hy) as the fallback
-            # for an installation that renamed it. A switch that must be ON and cannot be is fatal; one
-            # that should stay OFF and does not exist on this installation is only logged.
-            switches = (
-                ("replaceBusinessLogic", ("business logic", "бизнес-логик", "բիզնես"), True,
-                 "«Replace the business logic and its database»"),
-                ("rebuildSchemas", ("table structure", "структур", "կառուցվածք"), rebuild_structure,
-                 "«Rebuild the table structure»"),
-                ("recreateIntegration", ("integration", "интеграц", "ինտեգրաց"), recreate_integration,
-                 "«Recreate the integration»"),
-            )
-            for wicket_id, patterns, value, what in switches:
-                state = want(wicket_id, patterns, value, what)
-                if state == "missing" and not value:
-                    log(f"{what}: not on this dialog — nothing to switch off")
-                    continue
-                if state != "ok":
-                    if state == "missing":
-                        print(f"✗ {what}: not found among {[b['label'] for b in boxes]}")
-                    print("  cancelling the import rather than importing half of what was asked for")
-                    if what.startswith("«Rebuild"):
-                        print("  (the schema in the export changed: without the rebuild the new SQL meets the old "
-                              "table and the CRUD tables fail)")
+            # The dialog opens once the file is read: one switch per part of the project, under four headings.
+            deadline = time.time() + 60
+            while time.time() < deadline and not page.locator(".naf input[type=checkbox]").count():
+                text = page.evaluate("() => document.body.innerText")
+                if "not a project export" in text:
+                    print("✗ the platform says the file is not a project export, or is damaged — nothing in it "
+                          "can be imported")
                     return 1
+                if "Import once it has finished" in text:
+                    # An export, an import, a version tag or an environment job of the project is running.
+                    busy = next((l.strip() for l in text.splitlines() if "Import once it has finished" in l), "")
+                    print(f"✗ the platform refuses to import now: {busy}")
+                    return 1
+                page.wait_for_timeout(1000)
+            if not page.locator(".naf input[type=checkbox]").count():
+                print("✗ the Import dialog did not open")
+                return 1
+            log("file uploaded, the Import dialog is open")
+
+            refused = choose_parts(page, rebuild_structure, recreate_integration)
+            if refused:
+                print(f"✗ {refused}")
+                print("  cancelling the import rather than importing half of what was asked for")
+                click_text("Cancel")
+                return 1
 
             if not click_text("Import"):
                 print("✗ the button that confirms the import was not found")
                 return 1
             log("import started, waiting for it to finish")
 
-            deadline = time.time() + TIMEOUT_S
+            started = time.time()
+            deadline = started + TIMEOUT_S
             last = ""
+            seen = False
             while time.time() < deadline:
                 page.wait_for_timeout(5000)
                 text = page.evaluate("() => document.body.innerText")
-                if "Import failed" in text:
-                    reason = ""
-                    for line in text.splitlines():
-                        if "Import failed" in line:
-                            idx = text.splitlines().index(line)
-                            reason = " ".join(text.splitlines()[idx:idx + 2])
-                            break
-                    print(f"\n✗ the import failed: {reason.strip()}")
-                    if "heap" in reason.lower():
-                        print("  This is the environment, not the file: a series of full imports exhausted the JVM memory.")
-                        print("  The environment needs a restart; the Retry button does not help in this state.")
-                    return 1
+                lines = text.splitlines()
+                for outcome in ("Import failed", "Imported with warnings"):
+                    if outcome in text:
+                        at = next(i for i, line in enumerate(lines) if outcome in line)
+                        reason = " ".join(line.strip() for line in lines[at:at + 2])
+                        print(f"\n✗ {reason.strip()}")
+                        if "heap" in reason.lower():
+                            print("  This is the environment, not the file: a series of full imports exhausted the "
+                                  "JVM memory.")
+                            print("  The environment needs a restart; the Retry button does not help in this state.")
+                        elif outcome == "Imported with warnings":
+                            print("  The project imported, but what is named above did not land — the tests would "
+                                  "run on data that was not reset.")
+                        return 1
                 progress = ""
                 # A progress line STARTS with its marker: searched anywhere, an English page's own
                 # text ("Starting a case…") would read as an import that never finishes.
-                for marker in ("Importing", "Configuring", "Deploying", "Starting"):
-                    line = next((l.strip() for l in text.splitlines() if l.strip().startswith(marker)), "")
+                for marker in ("Importing", "Restoring", "Saving", "Creating", "Deploying", "Waiting",
+                               "Removing", "Configuring", "Skipping"):
+                    line = next((l.strip() for l in lines if l.strip().startswith(marker)), "")
                     if line:
                         progress = line[:60]
                         break
-                if progress and progress != last:
-                    log(progress)
-                    last = progress
-                if not progress and "Export downloads the entire project" in text:
-                    # the progress window has closed — the import is finished
+                if progress:
+                    seen = True
+                    if progress != last:
+                        log(progress)
+                        last = progress
+                if (not progress and "Export asks which parts" in text
+                        and (seen or time.time() - started > 20)):
+                    # the progress card has gone — the import is finished
                     print("\n✓ import finished")
-                    print("  ⚠️ after an import the workflows arrive NOT deployed — re-deploy every workflow of the project")
+                    print("  ⚠️ only the workflows the archive marks deployed: true were deployed — deploy any "
+                          "draft a scenario needs")
                     return 0
             print("\n✗ the import did not finish in the allotted time")
             return 1
