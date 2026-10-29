@@ -11,8 +11,8 @@
  },
  "counts": {
   "patterns": 222,
-  "libraryGaps": 163,
-  "edges": 936
+  "libraryGaps": 162,
+  "edges": 937
  },
  "nodes": [
   {
@@ -33,7 +33,7 @@
    "type": "pattern",
    "name": "Server-resolved capability flags that report WHICH mechanism decided",
    "rule": "A `<Screen> Rights (Studio)` rule probes the platform role API, detects that it is fail-closed (`platformUsable = apiAnswered && (isAdmin || probe.any{k,v->v})`), falls back to a project-side `system_settings` jsonb store, and returns `[canEdit, canDelete, decidedBy, degraded, probe, via, scope, scopeWhy]` so a wrong answer is debuggable from the browser; the command rule re-checks the same resolver server-side regardless.",
-   "artefact": "rep-objects.rules[] EXECUTION_RULE; project-side fallback keys in a `system_settings` jsonb table (`tasks.role_members`, `tasks.see_all_users`, `tasks.<kind>_users`)",
+   "artefact": "rep-objects.rules[] EXECUTION_RULE; project-side fallback keys in a `system_settings` jsonb table (`task.role_members`, `task.see_all_users`, `task.<kind>_users`)",
    "seenIn": [
     "A"
    ],
@@ -45,8 +45,8 @@
    "id": "p:row-level-localization-side-channel",
    "type": "pattern",
    "name": "Row-level data localization via a `*Loc` side channel",
-   "rule": "Business rows carry a `localized` jsonb column; ONE dynamic CRUD (`app_localized_cruid`, 37 SQL methods, each `SELECT id AS row_id, CAST(localized AS text) AS loc FROM <table> WHERE localized IS NOT NULL`) exposes them as `<entity>Loc` keys on the screen payload, and the client merges by naming convention (`suppliersLoc` → `d.suppliers`) — then warns aloud on the console when every `*Loc` came back empty rather than degrading silently into the base locale.",
-   "artefact": "dynamic-cruds.json one CRUD with N `methodType:\"SQL\"` methods named `<entity>Loc`, `returnsArray:false`; author JS helper `appApplyLoc`",
+   "rule": "Business rows carry a `localized` jsonb column; ONE dynamic CRUD (`<loc_alias>`, 37 SQL methods, each `SELECT id AS row_id, CAST(localized AS text) AS loc FROM <table> WHERE localized IS NOT NULL`) exposes them as `<entity>Loc` keys on the screen payload, and the client merges by naming convention (`partnersLoc` → `d.partners`) — then warns aloud on the console when every `*Loc` came back empty rather than degrading silently into the base locale.",
+   "artefact": "dynamic-cruds.json one CRUD with N `methodType:\"SQL\"` methods named `<entity>Loc`, `returnsArray:false`; author JS helper `applyLocPatch`",
    "seenIn": [
     "A"
    ],
@@ -71,7 +71,7 @@
    "id": "p:scheduler-chain-as-orchestrator",
    "type": "pattern",
    "name": "A cron chain, not BPMN, is the process engine",
-   "rule": "27 schedulers, each `actionType: RUN_RULE` with a `job.explanation` citing the requirement it implements (\"A-19 daily 05:00\") and cron minute offsets that encode the dependency order — 02:00 KPI aggregation → 02:10 allocate shared costs → 02:25 rebuild cash ledger → 02:30 economics → 02:35 value inventory → 02:40 cash-flow projection → 02:45 close period → 02:50 break-even.",
+   "rule": "27 schedulers, each `actionType: RUN_RULE` with a `job.explanation` citing the requirement it implements (\"A-19 daily 05:00\") and cron minute offsets that encode the dependency order — 02:00 KPI aggregation → 02:10 allocate shared costs → 02:25 rebuild the value ledger → 02:30 economics → 02:35 value the holdings → 02:40 projection → 02:45 close period → 02:50 break-even.",
    "artefact": "rep-objects.schedulers[] `{actionType:\"RUN_RULE\", job:{expression, explanation}, actionRuleIdentifier}` → an EXECUTION_RULE per job",
    "seenIn": [
     "A"
@@ -84,13 +84,13 @@
    "id": "p:vendored-studio-kit",
    "type": "pattern",
    "name": "A vendored studio library shared by every component",
-   "rule": "One JS_CLASSIC file at `tenant-files/studio/app-kit/app-kit.js`, declared as `libs:[{name:\"appkit\", globalVar:\"appkit\", assets:[{kind:\"JS_CLASSIC\", path:\"studio/app-kit/app-kit.js\"}]}]` and reached as `ctx.libs.appkit` — so cross-cutting behaviour exists once instead of once per screen.",
+   "rule": "One JS_CLASSIC file at `tenant-files/studio/sx-kit/sx-kit.js`, declared as `libs:[{name:\"sxkit\", globalVar:\"SxKit\", assets:[{kind:\"JS_CLASSIC\", path:\"studio/sx-kit/sx-kit.js\"}]}]` and reached as `ctx.libs.sxkit` — so cross-cutting behaviour exists once instead of once per screen.",
    "artefact": "tenant-files/studio/<kit>/<kit>.js + studioModel.libs[] + per-script `libNames`",
    "seenIn": [
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "THE project's biggest avoidable cost: app-kit carries ONLY the breadcrumb proxy. `errText` is duplicated in 24/24 scripts, `applyLocale`/`say`/`bind`/`esc` in 23/24, the `ctx.callRule` logging prelude in 19/24. One component's CSS literally opens \"shared A screen kit, copied from the documents console\". Every cross-cutting fix became a 22-to-24-place sweep.",
+   "antiPattern": "THE project's biggest avoidable cost: sx-kit carries ONLY the breadcrumb proxy. `errText` is duplicated in 24/24 scripts, `applyLocale`/`say`/`bind`/`esc` in 23/24, the `ctx.callRule` logging prelude in 19/24. One component's CSS literally opens \"shared A screen kit, copied from the documents console\". Every cross-cutting fix became a 22-to-24-place sweep.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -103,7 +103,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Reading `el.disabled` inside the MutationObserver callback: deleting the last row re-enables and re-disables in ONE synchronous block, so the callback sees `true`, never resolves, and the block-panel overlay covers the whole screen for the full timeout.",
+   "antiPattern": "Reading `el.disabled` inside the MutationObserver callback: deleting the last row re-enables and re-disables in ONE synchronous block, so the callback sees `true`, never resolves, and the block overlay covers the whole screen for the full timeout.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -116,14 +116,14 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Dropping a click that arrives while a load() is in flight with no message and no button state — the PREVIOUS action's success text stays on screen and reads exactly like the new one succeeded. Five sightings, the worst being an operator seeing a database error after a stock receipt had actually succeeded, whose obvious reaction is to retry and double-receive.",
+   "antiPattern": "Dropping a click that arrives while a load() is in flight with no message and no button state — the PREVIOUS action's success text stays on screen and reads exactly like the new one succeeded. Five sightings, the worst being an operator seeing a database error after a write had actually succeeded, whose obvious reaction is to retry and double-post.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "p:charts-inside-a-studio-component",
    "type": "pattern",
    "name": "`chart.js.plugin` nodes as children of a studio component, addressed by `<plugin>` tags",
-   "rule": "The studio component supplies the grid, cards and KPI strip; the platform chart plugin supplies the canvas and query binding — `<div class=\"app-card\"><plugin id=\"app_dash_metric\" name=\"chart.js.plugin\"></plugin></div>` addresses a real chart node that is a CHILD of the html node.",
+   "rule": "The studio component supplies the grid, cards and KPI strip; the platform chart plugin supplies the canvas and query binding — `<div class=\"<pfx>-card\"><plugin id=\"<pfx>_dash_metric\" name=\"chart.js.plugin\"></plugin></div>` addresses a real chart node that is a CHILD of the html node.",
    "artefact": "nct.html.plugin (studioModel) with chart.js.plugin children + `<plugin id name>` tags in its `properties.html`",
    "seenIn": [
     "A"
@@ -136,7 +136,7 @@
    "id": "p:instrumentation-by-bridge-wrapping",
    "type": "pattern",
    "name": "Instrument every server call by wrapping `ctx.callRule` once",
-   "rule": "A self-installing prelude rebinds `ctx.callRule` to time the call, inject the reading locale (`input.__loc`), and write an info/error row to a `ui_event_log` table on resolve or reject — guarded by `ctx.__ghLogWrapped` for re-mount idempotence and by an explicit skip so the logger never logs itself.",
+   "rule": "A self-installing prelude rebinds `ctx.callRule` to time the call, inject the reading locale (`input.__loc`), and write an info/error row to a project log table on resolve or reject — guarded by `ctx.__logWrapped` for re-mount idempotence and by an explicit skip so the logger never logs itself.",
    "artefact": "author JS prelude + an EXECUTION_RULE `Log UI Event (Studio)` + a plain log table with its own CRUD",
    "seenIn": [
     "A"
@@ -155,7 +155,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Bare colour literals in the `*` block (validate WARNs on these), and undefined custom properties — one module used five token names that do not exist (`--app-line`, `--app-ink`, `--app-sunk`) and an undefined custom property invalidates the whole declaration, so the control rendered unstyled.",
+   "antiPattern": "Bare colour literals in the `*` block (validate WARNs on these), and undefined custom properties — one module used five token names that do not exist (`--<pfx>-line`, `--<pfx>-ink`, `--<pfx>-sunk`) and an undefined custom property invalidates the whole declaration, so the control rendered unstyled.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -175,13 +175,13 @@
    "id": "p:register-document-ledger-queue",
    "type": "pattern",
    "name": "Classify every entity as register / document / ledger / queue before choosing an artefact",
-   "rule": "Registers (a few dozen code lists plus the master tables) get crud.table + a form group; documents (header+lines — `document`→`document_line`, `case`→`task`, `run`→`stop`) get a studio console over a header CRUD and its line CRUDs; ledgers (`item`/`item_movement`, `account`/`account_movement`) get an append-only movement table plus a balance and a named rule per direction; queues (`task`, `alert`, `inbox`, `exception`) get a filterable console board, never a report.",
+   "rule": "Registers (a few dozen code lists plus the master tables) get crud.table + a form group; documents (header+lines — `document`→`document_line`, `case`→`task`, `plan`→`plan_line`) get a studio console over a header CRUD and its line CRUDs; ledgers (`item`/`item_movement`, `unit`/`unit_movement`) get an append-only movement table plus a balance and a named rule per direction; queues (`task`, `alert`, `inbox`, `exception`) get a filterable console board, never a report.",
    "artefact": "the whole export — dynamic-cruds.json + the page tree + which plugin each page carries",
    "seenIn": [
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Treating a queue as a report. The PRD is explicit: \"the compliance dashboard is a work queue, not a report. Each open gate is clickable and closable. This is why it cannot be delegated to a BI tool.\"",
+   "antiPattern": "Treating a queue as a report. An exception screen is a work queue, not a report: each open item is clickable and closable, which is why it cannot be delegated to a BI tool.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -194,20 +194,20 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "\"Record Delivery Rejection had always returned no stock, and had always been correct to, because nothing had ever removed any.\" One forward change silently broke a rule written years earlier and touched by nobody; every existing assertion about rejection concerned the credit note and the order status, both of which stayed right.",
+   "antiPattern": "A rejection rule had always returned no quantity, and had always been correct to, because nothing had ever removed any. One forward change silently broke a rule written years earlier and touched by nobody; every existing assertion about rejection concerned the counter-document and the document's status, both of which stayed right.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "p:seed-data-is-not-evidence",
    "type": "pattern",
    "name": "Seed data written from the spec agrees with the spec and proves nothing",
-   "rule": "A balance is verified by causing a movement and re-reading it, never by inspecting a value that agrees with expectations; where a test cannot execute the rule it asserts on the rule's TEXT that the write exists, and a module claiming to move stock ends with an assertion that the balance update is present, not merely the ledger insert.",
+   "rule": "A balance is verified by causing a movement and re-reading it, never by inspecting a value that agrees with expectations; where a test cannot execute the rule it asserts on the rule's TEXT that the write exists, and a module claiming to move a quantity ends with an assertion that the balance update is present, not merely the ledger insert.",
    "artefact": "project-db.dump rows vs rep-objects.rules[] scripts",
    "seenIn": [
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "The mirror error: deriving STRUCTURE from seed text. Three free-text values in an `inventory.location` column were promoted into three warehouse entities; two were storage rooms and the third was a state (\"Quarantine bay\"), and \"a dimension whose members are not the same kind of thing is not a dimension.\" The subdivision turned out not to be wanted at all.",
+   "antiPattern": "The mirror error: deriving STRUCTURE from seed text. Three free-text values in a `location` column were promoted into three entities; two were places and the third was a state, and \"a dimension whose members are not the same kind of thing is not a dimension.\" The subdivision turned out not to be wanted at all.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -220,14 +220,14 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "\"Both defaults are the dangerous one, and neither was ever chosen.\" Produce nobody grew would back an own-grown provenance claim on the say-so of a string comparison that missed.",
+   "antiPattern": "\"Both defaults are the dangerous one, and neither was ever chosen.\" An item nobody made in-house would back an in-house-origin claim on the say-so of a string comparison that missed.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "p:create-path-beside-the-picker",
    "type": "pattern",
    "name": "For every list a screen reads, name the rule that WRITES it",
-   "rule": "A fixture is a decision about who creates the row, made silently — nine rounds of scenario testing passed over a table the application could not write, because every acceptance test began \"given a stock item…\". Where the create rule does not exist the feature is incomplete however well the screen behaves; where it does, the create path belongs beside the picker that failed to offer the row, not only in a header.",
+   "rule": "A fixture is a decision about who creates the row, made silently — nine rounds of scenario testing passed over a table the application could not write, because every acceptance test began \"given an item…\". Where the create rule does not exist the feature is incomplete however well the screen behaves; where it does, the create path belongs beside the picker that failed to offer the row, not only in a header.",
    "artefact": "an inline door button next to every `<select>` in a studio component + the list page it opens",
    "seenIn": [
     "A"
@@ -298,7 +298,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "The same shape as authoring a panel hidden in the markup with nothing un-hiding it at init — the raw-material side of a screen opened blank for four modules. Markup carries a starting state, the script carries the rules that govern it, and if the script only runs on an event the two disagree until the operator acts.",
+   "antiPattern": "The same shape as authoring a panel hidden in the markup with nothing un-hiding it at init — the input side of a screen opened blank for four modules. Markup carries a starting state, the script carries the rules that govern it, and if the script only runs on an event the two disagree until the operator acts.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -311,14 +311,14 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "The marker class that marked nothing: `wh-off` was applied to \"make the shape of each movement legible from one screen\" and had no CSS rule anywhere in the project. Four modules carried it and cited it in their own justification; all anyone ever saw was the browser's default greying.",
+   "antiPattern": "The marker class that marked nothing: `<pfx>-off` was applied to \"make the shape of each movement legible from one screen\" and had no CSS rule anywhere in the project. Four modules carried it and cited it in their own justification; all anyone ever saw was the browser's default greying.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "p:seam-is-a-requirement",
    "type": "pattern",
    "name": "A seam between two modules is a requirement, not an implementation detail",
-   "rule": "Testing found the failures were at the handoffs, not the steps — QC→warehouse (two inventory ledgers with no bridge), QC→plan (archived batches still feeding output totals), equipment→tasks (a task generated from a machine reported nothing back), invoice→cash (a receipt reduced receivables and never credited cash) — so where a core loop names a handoff, an acceptance criterion must exercise BOTH sides of it.",
+   "rule": "Testing found the failures were at the handoffs, not the steps — step→step (two ledgers for one quantity with no bridge), step→plan (archived rows still feeding the plan's totals), unit→task (a task generated from a unit reported nothing back), document→ledger (a settlement reduced one balance and never credited the other) — so where a core loop names a handoff, an acceptance criterion must exercise BOTH sides of it.",
    "artefact": "the plan/acceptance criteria, and the rule pairs that write both sides",
    "seenIn": [
     "A"
@@ -348,7 +348,7 @@
    "artefact": "dynamic-cruds.json GROOVY methods create/update/delete",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "update runs deleteLines(id) then re-inserts every line, so line ids churn on each save and any stock_movement.doc_line_id written earlier dangles; a diff-based upsert keyed on line_number would cost little.",
+   "antiPattern": "update runs deleteLines(id) then re-inserts every line, so line ids churn on each save and any movement.doc_line_id written earlier dangles; a diff-based upsert keyed on line_number would cost little.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -356,7 +356,7 @@
    "id": "p:posting-rule-skeleton",
    "type": "pattern",
    "name": "Twelve-step posting-engine rule skeleton",
-   "rule": "Every posting rule runs the same order: helper closures, actor, multi-source subject resolution, load+null guard, status guard, role guard, period-lock guard, business preconditions, derive via stamp*/compute*/recompute*, re-read and sanity-check, write stock_movement, flip status LAST via a guarded transition, then audit.",
+   "rule": "Every posting rule runs the same order: helper closures, actor, multi-source subject resolution, load+null guard, status guard, role guard, period-lock guard, business preconditions, derive via stamp*/compute*/recompute*, re-read and sanity-check, write the movement ledger, flip status LAST via a guarded transition, then audit.",
    "artefact": "rep-objects.json rules[] ruleType=EXECUTION_RULE",
    "seenIn": [],
    "evidenceCount": null,
@@ -404,11 +404,11 @@
    "id": "p:prd-formula-as-one-sql-update",
    "type": "pattern",
    "name": "A page of PRD arithmetic compiled into one derivation statement",
-   "rule": "A single derive method turns six typed measurements into fourteen derived columns in one UPDATE — the multiplier, two areas, two separately modelled loss sources, planned vs actual vs abnormal loss, and a `surplus_requires_approval` flag against a tolerance parameter.",
-   "artefact": "dynamic-cruds.json cutMarker.computeMarker / stampConversion (SQL)",
+   "rule": "A single derive method turns six typed measurements into fourteen derived columns in one UPDATE — the multiplier, two intermediate measures, two separately modelled deviation sources, planned vs actual vs out-of-tolerance deviation, and an `excess_requires_approval` flag against a tolerance parameter.",
+   "artefact": "dynamic-cruds.json document.computeDerived / stampConversion (SQL)",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Letting the form write derived columns. The posting rule sequences stampLines → stampConversion → computeMarker → recomputeSizes, re-reads, then validates the result is non-empty before posting.",
+   "antiPattern": "Letting the form write derived columns. The posting rule sequences stampLines → stampConversion → computeDerived → recomputeTotals, re-reads, then validates the result is non-empty before posting.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -416,7 +416,7 @@
    "id": "p:snapshot-on-post",
    "type": "pattern",
    "name": "Server-side snapshot stamping so history cannot be rewritten",
-   "rule": "stampLines copies the item code, the variant code and the full document-specific item name onto every line and costs it at the source unit's own `unit_cost` via a COALESCE chain (transfer line → roll → existing), all in SQL at post time, so a later rename cannot change a historical report.",
+   "rule": "stampLines copies the item code, the variant code and the full document-specific item name onto every line and costs it at the source unit's own `unit_cost` via a COALESCE chain (source line → unit → existing), all in SQL at post time, so a later rename cannot change a historical report.",
    "artefact": "dynamic-cruds.json <doc>.stampLines (SQL)",
    "seenIn": [],
    "evidenceCount": null,
@@ -428,8 +428,8 @@
    "id": "p:running-settlement-ledger",
    "type": "pattern",
    "name": "Control equation as live columns settled by deltas",
-   "rule": "The source document's line carries qty / qty_used / qty_returned / qty_lost / qty_open, and each downstream document's post rule calls settleLine with exactly one non-empty delta; a header refreshSettlement then rolls it up to OPEN/PARTIALLY_SETTLED/CLOSED within tolerance.",
-   "artefact": "dynamic-cruds.json materialTransfer.settleLine (SQL)",
+   "rule": "The source document's line carries qty / qty_used / qty_returned / qty_written / qty_open, and each downstream document's post rule calls settleLine with exactly one non-empty delta; a header refreshSettlement then rolls it up to OPEN/PARTIALLY_SETTLED/CLOSED within tolerance.",
+   "artefact": "dynamic-cruds.json document.settleLine (SQL)",
    "seenIn": [],
    "evidenceCount": null,
    "antiPattern": "Recomputing the balance by aggregating downstream documents at close time — slower, and it cannot flag a per-line tolerance breach the way flagVariances does per UOM (0.150 KG / 0.500 M).",
@@ -453,10 +453,10 @@
    "type": "pattern",
    "name": "Gate / persist / lifecycle / engine rule layering",
    "rule": "Per document: a one-line PREDICATE reading status decides whether the button renders, a two-line persist rule handles form submit, a thin lifecycle wrapper re-checks the guard server-side and delegates by name, and the fat starred engine does the work.",
-   "artefact": "rep-objects.json rules[].description prefixed 'aas/04_rules · <bucket> ·'",
+   "artefact": "rep-objects.json rules[].description prefixed '<project>/04_rules · <bucket> ·'",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Rules are invoked by display name — service.rule(\"Անցկացնել փաստացի ծախսը\") — so a studio rename breaks every caller with no static check and no error until the button is clicked.",
+   "antiPattern": "Rules are invoked by display name — service.rule(\"Post The Document\") — so a studio rename breaks every caller with no static check and no error until the button is clicked.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -504,7 +504,7 @@
    "artefact": "rep-objects.json mailTemplates[] + the PDF/mail EXECUTION_RULEs",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "An unguarded service.report.pdf.email call: renderAttachments runs BEFORE the send and rethrows, so a PDF-service outage loses the notification too. Catch and fall back to service.notification.mail.",
+   "antiPattern": "An unguarded service.report.pdf.email call: the attachment render runs BEFORE the send and rethrows, so a PDF-service outage loses the notification too. Catch and fall back to service.notification.mail.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -525,7 +525,7 @@
    "type": "pattern",
    "name": "«Modify the document» opens a correcting version that reverses and re-enters",
    "rule": "An approved document is never edited: a button opens a revision-numbered correction row, one-open-at-a-time enforced, with an empty (not placeholder) reason that the approve rule refuses until it is ≥10 chars and not the prompt itself; approving runs the existing reversal machinery so the ledger really moves and both versions survive.",
-   "artefact": "dynamic-cruds.json documentCorrection.openForDocument (SQL) + the ⭐ v1.2 §9 rules",
+   "artefact": "dynamic-cruds.json documentCorrection.openForDocument (SQL) + the ⭐ <req-id> rules",
    "seenIn": [],
    "evidenceCount": null,
    "antiPattern": "A pre-filled 'fill in the reason' placeholder — the rule comment records that it is 52 chars long and so satisfies both the non-empty and the length check, letting a director approve a correction whose stated reason is an instruction to state a reason.",
@@ -536,11 +536,11 @@
    "id": "p:fifo-suggestion-with-recorded-override",
    "type": "pattern",
    "name": "FIFO suggestion stored as data, with the shortfall, so the override is auditable",
-   "rule": "JOIN LATERAL … ORDER BY creation_time LIMIT 1 writes `suggested_unit_id` and `shortfall_qty` onto each request line in one statement, and a companion fifoQueue returns the ordered queue with ROW_NUMBER() AS fifo_position so the approver sees what he is overriding.",
-   "artefact": "dynamic-cruds.json materialRequest.suggestFifoRolls (SQL)",
+   "rule": "JOIN LATERAL … ORDER BY creation_time LIMIT 1 writes `suggested_unit_id` and `shortfall_qty` onto each request line in one statement, and a companion fifoQueue returns the ordered queue with ROW_NUMBER() AS fifo_position so the approver sees what they are overriding.",
+   "artefact": "dynamic-cruds.json document.suggestFifoUnits (SQL)",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Computing the suggestion in the UI. Note also that cost_finalized = true sits in the eligibility filter, so the 'un-costed stock cannot move' rule is enforced in the suggestion, not only in validation.",
+   "antiPattern": "Computing the suggestion in the UI. Note also that cost_finalized = true sits in the eligibility filter, so the 'un-costed units cannot move' rule is enforced in the suggestion, not only in validation.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -560,7 +560,7 @@
    "id": "p:artefact-traceability-descriptions",
    "type": "pattern",
    "name": "Description field as a grep-able index back to the PRD",
-   "rule": "Every rule, workflow, process group, mail and PDF template carries a description of the form 'aas/<step>_<kind> · <bucket> · <detail>' or a PRD clause citation, with ⭐ marking the seven rules that implement a named requirement and must not be casually edited.",
+   "rule": "Every rule, workflow, process group, mail and PDF template carries a description of the form '<pfx>/<step>_<kind> · <bucket> · <detail>' or a PRD clause citation, with ⭐ marking the seven rules that implement a named requirement and must not be casually edited.",
    "artefact": "rep-objects.json *.description",
    "seenIn": [],
    "evidenceCount": null,
@@ -609,7 +609,7 @@
    "id": "p:trilingual-interaction-help",
    "type": "pattern",
    "name": "Inline help that explains the interaction model, not the field",
-   "rule": "78 nct.help.plugin nodes, 78 fully trilingual, teaching how the screen works rather than restating the label — e.g. 'Status is not typed in — it is the document's history. It moves with the register buttons: Submit, Approve, Reject, Mark as fulfilled, Cancel.'",
+   "rule": "78 nct.help.plugin nodes, 78 fully trilingual, teaching how the screen works rather than restating the label — e.g. 'Status is not typed in — it is the record's history. It moves with the list buttons: «Submit», «Approve», «Return for correction», «Close», «Reverse».'",
    "artefact": "nct.help.plugin properties.helpSettings.stringValue → localizedMap.message",
    "seenIn": [],
    "evidenceCount": null,
@@ -633,11 +633,11 @@
    "id": "p:policy-table-deadlines",
    "type": "pattern",
    "name": "Every statutory number is a row, computed in working days",
-   "rule": "Model clocks as a `deadline_policy` CRUD (`code`, `durationValue`, `durationUnit` in MINUTES/HOURS/CALENDAR_DAYS/WORKING_DAYS/MONTHS, `escalationPoints`, `ownerRole`, `approvalState`), resolve with `applyPolicy(code, from, holidays)` over a business-maintained holiday table, compose the code from state (`'CONTAINMENT_' + priority`), and throw — never default — when the row is missing.",
+   "rule": "Model clocks as a `deadline_policy` CRUD (`code`, `durationValue`, `durationUnit` in MINUTES/HOURS/CALENDAR_DAYS/WORKING_DAYS/MONTHS, `escalationPoints`, `ownerRole`, `approvalState`), resolve with `applyPolicy(code, from, holidays)` over a business-maintained holiday table, compose the code from state (`'TARGET_' + priority`), and throw — never default — when the row is missing.",
    "artefact": "reference CRUD + Groovy closure prelude",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "`from.plusDays(3)` for \"three working days\", and `policyValue(code, 24)` silently defaulting when Compliance never configured the row — the deadline is then wrong and nobody knows whose number it is.",
+   "antiPattern": "`from.plusDays(3)` for \"three working days\", and `policyValue(code, 24)` silently defaulting when the business never configured the row — the deadline is then wrong and nobody knows whose number it is.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -673,7 +673,7 @@
    "artefact": "PREDICATE rule on a crud.table.plugin action and a BPMN gateway",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Relying on role separation alone (\"only the approver role may approve\") — the case owner who also holds that role approves their own case; and reading `isHighRisk` from the submitted row instead of re-fetching it.",
+   "antiPattern": "Relying on role separation alone (\"only the approver role may approve\") — the case owner who also holds that role approves their own case; and reading `<flag>` from the submitted row instead of re-fetching it.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -685,7 +685,7 @@
    "artefact": "chart.js.plugin (Plotly engine) + one query, two QUERY replacements",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Two separate queries for current and previous — they drift under a filter change; and leaving `increasing:{color:'green'}` on a KPI where rising is bad (open cases, net loss, overdue requests).",
+   "antiPattern": "Two separate queries for current and previous — they drift under a filter change; and leaving `increasing:{color:'green'}` on a KPI where rising is bad (open cases, breached clocks, overdue requests).",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -717,7 +717,7 @@
    "id": "p:tabbed-multi-crud-console",
    "type": "pattern",
    "name": "The workbench: one page, one tab plugin, one filter+table pair per child entity",
-   "rule": "For an aggregate whose children are registers rather than line grids, build a single page with `nct.tab.plugin` whose `tabModel.items[i]` binds to child parsis node `i` BY ORDER, each child holding exactly `dynaform.filter.form.plugin` (fields in a `filter-row` html as fcell1..N + fcellsubmit) plus `crud.table.plugin`.",
+   "rule": "For an aggregate whose children are registers rather than line grids, build a single page with `nct.tab.plugin` where each `tabModel.items[]` entry renders the child parsis whose `identifier` equals the item's `id` — the identifier decides, not the position — each child holding exactly `dynaform.filter.form.plugin` (fields in a row html, one cell per field + a submit cell) plus `crud.table.plugin`.",
    "artefact": "nct.tab.plugin + nct.parsis.plugin children",
    "seenIn": [],
    "evidenceCount": null,
@@ -729,11 +729,11 @@
    "id": "p:polymorphic-form-group",
    "type": "pattern",
    "name": "One form group, two forms, chosen by predicate",
-   "rule": "Put a stricter variant of a form in the same form group and let `predicateFormMapping` pick it: `{Extended Case Form <- 'Case Has Exposure', Standard Case Form <- 'True'}` — no second button, no second screen, no branch in a rule.",
+   "rule": "Put a stricter variant of a form in the same form group and let `predicateFormMapping` pick it: `{Extended Case Form <- 'Case Has <X>', Standard Case Form <- 'True'}` — no second button, no second screen, no branch in a rule.",
    "artefact": "rep-objects.formGroups[].predicateFormMapping",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "A single mega-form with 12 conditionally hidden origination fields, or a second row action the analyst has to know to press.",
+   "antiPattern": "A single mega-form with 12 conditionally hidden variant fields, or a second row action the user has to know to press.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -745,19 +745,19 @@
    "artefact": "VALIDATION_RULE in rep-objects.forms[].validators",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "`validation.addError(\"Invalid\")` in one language: the officer cannot tell which field is wrong, and the compliance evidence that the refusal happened is unreadable to the auditor.",
+   "antiPattern": "`validation.addError(\"Invalid\")` in one language: the user cannot tell which field is wrong, and the evidence that the refusal happened is unreadable to a reviewer in another locale.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
   {
    "id": "p:language-suffixed-documents",
    "type": "pattern",
-   "name": "Documents in the customer's language, selected by alias suffix",
-   "rule": "Create one PDF and one mail template per language with the language in the alias (`decisionLetterPdfHy|Ru|En`), branch three ways at the call site on the CUSTOMER's `preferredLanguage`, and treat a null PDF reference as fatal so the record is never marked notified without a document.",
+   "name": "Documents in the recipient's language, selected by alias suffix",
+   "rule": "Create one PDF and one mail template per language with the language in the alias (`<purpose>PdfHy|Ru|En`), branch three ways at the call site on the RECIPIENT's `preferredLanguage`, and treat a null PDF reference as fatal so the record is never marked notified without a document.",
    "artefact": "pdfTemplates + mailTemplates + service.report.pdf.get/email",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Rendering in the operator's interface locale, or swallowing a null reference from `service.report.pdf.get` and still stamping `customerNotifiedAt`.",
+   "antiPattern": "Rendering in the operator's interface locale, or swallowing a null reference from `service.report.pdf.get` and still stamping `notifiedAt`.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -769,7 +769,7 @@
    "artefact": "EXECUTION_RULE + one pdfTemplate + auditEntry CRUD",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "An export that bypasses the find rule's scope (a branch user exports every branch) or that leaves no trace — \"who took a copy of the register\" is itself a supervisory question.",
+   "antiPattern": "An export that bypasses the find rule's scope (a unit-scoped user exports every unit) or that leaves no trace — \"who took a copy of the register\" is itself an oversight question.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -789,7 +789,7 @@
    "id": "p:searchable-relation-picker",
    "type": "pattern",
    "name": "Server-filtered relation dropdown with a disambiguating label",
-   "rule": "Set `searchEnabled:true` + `searchRuleIdentifier` + `prevRuleIdentifier` on the field and back it with a rule that reads `attrs.filterBy` through a Jackson-safe `_txt()`, caps at 20 rows, and returns a composed `label` (`customerNo — fullName`) with `displayName:\"label\"` so duplicates are distinguishable.",
+   "rule": "Set `searchEnabled:true` + `searchRuleIdentifier` + `prevRuleIdentifier` on the field and back it with a rule that reads `attrs.filterBy` through a Jackson-safe `_txt()`, caps at 20 rows, and returns a composed `label` (`code — fullName`) with `displayName:\"label\"` so duplicates are distinguishable.",
    "artefact": "dynaform.form.rimm.drop.down.field.plugin settings + choices rule",
    "seenIn": [],
    "evidenceCount": null,
@@ -801,7 +801,7 @@
    "id": "p:role-gated-shared-nav",
    "type": "pattern",
    "name": "One shared left nav, grouped by job, gated per role group",
-   "rule": "Write quick links only into the shared `virtualPlugins[] \"Nct left nav\"` node, group entries by the way a job is done (Cases · Restrictions · Regulator · Oversight · Configuration · Reports · admin), give each entry a `pe-7s-*` icon, and set `roleAccess.roleGroupAccessors` from the PRD's own access matrix so a role sees only its own work.",
+   "rule": "Write quick links only into the shared `virtualPlugins[] \"Nct left nav\"` node, group entries by the way a job is done (Cases · Restrictions · External parties · Oversight · Configuration · Reports · admin), give each entry a `pe-7s-*` icon, and set `roleAccess.roleGroupAccessors` from the PRD's own access matrix so a role sees only its own work.",
    "artefact": "site.kicker.plugin modelGroups on the shared virtual plugin",
    "seenIn": [],
    "evidenceCount": null,
@@ -813,7 +813,7 @@
    "id": "p:requirement-ids-in-artefacts",
    "type": "pattern",
    "name": "Every rule carries its requirement ids and its library reference",
-   "rule": "Put the PRD ids in the rule `description` (\"FR-22 / BR-05 / A-04 — the aggregate at a party is the SUM across every path\") and the governing library section in an inline comment (\"SHAPE C: the SYSTEM opens the case (doc 27 §4-§5)\", \"doc 15 §6: a null reference means no document exists\").",
+   "rule": "Put the PRD ids in the rule `description` (\"<req-id> / <req-id> / <req-id> — <the clause it implements, in one line>\") and the governing library section in an inline comment (\"SHAPE C: the SYSTEM opens the case (doc 27 §4-§5)\", \"doc 15 §6: a null reference means no document exists\").",
    "artefact": "rep-objects.rules[].description + Groovy comments",
    "seenIn": [
     "A"
@@ -838,11 +838,11 @@
    "id": "p:graph-frontier-aggregate",
    "type": "pattern",
    "name": "Frontier aggregation over a chain of movements",
-   "rule": "When money (or goods, or custody) moves in a chain, the total at a party is the SUM over every branch keyed by party+institution, and what is still recoverable is only the hops with no onward child and no terminal flag — summing every non-terminal hop counts the same value once per link.",
+   "rule": "When a quantity moves in a chain, the total at a party is the SUM over every branch keyed by party+holder, and what is still open is only the hops with no onward child and no terminal flag — summing every non-terminal hop counts the same value once per link.",
    "artefact": "EXECUTION_RULE behind a direct row action",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Taking the largest branch as the exposure (understates split transfers), or summing all non-terminal hops (double counts the chain). Also: a loop must be flagged and the calculation must still complete, not abort.",
+   "antiPattern": "Taking the largest branch as the total (understates a chain that splits), or summing all non-terminal hops (double counts the chain). Also: a loop must be flagged and the calculation must still complete, not abort.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -902,7 +902,7 @@
    "artefact": "a dynamic CRUD + one SQL method + one crud.table page; the rule that uses it only publishes the answer into context attrs",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "The if/else ladder written in Groovy — then every threshold change is a rebuild, and nobody can see why 26 is 26.",
+   "antiPattern": "The if/else ladder written in Groovy — then every threshold change is a rebuild, and nobody can see why <n> is <n>.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -910,7 +910,7 @@
    "id": "p:effective-dated-parameters-plus-snapshot",
    "type": "pattern",
    "name": "Versioned parameters, and the snapshot that makes them useful",
-   "rule": "Parameters get their own register with `version` / `effective_from` / `status DRAFT→ACTIVE→SUPERSEDED` and three methods (`nextVersion`, `activate` which computes every derived quantity in SQL, `supersedeOthers`); the other half is that each document LINE stores the parameters it was computed from — one `<param>_at_calc` column per parameter, plus the derived daily rate.",
+   "rule": "Parameters get their own register with `version` / `effective_from` / `status DRAFT→ACTIVE→SUPERSEDED` and three methods (`nextVersion`, `activate` which computes every derived quantity in SQL, `supersedeOthers`); the other half is that each document LINE stores the parameters it was computed from — one `<param>_at_calc` column per parameter, plus the value derived from them.",
    "artefact": "itemParameter CRUD (12 methods) + partial unique index on (item_id, version) + `Create Item Parameter Version` rule copying the ACTIVE one to a new DRAFT",
    "seenIn": [],
    "evidenceCount": null,
@@ -922,11 +922,11 @@
    "id": "p:arithmetic-lives-in-sql",
    "type": "pattern",
    "name": "One home for every derived number",
-   "rule": "Derived quantities are computed only by named SQL CRUD methods (`recalculate`, `activate`, `recomputeTotals`, `allocateLandedCost`) so the grid, the row action and the nightly job cannot disagree; the Groovy rule around each one is three lines of orchestration.",
+   "rule": "Derived quantities are computed only by named SQL CRUD methods (`recalculate`, `activate`, `recomputeTotals`, `allocate<Cost>`) so the grid, the row action and the nightly job cannot disagree; the Groovy rule around each one is three lines of orchestration.",
    "artefact": "SQL CRUD methods; EXECUTION_RULEs that only call them",
    "seenIn": [],
    "evidenceCount": null,
-   "antiPattern": "Recomputing IP in Groovy in the job and again in a rule — plus the Postgres trap: inside one UPDATE every RHS column reference is the PRE-update value, so a derived column must repeat the whole expression, not read the column being written.",
+   "antiPattern": "Recomputing a derived quantity in Groovy in the job and again in a rule — plus the Postgres trap: inside one UPDATE every RHS column reference is the PRE-update value, so a derived column must repeat the whole expression, not read the column being written.",
    "kbDoc": "01-solution-shapes.md",
    "attribution": "unrecorded"
   },
@@ -958,7 +958,7 @@
    "id": "p:action-side-form-binding-trap",
    "type": "pattern",
    "name": "The side-form that silently does nothing",
-   "rule": "A small input form for a row action (postpone days, a tracking reference, an added cost, adjustment quantities) written with `scope:\"GLOBAL\"` controls and read by the rule with `context.data.getAttr(...)` works from a workflow task and SILENTLY NO-OPS from a CRUD-table row action, because the runtime rebinds every control to the table's crud alias: the attr is null, the method receives '', COALESCE keeps the old value, and the action reports success.",
+   "rule": "A small input form for a row action (postpone days, a reference, an added cost, a quantity) written with `scope:\"GLOBAL\"` controls and read by the rule with `context.data.getAttr(...)` works from a workflow task and SILENTLY NO-OPS from a CRUD-table row action, because the runtime rebinds every control to the table's crud alias: the attr is null, the method receives '', COALESCE keeps the old value, and the action reports success.",
    "artefact": "dynaform.form.*.field.plugin `settings.scope` + the EXECUTION_RULE that reads them",
    "seenIn": [],
    "evidenceCount": null,
@@ -1042,7 +1042,7 @@
    "id": "p:trilingual-inline-help",
    "type": "pattern",
    "name": "One help bubble per form, explaining the rule",
-   "rule": "Each form carries at least one `nct.help.plugin` with `alwaysVisible:true`, `showMessageOn:\"CLICK\"` and a `localizedMap.message` in every tenant locale that states the BUSINESS RULE behind the field — \"Between 1 and 14 days (UI-1); the warning reopens automatically\" — often citing the requirement clause by number.",
+   "rule": "Each form carries at least one `nct.help.plugin` with `alwaysVisible:true`, `showMessageOn:\"CLICK\"` and a `localizedMap.message` in every tenant locale that states the BUSINESS RULE behind the field — \"Between 1 and 14 days (<req-id>); the warning reopens automatically\" — often citing the requirement clause by number.",
    "artefact": "nct.help.plugin node beside the label inside the generated `gen_slot_*` html",
    "seenIn": [],
    "evidenceCount": null,
@@ -1077,7 +1077,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "C's `Command centre` — the front-door quick link — carries exactly this dead grant, so every business persona (analyst, compliance officer, head of C) opens the app and cannot see the link to its own cockpit. A's `Home` has the same defect, which is almost certainly why somebody added an ungated duplicate called `Dashboard` two levels deeper instead of fixing the grant. Gate: set(roleGroupAccessors keys) − set(rep-objects.roleGroups names) must be empty; neither `validate` nor `pack` checks it today.",
+   "antiPattern": "C's `Command centre` — the front-door quick link — carries exactly this dead grant, so every business persona opens the app and cannot see the link to its own cockpit. A's `Home` has the same defect, which is almost certainly why somebody added an ungated duplicate called `Dashboard` two levels deeper instead of fixing the grant. Gate: set(roleGroupAccessors keys) − set(rep-objects.roleGroups names) must be empty; neither `validate` nor `pack` checks it today.",
    "kbDoc": "02-navigation-and-front-door.md"
   },
   {
@@ -1153,7 +1153,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "A orphans 12 real business pages — the second-level registers and movement pages behind its documents — and instead promotes the legacy Sources/Queries/Profile console pages into a business `Library` group.",
+   "antiPattern": "A orphans 12 real business pages — the second-level registers and movement pages behind its documents — and instead promotes the legacy Sources/Queries/Profile console pages into a business `Platform` group.",
    "kbDoc": "02-navigation-and-front-door.md"
   },
   {
@@ -1176,7 +1176,7 @@
    "id": "p:workflow-worklist-quicklink-chain",
    "type": "pattern",
    "name": "workflows == process.table pages == quick links, 1:1:1",
-   "rule": "C 8:8:8, B 5:5:5, D 1:1:1 — with C naming worklists `wl-*` and grouping routine queues under Cases while exception queues (deadline breach, freeze expiry, reminder escalation) sit under Oversight, i.e. a queue's group follows who works it.",
+   "rule": "C 8:8:8, B 5:5:5, D 1:1:1 — with C naming worklists `wl-*` and grouping routine queues under Cases while exception queues (deadline breach, expiry, escalation) sit under Oversight, i.e. a queue's group follows who works it.",
    "artefact": "rep-objects.json.workflows[] vs pages carrying `process.table.pluin` vs nav link targets",
    "seenIn": [
     "B",
@@ -1221,7 +1221,7 @@
    "id": "p:nav-is-the-manual-contents-page",
    "type": "pattern",
    "name": "Write the group list from the PRD before building the nav — it IS the product's IA",
-   "rule": "The item export's delivered user manual opens its wayfinding section with \"Nine groups in the left menu. You see only the screens your role is allowed to open\", and its table of contents is the same nine groups in the same order as `pagesModel`.",
+   "rule": "B's delivered user manual opens its wayfinding section by naming the nine left-menu groups and saying that each role sees only the screens it may open, and its table of contents is the same nine groups in the same order as `pagesModel`.",
    "artefact": "pagesModel[] group ordering vs the PRD/manual section list",
    "seenIn": [
     "B",
@@ -1265,7 +1265,7 @@
    "type": "pattern",
    "name": "The Labels + Ids + Values three-column contract",
    "rule": "Every category chart binds three replacements from one query — a human display label, the raw DB code, and the measure — so the axis reads, the colour map keys on a stable value, and crossFilter sends something WHERE can match.",
-   "artefact": "chart.js.plugin — three ChartJsReplacement entries sharing one queryIdentifier; columnName = label / code / measure",
+   "artefact": "chart.js.plugin — three replacements[] entries sharing one queryIdentifier; columnName = label / code / measure",
    "seenIn": [
     "B",
     "C",
@@ -1307,7 +1307,7 @@
    "id": "p:seeded-preview-filter-leak",
    "type": "pattern",
    "name": "query.parameters ships the author's last preview pick",
-   "rule": "The editor persists whatever filter value you previewed with into the embedded query's parameters map, so the board opens pre-filtered and a customer's supplier/category name is baked into the shipped JSON.",
+   "rule": "The editor persists whatever filter value you previewed with into the embedded query's parameters map, so the board opens pre-filtered and a real partner/category name is baked into the shipped JSON.",
    "artefact": "replacements[].query.parameters — must be {} or {\"value\": null} before pack",
    "seenIn": [
     "B",
@@ -1315,7 +1315,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "Shipping {\"Supplier\":{\"value\":\"<a customer's supplier>\"}} — every KPI and bar on the board opens filtered to one entity and the reviewer's first impression is numbers that do not match the data.",
+   "antiPattern": "Shipping {\"Partner\":{\"value\":\"<a real partner name>\"}} — every KPI and bar on the board opens filtered to one entity and the reviewer's first impression is numbers that do not match the data.",
    "kbDoc": "08-charts-and-dashboards.md"
   },
   {
@@ -1323,14 +1323,14 @@
    "type": "pattern",
    "name": "The selector must not declare its own dimension — audited, not assumed",
    "rule": "A chart that GROUP BYs a column and also declares {name:'<P>'} on it collapses to a single mark on the first click; the check is mechanical (does the crossFilter param appear as a placeholder in the same SQL text) and must be run, because eyes miss it.",
-   "artefact": "the chart's embedded SQL vs its js crossFilter call; audit script in §11 check 2",
+   "artefact": "the chart's embedded SQL vs its js crossFilter call",
    "seenIn": [
     "B",
     "C",
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "GROUP BY 1,2 over branch + AND c.branch_id::text = {name:'Branch', …} + crossFilter('Branch', …) — the chart deletes itself on first use, shipped on a flagship board.",
+   "antiPattern": "GROUP BY 1,2 over unit + AND f.unit_id::text = {name:'Unit', …} + crossFilter('Unit', …) — the chart deletes itself on first use, shipped on a flagship board.",
    "kbDoc": "08-charts-and-dashboards.md"
   },
   {
@@ -1398,7 +1398,7 @@
    "id": "p:one-band-per-html-node",
    "type": "pattern",
    "name": "One nct.html.plugin per band, semantic slot identifiers, nct.parsis cells",
-   "rule": "Split the board into header / filter bar / filter hint / KPI band / one node per section row, name each slot identifier readably (h-r1c2, rop-kpi-3, <row>-hdr), and hang each chart inside an nct.parsis.plugin cell rather than in the grid slot directly.",
+   "rule": "Split the board into header / filter bar / filter hint / KPI band / one node per section row, name each slot identifier readably (r1c2, kpi3, <row>-hdr), and hang each chart inside an nct.parsis.plugin cell rather than in the grid slot directly.",
    "artefact": "nct.html.plugin.html with <plugin id=\"…\" name=\"nct.parsis.plugin\"> slots matching each child's `identifier` (not id, not uniqueIdentifier, not name)",
    "seenIn": [
     "B",
@@ -1439,7 +1439,7 @@
    "id": "p:threshold-coloured-bar",
    "type": "pattern",
    "name": "Bar colour computed per row from sibling threshold series",
-   "rule": "Bind the measure plus its two limits from the same query and colour each bar by comparing them (x <= reorder ? red : x <= warning ? amber : green), then draw the two limits as reference lines — one chart that says both 'how much' and 'is it a problem'.",
+   "rule": "Bind the measure plus its two limits from the same query and colour each bar by comparing them (x <= lo ? red : x <= hi ? amber : green), then draw the two limits as reference lines — one chart that says both 'how much' and 'is it a problem'.",
    "artefact": "3 extra Double[] replacements + a backgroundColor map function in the chart's js",
    "seenIn": [
     "D"
@@ -1506,7 +1506,7 @@
    "id": "p:one-slot-four-sentences",
    "type": "pattern",
    "name": "One slot, four sentences — the whole loading/empty/error/crash vocabulary",
-   "rule": "The primary content region ships `Loading…` as AUTHORED markup so the first paint is never blank, and the same cell later carries the empty sentence (specific: \"No invoices match these filters.\", never \"No data\"), the error sentence (`Could not load <the thing>: ` + server message) and — from a try/catch wrapping the entire script — `Script error: …`; no spinner, no skeleton, no overlay.",
+   "rule": "The primary content region ships `Loading…` as AUTHORED markup so the first paint is never blank, and the same cell later carries the empty sentence (specific: \"No documents match these filters.\", never \"No data\"), the error sentence (`Could not load <the thing>: ` + server message) and — from a try/catch wrapping the entire script — `Script error: …`; no spinner, no skeleton, no overlay.",
    "artefact": "studioModel.scripts[].code + the `<pfx>-empty` class in css.byTheme[\"*\"]",
    "seenIn": [
     "A"
@@ -1538,7 +1538,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Renaming the starter kit's prefix per component: a class defined in one component does not exist in another, so `app-chip` written into a second screen renders unstyled even though markup and data are correct.",
+   "antiPattern": "Renaming the starter kit's prefix per component: a class defined in one component does not exist in another, so `ui-chip` written into a second screen renders unstyled even though markup and data are correct.",
    "kbDoc": "10-visual-design.md"
   },
   {
@@ -1605,7 +1605,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "`el.className = 'app-msg show ok'`; a success-styled empty box after an HTTP 200; a stale message that outlives the action that wrote it. Also: the strip carries no `aria-live` in any of these projects — add `aria-live=\"polite\"`.",
+   "antiPattern": "`el.className = 'ui-msg show ok'`; a success-styled empty box after an HTTP 200; a stale message that outlives the action that wrote it. Also: the strip carries no `aria-live` in any of these projects — add `aria-live=\"polite\"`.",
    "kbDoc": "10-visual-design.md"
   },
   {
@@ -1624,7 +1624,7 @@
    "id": "p:paper-and-print-exception",
    "type": "pattern",
    "name": "The paper exception — the one place #fff/#000 is correct",
-   "rule": "A document-preview sheet is `background:#ffffff;color:#000000;width:210mm;max-width:100%;padding:10mm` with `:empty{display:none}` so it is never a blank white slab, and `@media print` hides the app chrome, forces `print-color-adjust:exact` on zebra fills, sets `page-break-inside:avoid` on every row-bearing element and `@page{size:A4 portrait;margin:10mm}`.",
+   "rule": "A document-preview sheet is `background:#ffffff;color:#000000;width:210mm;max-width:100%;padding:10mm` with `:empty{display:none}` so it is never a blank white slab, and `@media print` hides the component's own chrome (a scoped block cannot reach the application shell), forces `print-color-adjust:exact` on zebra fills, sets `page-break-inside:avoid` on every row-bearing element and `@page{size:A4 portrait;margin:10mm}`.",
    "artefact": "css.byTheme[\"*\"] including an @media print block",
    "seenIn": [
     "A"
@@ -1690,13 +1690,13 @@
    "id": "p:minimal-platform-roles",
    "type": "pattern",
    "name": "Hand-write roleGroups[].roles — start from REPORT_VIEW only",
-   "rule": "Two projects shipped the Role Management \"select all\" default — a byte-identical 21-role blob (_REPORT_ROLES minus ADMIN/NCT_AUTHOR/USER_*/ROLE_GROUP_*) on every persona; the two that hand-tuned gave a nine-persona system nothing but REPORT_VIEW/REPORT_VIEW_ANY (+REPORT_EDIT) and it works.",
+   "rule": "Two projects shipped the Role Management \"select all\" default — a byte-identical 21-role blob (the 31 platform-role constants minus ADMIN/NCT_AUTHOR/USER_*/ROLE_GROUP_*) on every persona; the two that hand-tuned gave a nine-persona system nothing but REPORT_VIEW/REPORT_VIEW_ANY (+REPORT_EDIT) and it works.",
    "artefact": "rep-objects.json roleGroups[].roles[] · `mrjun.py rolegroup add --role REPORT_VIEW`",
    "seenIn": [
     "C"
    ],
    "evidenceCount": 1,
-   "antiPattern": "A \"Worker\" persona holding SOURCE_EDIT, SCHEDULER_EDIT, STORE_EXECUTE_ANY and OYO_PROJECT_CONFIGURATION — and, fatally, FILE_STORAGE_VIEW.",
+   "antiPattern": "An \"Operator\" persona holding SOURCE_EDIT, SCHEDULER_EDIT, STORE_EXECUTE_ANY and OYO_PROJECT_CONFIGURATION — and, fatally, FILE_STORAGE_VIEW.",
    "kbDoc": "06-security-and-roles.md"
   },
   {
@@ -1716,13 +1716,13 @@
    "id": "p:scope-every-surface",
    "type": "pattern",
    "name": "Scope the dropdown, the export and the exception list too — not just the table",
-   "rule": "The same branch guard appears on four surfaces: the table fetch rule, the RIMM_* choices rule (still ending in toSelectOptions), the Export rule (which also writes an EXPORT audit row with the row count), and purpose-built list methods that take the scope as a declared SQL parameter; child tables with no scope column get it by subquery on the parent.",
+   "rule": "The same unit-scope guard appears on four surfaces: the table fetch rule, the RIMM_* choices rule (still ending in toSelectOptions), the Export rule (which also writes an EXPORT audit row with the row count), and purpose-built list methods that take the scope as a declared SQL parameter; child tables with no scope column get it by subquery on the parent.",
    "artefact": "rep-objects.rules[] (fetch / choices / export) + dynamic-cruds.json methods[].script",
    "seenIn": [
     "C"
    ],
    "evidenceCount": 1,
-   "antiPattern": "A scoped case list beside an unscoped case picker: the dropdown offers every branch's cases, one row at a time.",
+   "antiPattern": "A scoped case list beside an unscoped case picker: the dropdown offers every unit's cases, one row at a time.",
    "kbDoc": "06-security-and-roles.md"
   },
   {
@@ -1742,7 +1742,7 @@
    "id": "p:deny-by-default-polarity",
    "type": "pattern",
    "name": "Scope by exclusion of the wide roles, never by inclusion of the narrow one",
-   "rule": "`if (!hasAnyRoleGroup(<the roles that see everything>)) { scope }` puts every unmapped account, new persona and failed group lookup into the scoped branch; the inverse `if (hasAnyRoleGroup(\"Supplier\") && !hasAnyRoleGroup(\"Manager\") …)` leaves a user with no role at all completely unscoped.",
+   "rule": "`if (!hasAnyRoleGroup(<the roles that see everything>)) { scope }` puts every unmapped account, new persona and failed group lookup into the scoped branch; the inverse `if (hasAnyRoleGroup(\"Partner Portal\") && !hasAnyRoleGroup(\"Coordinator\") …)` leaves a user with no role at all completely unscoped.",
    "artefact": "the `if` around the scope assignment in any GroovyExecutionRule fetch rule",
    "seenIn": [
     "C"
@@ -1755,7 +1755,7 @@
    "id": "p:four-eyes-predicate",
    "type": "pattern",
    "name": "Separation of duties: compare lowercased e-mails, refuse an empty caller, keep state out of the shared rule",
-   "rule": "Role guard, then `def me = (service.security.user()?.email ?: '').toLowerCase(); if (me.isEmpty()) return false`, then refuse when me equals any actor column on the row (proposer / applier / requester / identifier / createdBy) — and re-run the same exclusion inside the EXECUTION rule, not only the predicate.",
+   "rule": "Role guard, then `def me = (service.security.user()?.email ?: '').toLowerCase(); if (me.isEmpty()) return false`, then refuse when me equals any actor column on the row (proposer / applier / requester / raiser / createdBy) — and re-run the same exclusion inside the EXECUTION rule, not only the predicate.",
    "artefact": "GroovyPredicate + the paired GroovyExecutionRule; requires identity columns on the entity filled from service.security.user().email",
    "seenIn": [
     "C"
@@ -1806,21 +1806,21 @@
    "id": "p:gate-does-not-reach-charts",
    "type": "pattern",
    "name": "Charts, pager totals, and scheduler-run rules are outside every gate",
-   "rule": "0 of 87 charts in the best-gated project apply its branch scope (SQL has no access to service.security); 241 of 244 generated `find` methods call `count()` with no filter so totalElements leaks the unscoped row count; and all 43 schedulers across the four projects run with serviceUserId:null, so hasAnyRoleGroup is false and a reused scoped fetch rule returns nothing.",
+   "rule": "0 of 87 charts in the best-gated project apply its unit scope (SQL has no access to service.security); 241 of 244 generated `find` methods call `count()` with no filter so totalElements leaks the unscoped row count; and all 43 schedulers across the four projects run with serviceUserId:null, so hasAnyRoleGroup is false and a reused scoped fetch rule returns nothing.",
    "artefact": "chart.js.plugin properties.Javascript + rep-objects.queries · dynamic-cruds find GROOVY script · rep-objects.schedulers serviceUserId",
    "seenIn": [
     "C"
    ],
    "evidenceCount": 1,
-   "antiPattern": "A branch-scoped case list sitting on a page whose dashboard totals every branch; and reusing a scoped fetch rule from a scheduler, which takes the !hasAnyRoleGroup branch and the fail-closed sentinel and returns zero rows for ever.",
+   "antiPattern": "A unit-scoped case list sitting on a page whose dashboard totals every unit; and reusing a scoped fetch rule from a scheduler, which takes the !hasAnyRoleGroup branch and the fail-closed sentinel and returns zero rows for ever.",
    "kbDoc": "06-security-and-roles.md"
   },
   {
    "id": "p:shadow-permission-system",
    "type": "pattern",
    "name": "Do not reimplement authorisation in business tables when the role API misbehaves",
-   "rule": "One project rebuilt permissions on system_settings rows plus a comma-separated users.role_groups mirror after hasAnyRoleGroup answered false for everyone on its deployment; its own comments record the default being open, the mirror recording a Worker as Manager/Author/Owner under the wrong id, jsonb values arriving as Jackson nodes so every read silently fell back to the hardcoded default, and the restricted user being unable to read the settings table that was meant to restrict them.",
-   "artefact": "nct.html.plugin studio rules calling service.crud.system_settings_cruid",
+   "rule": "One project rebuilt permissions on system_settings rows plus a comma-separated users.role_groups mirror after hasAnyRoleGroup answered false for everyone on its deployment; its own comments record the default being open, the mirror recording an Operator as Supervisor/Author/Director under the wrong id, jsonb values arriving as Jackson nodes so every read silently fell back to the hardcoded default, and the restricted user being unable to read the settings table that was meant to restrict them.",
+   "artefact": "nct.html.plugin studio rules calling service.crud.<alias> over the system_settings table",
    "seenIn": [],
    "evidenceCount": null,
    "antiPattern": "`def restrict = false` as the default of an authorisation check; an unreadable or empty config widening a privilege; a role mirror column in business data.",
@@ -1888,7 +1888,7 @@
    "id": "p:default-is-the-reversible-branch",
    "type": "pattern",
    "name": "A gateway's default is where the process lands when it could not tell",
-   "rule": "Nine of ten gateways carry a question for a name, one bare branch named in `default`, a `name` on every branch, and a predicate that re-reads the record; the disagreement is what `default` points at — rework (item), terminate (C), or the happy path (importer) — and only the first two are safe, because a predicate answers false for every reason it could not decide.",
+   "rule": "Nine of ten gateways carry a question for a name, one bare branch named in `default`, a `name` on every branch, and a predicate that re-reads the record; the disagreement is what `default` points at — rework (B), terminate (C), or the happy path (D) — and only the first two are safe, because a predicate answers false for every reason it could not decide.",
    "artefact": "exclusiveGateway `default` attribute + a bare sequenceFlow + a PREDICATE that does service.crud.<alias>.get(id)",
    "seenIn": [
     "B",
@@ -1896,7 +1896,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "A: an exclusiveGateway named 'Override required?' with ONE outgoing flow, no condition and no default — a diamond that decides nothing. And D pointing `default` at 'raise the follow-up document' / 'post the movement'.",
+   "antiPattern": "A: an exclusiveGateway named '<Question>?' with ONE outgoing flow, no condition and no default — a diamond that decides nothing. And D pointing `default` at 'raise the follow-up document' / 'post the result'.",
    "kbDoc": "05-process-and-scheduling.md"
   },
   {
@@ -1988,7 +1988,7 @@
    "id": "p:scheduler-writes-annotations-only",
    "type": "pattern",
    "name": "A sweep must not write a field a running case's gateway routes on",
-   "rule": "No rule can end a case (service.workflow exposes only start), so a sweep that changes the routing column steers a case a human is standing in; sweeps write annotation columns (escalated, attempts, last_chased_at) and the case writes state — and the postpone/park wait is a scheduler plus a terminal branch, because there is no timer event.",
+   "rule": "A rule can end a case (`service.workflow.cancel`) but cannot re-route one, so a sweep that changes the routing column steers a case a human is standing in; sweeps write annotation columns (escalated, attempts, last_chased_at) and the case writes state — and the postpone/park wait is a scheduler plus a terminal branch, because there is no timer event.",
    "artefact": "EXECUTION_RULE behind a scheduler + a `reopen`/`endCase` SQL method pair",
    "seenIn": [
     "D"
@@ -2126,14 +2126,14 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "Title-casing the label in the rule. Live: `addFieldError(\"Liability Conclusion\"…)` against a control named `Liability conclusion`, and `\"Liability Justification\"` against `Justification` — 4 of 4 targets miss, the messages vanish, and the user sees a bare \"Validation failed\".",
+   "antiPattern": "Title-casing the label in the rule. Live: `addFieldError(\"Outcome Conclusion\"…)` against a control named `Outcome conclusion`, and `\"Outcome Justification\"` against `Justification` — 4 of 4 targets miss, the messages vanish, and the user sees a bare \"Validation failed\".",
    "kbDoc": "04-forms-actions-validation.md"
   },
   {
    "id": "p:shared-cross-document-validator",
    "type": "pattern",
    "name": "One cross-cutting validator attached to every document form, self-locating via a READERS probe",
-   "rule": "A single VALIDATION_RULE (e.g. 'the accounting period is locked') attached to 14 forms, which walks a list of `[alias, { context.<ctx>.<alias>.data.get() }]` closures inside try/catch to find whichever document is actually in scope.",
+   "rule": "A single VALIDATION_RULE (e.g. 'the period is closed') attached to 14 forms, which walks a list of `[alias, { context.<ctx>.<alias>.data.get() }]` closures inside try/catch to find whichever document is actually in scope.",
    "artefact": "rules[] VALIDATION_RULE referenced from many forms[].validators[]",
    "seenIn": [
     "B"
@@ -2395,7 +2395,7 @@
    "id": "p:fk-both-ways-and-nested-vs-flat",
    "type": "pattern",
    "name": "FK handling: pick nested or flat per project, declare both parameter spellings always",
-   "rule": "Business FK either flat (`counterpartyId` + sibling `counterpartyName`, single-underscore alias) or nested (`counterparty` as ObjectNode, `jN.id AS \"counterparty__id\"/__code/__name` triple) — 2 projects each way; but every document CRUD in all three non-scaffold projects declares BOTH `<ref>__id` AND plain `<ref>` as parameters, and reconciles them with `_fk()` before calling the header helper.",
+   "rule": "Business FK either flat (`partnerId` + sibling `partnerName`, single-underscore alias) or nested (`partner` as ObjectNode, `jN.id AS \"partner__id\"/__code/__name` triple) — 2 projects each way; but every document CRUD in all three non-scaffold projects declares BOTH `<ref>__id` AND plain `<ref>` as parameters, and reconciles them with `_fk()` before calling the header helper.",
    "artefact": "dtoFields fieldName/fieldType + findAll/get SELECT aliases + create/update parameters[]",
    "seenIn": [
     "A",
@@ -2404,14 +2404,14 @@
     "D"
    ],
    "evidenceCount": 4,
-   "antiPattern": "Doc 11 says the bare `<ref>` FK field is 'a deliberate exception, not the flat default' — two projects use it as their default for all business FKs. Also: `_id$` is not proof of an FK (tax_id), and machine-written back-references (reversal_id, corrected_from_id, source_doc_id, polymorphic reference_id, self-refs) stay flat even in nested projects.",
+   "antiPattern": "Doc 11 says the bare `<ref>` FK field is 'a deliberate exception, not the flat default' — two projects use it as their default for all business FKs. Also: `_id$` is not proof of an FK (a tax registration number ending in `_id`), and machine-written back-references (reversal_id, corrected_from_id, source_doc_id, polymorphic reference_id, self-refs) stay flat even in nested projects.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
    "id": "p:quote-camelcase-select-aliases",
    "type": "pattern",
    "name": "Quote every camelCase SELECT alias",
-   "rule": "Postgres folds unquoted identifiers — including column aliases — to lower case, so `j2.id AS case__id` reaches mapRow as `case__id` and surfaces as `{case:{...}}`, silently blanking every consumer bound to `case.name`; write `AS \"<ref>__<col>\"` whenever either part has an upper-case letter.",
+   "rule": "Postgres folds unquoted identifiers — including column aliases — to lower case, so `j2.id AS sourceDoc__id` reaches the row mapper as `sourcedoc__id` and surfaces as `{sourcedoc:{...}}`, silently blanking every consumer bound to `sourceDoc.name`; write `AS \"<ref>__<col>\"` whenever either part has an upper-case letter.",
    "artefact": "findAll/get SELECT alias list in dynamic-cruds.json (and the mirrored paired query)",
    "seenIn": [
     "B",
@@ -2419,7 +2419,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "C ships 202 unquoted camelCase aliases across 38 methods while its own branches.json binds fieldExpression \"case.name\"/\"case.id\" 24 times; D ships 6. B quotes all 132 of its camelCase aliases and leaves the all-lowercase ones bare — the correct discipline.",
+   "antiPattern": "C ships 202 unquoted camelCase aliases across 38 methods while its own branches.json binds fieldExpression \"<camelRef>.name\"/\"<camelRef>.id\" 24 times; D ships 6. B quotes all 132 of its camelCase aliases and leaves the all-lowercase ones bare — the correct discipline.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
@@ -2449,7 +2449,7 @@
     "D"
    ],
    "evidenceCount": 3,
-   "antiPattern": "D guards only 3 of its 25 transitions — purchaseOrder.send/confirm/reject/close/cancel all fire from any state, so a stale tab can re-post a closed order.",
+   "antiPattern": "D guards only 3 of its 25 transitions — document.send/confirm/reject/close/cancel all fire from any state, so a stale tab can re-post a closed document.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
@@ -2486,8 +2486,8 @@
    "id": "p:row-scope-fetch-rule",
    "type": "pattern",
    "name": "Row scope in a table fetch rule, threaded through both findAll and count",
-   "rule": "A `Branch Scope Filter - <Entity>` rule reads `attrs` (NOT param) into a filter map, forwards paging and user filters, then writes the scope key LAST so a crafted client filter cannot widen it; it fails CLOSED with an all-zero uuid, and the scope key is a declared parameter of BOTH findAll and count (12/12).",
-   "artefact": "rep-objects.json rules[] (table fetch rule) + a branchScopeId/branchId filter param on findAll and count",
+   "rule": "A `<Scope> Scope Filter - <Entity>` rule reads `attrs` (NOT param) into a filter map, forwards paging and user filters, then writes the scope key LAST so a crafted client filter cannot widen it; it fails CLOSED with an all-zero uuid, and the scope key is a declared parameter of BOTH findAll and count (12/12).",
+   "artefact": "rep-objects.json rules[] (table fetch rule) + a <scope>ScopeId/<scope>Id filter param on findAll and count",
    "seenIn": [
     "C"
    ],
@@ -2561,7 +2561,7 @@
    "type": "pattern",
    "name": "A project kit shipped once as a vendored studio library",
    "rule": "Cross-cutting component behaviour lives in one JS_CLASSIC file at tenant-files/studio/<kit>/<kit>.js declared as libs[{name,globalVar}] and reached as ctx.libs.<kit>, so it exists once instead of being copy-pasted into every screen.",
-   "artefact": "studioModel.libs[] + tenant-files/studio/app-kit/app-kit.js (9.6 kB, kind JS_CLASSIC, globalVar \"appkit\")",
+   "artefact": "studioModel.libs[] + tenant-files/studio/ui-kit/ui-kit.js (9.6 kB, kind JS_CLASSIC, globalVar \"UiKit\")",
    "seenIn": [
     "A"
    ],
@@ -2574,7 +2574,7 @@
    "type": "pattern",
    "name": "Breadcrumb-by-proxy — mirror an in-page button into the title bar",
    "rule": "Instead of re-declaring page actions with ctx.breadcrumb.set(), a library hides the screen's existing button (display:none, never remove), forwards el.click(), mirrors label/disabled/hidden with a MutationObserver, and resolves the spinner on the FIRST `disabled` mutation after the click — not on disabled===false, because a screen can re-enable and re-disable in one synchronous block.",
-   "artefact": "app-kit.js `actions(ctx, spec)` + `waitIdle(el, maxMs)`; call sites in 20 of 22 components",
+   "artefact": "ui-kit.js `actions(ctx, spec)` + `waitIdle(el, maxMs)`; call sites in 20 of 22 components",
    "seenIn": [
     "A"
    ],
@@ -2612,8 +2612,8 @@
    "id": "p:loading-state-in-markup",
    "type": "pattern",
    "name": "Author the loading and empty state in properties.html",
-   "rule": "`<tbody class=\"<pfx>-rows\"><tr><td colspan=\"7\" class=\"app-empty\">Loading…</td></tr></tbody>` is server-rendered and already painted before the script runs, which removes the need for the paint() macrotask yield before the first blocking bridge call (21 of 22 components carry no paint() helper at all).",
-   "artefact": "properties.html.stringValue + css `.app-empty{color:var(--app-mut);text-align:center;padding:18px}`",
+   "rule": "`<tbody class=\"<pfx>-rows\"><tr><td colspan=\"7\" class=\"ui-empty\">Loading…</td></tr></tbody>` is server-rendered and already painted before the script runs, which removes the need for the paint() macrotask yield before the first blocking bridge call (21 of 22 components carry no paint() helper at all).",
+   "artefact": "properties.html.stringValue + css `.ui-empty{color:var(--ui-mut);text-align:center;padding:18px}`",
    "seenIn": [
     "A"
    ],
@@ -2670,15 +2670,15 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Leaving the previous action's message on screen: an operator saw a database error after a stock receipt had actually succeeded, and the obvious reaction is to retry and double-receive.",
+   "antiPattern": "Leaving the previous action's message on screen: an operator saw a database error after the write had actually succeeded, and the obvious reaction is to retry and double-post.",
    "kbDoc": "09-studio-components.md"
   },
   {
    "id": "p:classlist-not-classname",
    "type": "pattern",
    "name": "Never assign className on an element you re-query by class",
-   "rule": "`el.className = 'app-msg show ok'` deletes the class the element was FOUND by, so the next q('.<pfx>-msg') returns null and every later message is swallowed in silence; use classList.remove/add on the state tokens only.",
-   "artefact": "`function appMsgClass(el, kind)` — 20 of 22 components",
+   "rule": "`el.className = 'ui-msg show ok'` deletes the class the element was FOUND by, so the next q('.<pfx>-msg') returns null and every later message is swallowed in silence; use classList.remove/add on the state tokens only.",
+   "artefact": "`function msgClass(el, kind)` — 20 of 22 components",
    "seenIn": [
     "A"
    ],
@@ -2690,7 +2690,7 @@
    "id": "p:idempotent-bind-delegation",
    "type": "pattern",
    "name": "data-<pfx>-bound idempotent binding plus one delegated listener",
-   "rule": "bind(sel,ev,fn) stamps `data-app-bound` so a render() that runs many times per mount cannot stack listeners, pushes into a BOUND array drained by a ctx.onCleanup registered synchronously at the top, and row actions are delegated on the static tbody because rows are rebuilt every render.",
+   "rule": "bind(sel,ev,fn) stamps `data-ui-bound` so a render() that runs many times per mount cannot stack listeners, pushes into a BOUND array drained by a ctx.onCleanup registered synchronously at the top, and row actions are delegated on the static tbody because rows are rebuilt every render.",
    "artefact": "studioModel.scripts[].code — `const BOUND = []` in 22/22, `function bind` in 21/22",
    "seenIn": [
     "A"
@@ -2709,7 +2709,7 @@
     "A"
    ],
    "evidenceCount": 1,
-   "antiPattern": "Shipping three working tabs on a screen whose picker has no rows: \"there are 3 tabs and I can't find place to input item\". Every acceptance test began \"given a stock item…\" and the step that produces one was owned by no requirement — a fixture is a decision about who creates the row, made silently.",
+   "antiPattern": "Shipping three working tabs on a screen whose picker has no rows: \"there are 3 tabs here and I can't find the place to add an item\". Every acceptance test began \"given an item…\" and the step that produces one was owned by no requirement — a fixture is a decision about who creates the row, made silently.",
    "kbDoc": "09-studio-components.md"
   },
   {
@@ -2729,7 +2729,7 @@
    "id": "p:flexbox-micro-charts",
    "type": "pattern",
    "name": "Flexbox micro-charts — sparkline, meter, week strip, segmented bar",
-   "rule": "`<div class=\"x-sparkbars\">` of `<span style=\"height:N%\">` over `display:flex;align-items:flex-end;height:56px` gives a themed sparkline with zero library bytes; the same trick gives a progress meter and an 8-week bucket strip, and style= is used for layout only so 24a's inline-colour rule is respected.",
+   "rule": "`<div class=\"x-sparkbars\">` of `<span style=\"height:N%\">` over `display:flex;align-items:flex-end;height:56px` gives a themed sparkline with zero library bytes; the same trick gives a progress meter and a \"next N periods\" strip, and style= is used for layout only so 24a's inline-colour rule is respected.",
    "artefact": "studioModel.scripts[].code + css.byTheme[\"*\"]",
    "seenIn": [
     "A"
@@ -2755,8 +2755,8 @@
    "id": "p:localize-wire-key-and-loc-side-channel",
    "type": "pattern",
    "name": "row.localize on the wire, plus a <key>Loc repair channel",
-   "rule": "The export declares the column as `localized` but the executor renames it to `localize` on every read — read both — and when the jsonb DTO arrives empty a second CRUD returns {rowId, loc} per entity under a `<key>Loc` payload key that appApplyLoc() folds into `<key>` by suffix, so adding a list needs no JS change.",
-   "artefact": "`function appLocRaw/appLocList/appMergeLoc/appApplyLoc/locName/dimHuman` — 15–16 of 22 components",
+   "rule": "The export declares the column as `localized` but the executor renames it to `localize` on every read — read both — and when the jsonb DTO arrives empty a second CRUD returns {rowId, loc} per entity under a `<key>Loc` payload key that applyLocPatch() folds into `<key>` by suffix, so adding a list needs no JS change.",
+   "artefact": "`function locRaw/locList/mergeLoc/applyLocPatch/locName/dimHuman` — 15–16 of 22 components",
    "seenIn": [
     "A"
    ],
@@ -2781,7 +2781,7 @@
    "id": "p:callrule-telemetry-wrapper",
    "type": "pattern",
    "name": "Self-instrumenting component — a one-shot ctx.callRule wrapper",
-   "rule": "An IIFE keeps the original as ctx.__ghLogRaw, guards with ctx.__ghLogWrapped, times every call, writes level/source/action/message/detail/durationMs/url/build to a log rule, skips logging the logger, and injects the reading locale into every input — with the collector rule swallowing its own failures on purpose.",
+   "rule": "An IIFE keeps the original as ctx.__uiLogRaw, guards with ctx.__uiLogWrapped, times every call, writes level/source/action/message/detail/durationMs/url/build to a log rule, skips logging the logger, and injects the reading locale into every input — with the collector rule swallowing its own failures on purpose.",
    "artefact": "studioModel.scripts[].code lines 1–70 of 17 of 22 components + a `Log UI Event (Studio)` EXECUTION rule + a build-stamp div in the markup",
    "seenIn": [
     "A"
@@ -2811,7 +2811,7 @@
    "type": "pattern",
    "name": "Reads are camelCase, writes are snake_case — declare the mapping once",
    "rule": "The executor camelCases every column label on the way out while create/update take the real column names, so one field has three spellings (row key, editor selector, rule input key); keep them side by side in one FIELDS table in the component so they cannot drift.",
-   "artefact": "`const FIELDS = [['targetRatePerUnit','#va-rate','targetRate',2], …]` driving both the payload build and the editor fill",
+   "artefact": "`const FIELDS = [['targetValuePerItem','#<pfx>-target','targetValuePerItem',2], …]` driving both the payload build and the editor fill",
    "seenIn": [
     "A"
    ],
@@ -2887,7 +2887,7 @@
    "id": "p:localize-jsonb-shape",
    "type": "pattern",
    "name": "localize jsonb shape: field → locale → value, default locale included",
-   "rule": "`{\"name\": {\"en_US\":\"Head Office\",\"hy_AM\":\"Գլխավոր գրասենյակ\",\"ru_RU\":\"Головной офис\"}}` — top key is the camelCase DTO field, second key a full locale string, the default locale present and equal to the base column; localize prose only (name/title/label/description), never a number, code, date or FK.",
+   "rule": "`{\"name\": {\"en_US\":\"New Year\",\"hy_AM\":\"…\",\"ru_RU\":\"…\"}}` — top key is the camelCase DTO field, second key a full locale string, the default locale present and equal to the base column; localize prose only (name/title/label/description), never a number, code, date or FK.",
    "artefact": "project-db.dump → schemas[].tables[].rows[].localized (DDL: \"localized\" jsonb)",
    "seenIn": [
     "A",
@@ -2911,7 +2911,7 @@
     "D"
    ],
    "evidenceCount": 4,
-   "antiPattern": "Building the placeholder map once in the default language and passing it to all three templates — the chrome is localized, the injected values are not (docType:'Գնման պատվեր' lands inside the …En template).",
+   "antiPattern": "Building the placeholder map once in the default language and passing it to all three templates — the chrome is localized, the injected values are not (docType:'<default-locale text>' lands inside the …En template).",
    "kbDoc": "07-localization.md"
   },
   {
@@ -3081,11 +3081,6 @@
    "path": "04-crud-table-plugin.md"
   },
   {
-   "id": "lib:04-crud-table-plugin.md;",
-   "type": "libraryDoc",
-   "path": "04-crud-table-plugin.md;"
-  },
-  {
    "id": "lib:05-crud-tree-and-process-table.md",
    "type": "libraryDoc",
    "path": "05-crud-tree-and-process-table.md"
@@ -3201,16 +3196,6 @@
    "path": "27-event-driven-process-start.md"
   },
   {
-   "id": "lib:new",
-   "type": "libraryDoc",
-   "path": "new"
-  },
-  {
-   "id": "lib:none",
-   "type": "libraryDoc",
-   "path": "none"
-  },
-  {
    "id": "src:A",
    "type": "source",
    "scale": "433 pages · 163 CRUDs · 619 rules · 22 studio consoles · 27 schedulers"
@@ -3299,13 +3284,13 @@
   {
    "id": "gap:011",
    "type": "libraryGap",
-   "statement": "Nothing warns that all schedulers export `enabled: true` by default in practice — validate WARNs per scheduler (27 lines here) but the guidance to ship `enabled:false` and flip after import is buried. A project importing A cold starts a 5-minute watchdog and a financial period close the same night.",
+   "statement": "Nothing warns that all schedulers export `enabled: true` by default in practice — validate WARNs per scheduler (27 lines here) but the guidance to ship `enabled:false` and flip after import is buried. A project importing A cold starts a 5-minute watchdog and a period close the same night.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "gap:012",
    "type": "libraryGap",
-   "statement": "No library doc covers **graph/chain aggregation** — the party-level SUM across every branch and the frontier rule for \"what is still recoverable\". It is the single hardest piece of business logic in this project, its two failure modes (largest-branch reading, and double-counting every non-terminal hop) are both silent, and an integrator would have to rediscover them. Worth a short section wherever domain-logic recipes live (08 or a new one).",
+   "statement": "No library doc covers **graph/chain aggregation** — the party-level SUM across every branch and the frontier rule for \"how much still sits at the chain's open ends\". It is the single hardest piece of business logic in this project, its two failure modes (largest-branch reading, and double-counting every non-terminal hop) are both silent, and an integrator would have to rediscover them. Worth a short section wherever domain-logic recipes live (08 or a new one).",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -3317,7 +3302,7 @@
   {
    "id": "gap:014",
    "type": "libraryGap",
-   "statement": "**Separation of duties at instance level** is absent. Doc 08 explains predicates and doc 25 explains validation, but neither states the rule this project encodes: role checks are not enough, the predicate must compare the current user against *both* the proposer and the case owner, must re-read state from the database rather than the submitted row, and must return false on every unknown. This is the control an auditor tests first.",
+   "statement": "**Separation of duties at instance level** is absent. Doc 08 explains predicates and doc 25 explains validation, but neither states the rule this project encodes: role checks are not enough, the predicate must compare the current user against *both* the proposer and the case owner, must re-read state from the database rather than the submitted row, and must return false on every unknown. This is the control an external reviewer tests first.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -3329,19 +3314,19 @@
   {
    "id": "gap:016",
    "type": "libraryGap",
-   "statement": "Doc 22 never mentions **KPI delta polarity**. Half the tiles here are metrics where rising is bad (open cases, net loss, overdue requests) and set `increasing:{color:red}` deliberately. The library's own KPI recipe uses the default colouring, which is wrong for that half of the metrics and reads as a green tick on a worsening number.",
+   "statement": "Doc 22 never mentions **KPI delta polarity**. Half the tiles here are metrics where rising is bad (open cases, overdue requests) and set `increasing:{color:red}` deliberately. The library's own KPI recipe uses the default colouring, which is wrong for that half of the metrics and reads as a green tick on a worsening number.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "gap:017",
    "type": "libraryGap",
-   "statement": "The **tabbed multi-CRUD console** recipe is not written down. `nct.tab.plugin` appears in the plugin catalog, but the load-bearing contract — `tabModel.items[i]` binds to child parsis node `i` **by order**, and each tab must contain exactly a filter form plus a crud table — is only discoverable by reading an export. So is the sibling decision of when a child entity is a *tab* (own filter, own actions, own export) versus a *line* (`insert_/delete_<lines>`).",
+   "statement": "The **tabbed multi-CRUD console** recipe is not written down in one place. 14 and 19 give the binding — each `tabModel.items[].id` renders the child parsis whose `identifier` equals it, whatever its position — and 04 puts one table with its own filter form in each tab, but only an export shows the sibling decision of when a child entity is a *tab* (own filter, own actions, own export) versus a *line* (`insert_/delete_<lines>`).",
    "kbDoc": "01-solution-shapes.md"
   },
   {
    "id": "gap:018",
    "type": "libraryGap",
-   "statement": "Doc 08 does not warn that Groovy has **no include mechanism**, and gives no convention for the consequence. Here the helper prelude is copy-pasted up to 101 times and `applyPlaybook` — the closure whose own comment claims it is \"the same headless closure\" — physically exists three times. The library should either name a convention (keep the prelude byte-identical, generate it, list which rules carry it) or state plainly that shared logic belongs in a CRUD SQL method instead.",
+   "statement": "Doc 08 does not warn that Groovy has **no include mechanism**, and gives no convention for the consequence. Here the helper prelude is copy-pasted up to 101 times and one closure — whose own comment claims it is \"the same headless closure\" — physically exists three times. The library should either name a convention (keep the prelude byte-identical, generate it, list which rules carry it) or state plainly that shared logic belongs in a CRUD SQL method instead.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -3375,12 +3360,6 @@
    "kbDoc": "01-solution-shapes.md"
   },
   {
-   "id": "gap:024",
-   "type": "libraryGap",
-   "statement": "`startedByRuleName` in a worklist column: docs 07 §provenance, 16 §2.12 and 27 say the platform stamps `startedByRuleIdentifier` / `startedByRuleName` / `startedByCrudAlias` and that they are \"readable as context.data.startedByRuleName\". That is true for a RULE but not for a process.table column — a `scope:GLOBAL` column reads `contextData.attrs`, where provenance never lands, so the column is blank on every row for ever. The docs should say plainly that provenance is rule-readable only, and that a worklist column showing it must be fed by an attr the start rule writes itself.",
-   "kbDoc": "01-solution-shapes.md"
-  },
-  {
    "id": "gap:025",
    "type": "libraryGap",
    "statement": "No doc covers \"a threshold ladder is a register, not an if/else\": the band table shape (code, value, `max_<x>` ceiling with NULL = open-ended top band, sort_order, active, description carrying the requirement clause) plus the `WHERE active AND (ceiling IS NULL OR :x <= ceiling) ORDER BY value ASC LIMIT 1` selector. This is the cleanest way to satisfy a PRD that says \"configurable without a rebuild\" and it appears nowhere in the library.",
@@ -3401,7 +3380,7 @@
   {
    "id": "gap:028",
    "type": "libraryGap",
-   "statement": "Doc 10 mentions `WHERE deleted = false` indexes in passing but does not state the requirement: any human-facing document number (`po_no`, `receipt_no`, `claim_no`, …) on a soft-deleted table needs a PARTIAL unique index `… WHERE (deleted = false)`, or delete-and-recreate collides for ever. Likewise the companion decision — number generated inside the INSERT via `COALESCE(NULLIF(:no,''), 'PFX-'||to_char(now(),'YYMMDD')||'-'||<6 hex>)` — and its honest cost (random, so the unique index turns a collision into a failed insert).",
+   "statement": "Doc 10 mentions `WHERE deleted = false` indexes in passing but does not state the requirement: any human-facing document number (`doc_no`, `<entity>_no`, …) on a soft-deleted table needs a PARTIAL unique index `… WHERE (deleted = false)`, or delete-and-recreate collides for ever. Likewise the companion decision — number generated inside the INSERT via `COALESCE(NULLIF(:no,''), 'PFX-'||to_char(now(),'YYMMDD')||'-'||<6 hex>)` — and its honest cost (random, so the unique index turns a collision into a failed insert).",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -3413,7 +3392,7 @@
   {
    "id": "gap:030",
    "type": "libraryGap",
-   "statement": "No recipe for pro-rata allocation across lines in one statement — `UPDATE <lines> l SET share = extra * (l.qty / NULLIF(total,0)) FROM (SELECT header aggregate) h WHERE l.parent_id = h.id`. Landed cost, freight, discount and tax apportionment all have this shape and it is a two-line answer once seen.",
+   "statement": "No recipe for pro-rata allocation across lines in one statement — `UPDATE <lines> l SET share = extra * (l.qty / NULLIF(total,0)) FROM (SELECT header aggregate) h WHERE l.parent_id = h.id`. Shared-cost, discount and tax apportionment all have this shape and it is a two-line answer once seen.",
    "kbDoc": "01-solution-shapes.md"
   },
   {
@@ -3527,7 +3506,7 @@
   {
    "id": "gap:049",
    "type": "libraryGap",
-   "statement": "§3.2 documents query.parameters as 'a seed' but never warns that the editor persists the author's preview pick into the shipped node. Two of four projects shipped a board that opens pre-filtered, one of them to a named customer supplier — both a UX defect and a data-leak channel. Needs a ⛔ plus the pre-pack audit.",
+   "statement": "§3.2 documents query.parameters as 'a seed' but never warns that the editor persists the author's preview pick into the shipped node. Two of four projects shipped a board that opens pre-filtered, one of them to a single named partner — both a UX defect and a data-leak channel. Needs a ⛔ plus the pre-pack audit.",
    "kbDoc": "08-charts-and-dashboards.md"
   },
   {
@@ -3599,7 +3578,7 @@
   {
    "id": "gap:061",
    "type": "libraryGap",
-   "statement": "The doc never states that <plugin id=\"…\"> resolves on the child node's `identifier` — not its `id`, `uniqueIdentifier` or `name`. It is the most load-bearing detail of dashboard composition and all four projects depend on it; identifiers are free strings (hdr_<uuid>, h-r1c2, rop-kpi-3), which the doc also never says.",
+   "statement": "The doc never states that <plugin id=\"…\"> resolves on the child node's `identifier` — not its `id`, `uniqueIdentifier` or `name`. It is the most load-bearing detail of dashboard composition and all four projects depend on it; identifiers are free strings (hdr_<uuid>, r1c2, kpi3), which the doc also never says.",
    "kbDoc": "08-charts-and-dashboards.md"
   },
   {
@@ -3623,7 +3602,7 @@
   {
    "id": "gap:065",
    "type": "libraryGap",
-   "statement": "24a §9 cannot see an undefined custom property. `var(--app-ink)` with no fallback invalidates the entire declaration, the control renders unstyled, nothing logs and validate is green. It is the exact failure the token approach the doc recommends makes possible, and it needs a named gate (~25 lines) beside the §9.2 greps.",
+   "statement": "24a §9 cannot see an undefined custom property. `var(--ui-ink)` with no fallback invalidates the entire declaration, the control renders unstyled, nothing logs and validate is green. It is the exact failure the token approach the doc recommends makes possible, and it needs a named gate (~25 lines) beside the §9.2 greps.",
    "kbDoc": "10-visual-design.md"
   },
   {
@@ -3665,7 +3644,7 @@
   {
    "id": "gap:072",
    "type": "libraryGap",
-   "statement": "A contradiction the integrator must settle: three projects put a `dynaform.filter.form.plugin` in the same slot above every `crud.table.plugin` (31 + 33 + 12 occurrences); the A shipped 129 bare tables with no filter bar. Jump the filter-form way — a table with no filter bar forces column-header filtering, which is discoverable only if you already know it is there.",
+   "statement": "A contradiction the integrator must settle: three projects put a `dynaform.filter.form.plugin` in the same slot above every `crud.table.plugin` (31 + 33 + 12 occurrences); A shipped 129 bare tables with no filter bar. Jump the filter-form way — a table with no filter bar forces column-header filtering, which is discoverable only if you already know it is there.",
    "kbDoc": "10-visual-design.md"
   },
   {
@@ -3677,7 +3656,7 @@
   {
    "id": "gap:074",
    "type": "libraryGap",
-   "statement": "Accessibility gap present in all 22 delivered consoles despite a WCAG 2.1 AA requirement in the PRD: `aria-pressed` is used 87 times and `aria-label` on every unlabelled input, but `aria-live` appears ZERO times — the message strip that carries every success and every refusal is never announced. One attribute.",
+   "statement": "Accessibility gap present in all 22 delivered consoles despite a WCAG 2.1 AA requirement in the PRD: `aria-pressed` is used 47 times (in 15 of the 22) and `aria-label` on every unlabelled input, but `aria-live` appears ZERO times — the message strip that carries every success and every refusal is never announced. One attribute.",
    "kbDoc": "10-visual-design.md"
   },
   {
@@ -3719,7 +3698,7 @@
   {
    "id": "gap:081",
    "type": "libraryGap",
-   "statement": "`mrjun.py validate` covers canonical ReportRole values and dangling scheduler/form-group predicates, but has no security checks at all for: hasAnyRoleGroup(\"X\") string literals that match no role group; roleGroupAccessors / nav-item keys that match no role group; publicReadAccess:true beside a group grant; edit:true with view:false; a role group with zero userRoleGroupAssignments; a persona-gated page whose accessors stanza grants a role that persona holds; a write action with no predicateIdentifier; a scoped fetch rule whose key is not declared in both findAll and count. All of these found real defects here.",
+   "statement": "`mrjun.py validate` covers canonical platform-role constants and dangling scheduler/form-group predicates, but has no security checks at all for: hasAnyRoleGroup(\"X\") string literals that match no role group; roleGroupAccessors / nav-item keys that match no role group; publicReadAccess:true beside a group grant; edit:true with view:false; a role group with zero userRoleGroupAssignments; a persona-gated page whose accessors stanza grants a role that persona holds; a write action with no predicateIdentifier; a scoped fetch rule whose key is not declared in both findAll and count. All of these found real defects here.",
    "kbDoc": "06-security-and-roles.md"
   },
   {
@@ -3779,7 +3758,7 @@
   {
    "id": "gap:091",
    "type": "libraryGap",
-   "statement": "Nothing says 'a sweep must not write a field a running case's gateway routes on'. service.workflow has no cancel/complete, so the mistake is unrecoverable from a rule. Sweeps must write annotation columns only; the case writes state.",
+   "statement": "Nothing says 'a sweep must not write a field a running case's gateway routes on'. `service.workflow.cancel` (16 §2.13) can end a case from a rule, but not undo a branch it already took. Sweeps must write annotation columns only; the case writes state.",
    "kbDoc": "05-process-and-scheduling.md"
   },
   {
@@ -3833,7 +3812,7 @@
   {
    "id": "gap:100",
    "type": "libraryGap",
-   "statement": "No guidance exists on WHICH branch a gateway's default should point at. Because a predicate answers false for every reason it could not decide, the default is 'where the process lands when it could not tell' and must be the reversible branch — two projects get this right and one points default at 'raise the follow-up document' and 'post the movement'.",
+   "statement": "No guidance exists on WHICH branch a gateway's default should point at. Because a predicate answers false for every reason it could not decide, the default is 'where the process lands when it could not tell' and must be the reversible branch — two projects get this right and one points default at 'raise the follow-up document' and 'post the result'.",
    "kbDoc": "05-process-and-scheduling.md"
   },
   {
@@ -3947,7 +3926,7 @@
   {
    "id": "gap:119",
    "type": "libraryGap",
-   "statement": "Unknown keys inside `properties.model` / `properties.settings` survive the export round-trip: one project stashes generator provenance on its actions (`lifeAlias`, `printAlias`, `v12Alias`, `digestAlias`) and one leaks a `__children__` node blob into a List control's settings. The deserializer drops them but they persist in JSON and vanish the moment a human edits that panel — worth an explicit warning.",
+   "statement": "Unknown keys inside `properties.model` / `properties.settings` survive the export round-trip: one project stashes generator provenance on its actions (four `<x>Alias` keys) and one leaks a `__children__` node blob into a List control's settings. The deserializer drops them but they persist in JSON and vanish the moment a human edits that panel — worth an explicit warning.",
    "kbDoc": "04-forms-actions-validation.md"
   },
   {
@@ -3971,7 +3950,7 @@
   {
    "id": "gap:123",
    "type": "libraryGap",
-   "statement": "Nothing in the library mentions that Postgres folds UNQUOTED SELECT aliases to lower case. 208 unquoted camelCase `<ref>__<col>` aliases ship in two projects, and one of them binds `fieldExpression: \"case.name\"` against a wire key that is actually `case`. The rule `AS \"<ref>__<col>\"` when either part has an upper-case letter is missing and is a silent-blank-column generator.",
+   "statement": "Nothing in the library mentions that Postgres folds UNQUOTED SELECT aliases to lower case. 208 unquoted camelCase `<ref>__<col>` aliases ship in two projects, and one of them binds `fieldExpression: \"<camelRef>.name\"` against a wire key that Postgres has folded to all-lower-case. The rule `AS \"<ref>__<col>\"` when either part has an upper-case letter is missing and is a silent-blank-column generator.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
@@ -4025,13 +4004,13 @@
   {
    "id": "gap:132",
    "type": "libraryGap",
-   "statement": "The `parameterType` field is treated by the library as meaningful; in practice it is metadata only — one project declares Instant/Boolean/Integer/BigDecimal on 223 parameters whose SQL then anchors them as text, and it works. Also, `ObjectNode` occurs as a parameterType (10 times) and is not in the documented mapParamType output set.",
+   "statement": "The `parameterType` field is treated by the library as meaningful; in practice it is metadata only — one project declares Instant/Boolean/Integer/BigDecimal on 223 parameters whose SQL then anchors them as text, and it works. Also, `ObjectNode` occurs as a parameterType (10 times) and is not in the library's documented parameterType set.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
    "id": "gap:133",
    "type": "libraryGap",
-   "statement": "Three methods in the corpus are syntactically broken SQL (`FROM item_parameterWHERE`, `now()WHERE` twice). No offline gate in the library looks for glued keywords, yet a one-line regex `[A-Za-z0-9_)'\"](WHERE|FROM|SET |RETURNING|JOIN)\\b` finds all three; only `crud verify --db` would otherwise catch them.",
+   "statement": "Three methods in the corpus are syntactically broken SQL (`FROM <table>WHERE`, `now()WHERE` twice). No offline gate in the library looks for glued keywords, yet a one-line regex `[A-Za-z0-9_)'\"](WHERE|FROM|SET |RETURNING|JOIN)\\b` finds all three; only `crud verify --db` would otherwise catch them.",
    "kbDoc": "03-dynamic-crud-conventions.md"
   },
   {
@@ -4169,13 +4148,13 @@
   {
    "id": "gap:156",
    "type": "libraryGap",
-   "statement": "Doc 20's \"same string in every locale\" warning has two legitimate exceptions it does not name (localizedMap.icon, deliberate blank spacers), and the inverse defect ships in all four projects: the platform's own seeded nav has machine-translated icon class names (pe-7s-օգտատերեր), so those items render no icon under hy/ru. The rule \"never put a non-prose value where auto-translate can reach it\" needs stating.",
+   "statement": "Doc 20's \"same string in every locale\" warning has two legitimate exceptions it does not name (localizedMap.icon, deliberate blank spacers), and the inverse defect ships in all four projects: the platform's own seeded nav has machine-translated icon class names (pe-7s-<translated word>), so those items render no icon under hy/ru. The rule \"never put a non-prose value where auto-translate can reach it\" needs stating.",
    "kbDoc": "07-localization.md"
   },
   {
    "id": "gap:157",
    "type": "libraryGap",
-   "statement": "orInitLocalizedNames / orInitLocalizedButtonNames (byte-identical shadow copies of the two action maps, present only in the rep-objects.json CrudTable mirror; A 118, D 22, B and C none) appear in no library doc. Their absence is not a defect, but an integrator hand-editing an export cannot know that.",
+   "statement": "orInitLocalizedNames / orInitLocalizedButtonNames (byte-identical shadow copies of the two action maps, present only in the rep-objects.json CrudTable mirror; A 118, D 22, B and C none) are documented only for user-task actions (07-workflows-and-tasks.md: mirrors added at serialization, ignored on read), not for the CrudTable mirror. Their absence is not a defect, but an integrator hand-editing an export cannot know that.",
    "kbDoc": "07-localization.md"
   },
   {
@@ -4581,6 +4560,11 @@
    "to": "lib:11-business-logic-dynamic-crud.md"
   },
   {
+   "from": "p:crud-method-vocabulary",
+   "rel": "seen_in",
+   "to": "src:B"
+  },
+  {
    "from": "p:header-lines-aggregate-crud",
    "rel": "explained_in",
    "to": "kb:01-solution-shapes.md"
@@ -4781,6 +4765,11 @@
    "to": "lib:01-content-model-and-pages.md"
   },
   {
+   "from": "p:three-page-entity-unit",
+   "rel": "seen_in",
+   "to": "src:B"
+  },
+  {
    "from": "p:enums-as-check-constraints",
    "rel": "explained_in",
    "to": "kb:01-solution-shapes.md"
@@ -4828,7 +4817,7 @@
   {
    "from": "p:policy-table-deadlines",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:27-event-driven-process-start.md"
   },
   {
    "from": "p:branch-scope-find-rule",
@@ -4898,7 +4887,7 @@
   {
    "from": "p:tabbed-multi-crud-console",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:04-crud-table-plugin.md"
   },
   {
    "from": "p:polymorphic-form-group",
@@ -5003,7 +4992,7 @@
   {
    "from": "p:graph-frontier-aggregate",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:11-business-logic-dynamic-crud.md"
   },
   {
    "from": "p:scheduler-predicate-gate",
@@ -5208,7 +5197,7 @@
   {
    "from": "p:phantom-role-gates",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:17-left-nav-quick-links.md"
   },
   {
    "from": "p:phantom-role-gates",
@@ -5728,7 +5717,7 @@
   {
    "from": "p:js-pivot-vs-sql-pivot",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:22-charts-params-and-filters.md"
   },
   {
    "from": "p:js-pivot-vs-sql-pivot",
@@ -5808,7 +5797,7 @@
   {
    "from": "p:threshold-coloured-bar",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:22-charts-params-and-filters.md"
   },
   {
    "from": "p:threshold-coloured-bar",
@@ -5878,7 +5867,7 @@
   {
    "from": "p:zero-css-console-composition",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:24b-html-composition-and-plugin-tags.md"
   },
   {
    "from": "p:zero-css-console-composition",
@@ -6083,7 +6072,7 @@
   {
    "from": "p:disclosure-disable-and-blank",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:24-html-component-studio.md"
   },
   {
    "from": "p:disclosure-disable-and-blank",
@@ -6143,7 +6132,7 @@
   {
    "from": "p:scope-every-surface",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:04-crud-table-plugin.md"
   },
   {
    "from": "p:scope-every-surface",
@@ -6258,7 +6247,7 @@
   {
    "from": "p:shadow-permission-system",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:16-groovy-service-api.md"
   },
   {
    "from": "p:rule-starts-every-case",
@@ -6378,7 +6367,7 @@
   {
    "from": "p:insert-on-conflict-claim",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:27-event-driven-process-start.md"
   },
   {
    "from": "p:insert-on-conflict-claim",
@@ -6503,7 +6492,7 @@
   {
    "from": "p:scheduler-writes-annotations-only",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:27-event-driven-process-start.md"
   },
   {
    "from": "p:scheduler-writes-annotations-only",
@@ -6763,7 +6752,7 @@
   {
    "from": "p:row-id-three-way-resolver",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:07-workflows-and-tasks.md"
   },
   {
    "from": "p:row-id-three-way-resolver",
@@ -7008,7 +6997,7 @@
   {
    "from": "p:five-entity-kinds",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:11-business-logic-dynamic-crud.md"
   },
   {
    "from": "p:five-entity-kinds",
@@ -7168,7 +7157,7 @@
   {
    "from": "p:quote-camelcase-select-aliases",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:18-existing-schema-to-dynamic-wiring.md"
   },
   {
    "from": "p:quote-camelcase-select-aliases",
@@ -7243,7 +7232,7 @@
   {
    "from": "p:queue-claim-quad",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:27-event-driven-process-start.md"
   },
   {
    "from": "p:queue-claim-quad",
@@ -7333,7 +7322,7 @@
   {
    "from": "p:derived-value-methods",
    "rel": "documented_in",
-   "to": "lib:new"
+   "to": "lib:11-business-logic-dynamic-crud.md"
   },
   {
    "from": "p:derived-value-methods",
@@ -7503,7 +7492,7 @@
   {
    "from": "p:safe-per-source-fetch-rule",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:24-html-component-studio.md"
   },
   {
    "from": "p:safe-per-source-fetch-rule",
@@ -7668,7 +7657,7 @@
   {
    "from": "p:callrule-telemetry-wrapper",
    "rel": "documented_in",
-   "to": "lib:none"
+   "to": "lib:24-html-component-studio.md"
   },
   {
    "from": "p:callrule-telemetry-wrapper",
@@ -7993,7 +7982,7 @@
   {
    "from": "p:crud-mirror-and-orinit",
    "rel": "documented_in",
-   "to": "lib:04-crud-table-plugin.md;"
+   "to": "lib:04-crud-table-plugin.md"
   },
   {
    "from": "p:crud-mirror-and-orinit",
@@ -8192,11 +8181,6 @@
   },
   {
    "from": "gap:023",
-   "rel": "corrects",
-   "to": "kb:01-solution-shapes.md"
-  },
-  {
-   "from": "gap:024",
    "rel": "corrects",
    "to": "kb:01-solution-shapes.md"
   },

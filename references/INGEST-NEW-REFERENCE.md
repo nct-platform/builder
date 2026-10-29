@@ -61,17 +61,20 @@ PROCEDURE
 5. UPDATE THE KNOWLEDGE BASE — edit the existing documents, do not append a new per-project file. A knowledge
    base grows by sharpening its rules, not by accumulating case studies. Then update
    `knowledge-graph.json`: new pattern nodes, corrected evidence counts, new edges to the library docs, and
-   the new project's size signature in README.md.
+   the new project's size signature in README.md. Then run
+   `python3 -m unittest discover -s builder/tools/tests -p test_knowledge_graph.py`: it fails on an edge to a
+   node or a document that does not exist, on `seenIn` that disagrees with the edges, and on a number the
+   READMEs quote that the graph no longer has.
 
 6. VERIFY MECHANICALLY, THEN COLD. Build the forbidden-vocabulary list FROM THE EXPORT rather than from
    memory — tenant/realm/client strings, every CRUD alias and name, every `CREATE TABLE`/`CREATE SCHEMA`
    identifier in `project-db.dump`, and every content-node name in `branches.json`. Split those into tokens,
    drop the ones three or more unrelated projects share (they are platform vocabulary, not domain), and grep
-   the changed files for what is left, plus every multi-word artefact name verbatim. Inspect each hit: a
-   platform page name (`Audit Log`, `Business Logic`, `Form Groups`) stays, a domain noun goes. The result
-   must be a list you have looked at line by line, not a zero you assumed. Then have a separate agent, which
-   did not write the text, read it cold and answer: could someone rebuild this technique from the text alone,
-   and can they tell what industry it came from? The answers must be yes and no.
+   the changed files — `knowledge-graph.json` included — for what is left, plus every multi-word artefact name
+   verbatim. Inspect each hit: a platform page name (`Audit Log`, `Business Logic`, `Form Groups`) stays, a
+   domain noun goes. The result must be a list you have looked at line by line, not a zero you assumed. Then
+   have a separate agent, which did not write the text, read it cold and answer: could someone rebuild this
+   technique from the text alone, and can they tell what industry it came from? The answers must be yes and no.
 
 7. HAND BACK a list of exactly what to delete, and say plainly what stops being verifiable once it is gone.
 ````

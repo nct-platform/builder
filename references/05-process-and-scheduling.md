@@ -434,11 +434,11 @@ The corpus never puts two jobs in one schedule. Four over one entity, and the di
 | escalate unanswered | `0 0 * * * *` | 24 h with no decision → flag + notify the supervisor | different audience, different cadence |
 | resume postponed | `0 10 0 * * *` | postponement elapsed → subject back to `NEW` | **this is the BPMN timer that does not exist** |
 
-⛔ **A sweep must not write a field a running case's gateway routes on.** There is no way to cancel a case
-from a rule (`service.workflow` has only `start`), so a sweep that changes the routing column steers a case a
-human is standing in — the gateway takes the wrong branch, the case closes with nothing done, and the claim
-stays set for ever. **Sweeps write annotation columns** (`escalated`, `attempts`, `last_chased_at`); **the
-case writes the state column.**
+⛔ **A sweep must not write a field a running case's gateway routes on.** A rule can end a case
+(`service.workflow.cancel`, [16 §2.13](../16-groovy-service-api.md)) but not re-route one, so a sweep that
+changes the routing column steers a case a human is standing in — the gateway takes the wrong branch, the case
+closes with nothing done, and the claim stays set for ever. **Sweeps write annotation columns** (`escalated`,
+`attempts`, `last_chased_at`); **the case writes the state column.**
 
 ✅ **And the mirror: when a terminal branch is meant to allow re-entry, release the claim on that branch.**
 The postpone path ends with `endCase([id: …])` so that when the resume sweep brings the subject back to `NEW`,

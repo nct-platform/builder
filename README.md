@@ -128,7 +128,7 @@ and sizes; every entity in every example is `document` / `documentLine`, `case`,
 | [references/08-charts-and-dashboards.md](references/08-charts-and-dashboards.md) | the label+code+measure contract, per-theme palettes, and how a board is composed |
 | [references/09-studio-components.md](references/09-studio-components.md) | when a hand-built console is justified, and the anatomy of one that works |
 | [references/10-visual-design.md](references/10-visual-design.md) | how three deliveries looked finished with **zero authored CSS**, and what to do when they cannot |
-| [references/knowledge-graph.json](references/knowledge-graph.json) | the same knowledge as data — 429 nodes, 936 edges: every pattern with its rule, its artefact, how many of the four showed it, the library doc it belongs beside, and the anti-pattern it replaces |
+| [references/knowledge-graph.json](references/knowledge-graph.json) | the same knowledge as data — 425 nodes, 937 edges: every pattern with its rule, its artefact, how many of the four showed it, the library doc it belongs beside, and the anti-pattern it replaces |
 | [references/INGEST-NEW-REFERENCE.md](references/INGEST-NEW-REFERENCE.md) | **the prompt to paste when you have a new reference project (a PRD + a `project.mrjun`)** — it folds the new evidence into the existing documents instead of adding a per-project file |
 
 **How to weigh a finding.** A pattern seen in one delivery is an idea; in three, a convention; contradicted
@@ -136,12 +136,12 @@ between two, a decision you must make consciously — and the document says whic
 
 **When to read it.** Doc 19 Phase 1 (which shape) → `references/01`. Before any CSS → `references/10` with 24a.
 Before hand-building a console → `references/09` §1, which will usually tell you not to. Every numbered doc
-carries a 📐 banner pointing at its own field evidence.
+carries a 📐 banner pointing at its own field evidence, except those written after the study (24e, 29–35).
 
 ```bash
 # every pattern that governs charts, strongest evidence first
 jq '[.nodes[] | select(.type=="pattern" and (.artefact|test("chart";"i")))]
-    | sort_by(-.evidenceCount)' references/knowledge-graph.json
+    | sort_by(-(.evidenceCount // 0))' references/knowledge-graph.json
 
 # where the library is contradicted by delivery evidence
 jq '[.edges[] | select(.rel=="corrects")]' references/knowledge-graph.json

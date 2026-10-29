@@ -819,6 +819,11 @@ def M = { k -> (MSG[k][loc] ?: MSG[k]['en_US']) }
 validation.addFieldError("<control name>", String.format(M('short'), minLen))
 ```
 
+> **Superseded (2026-10-29):** a validation rule runs in the reader's locale, so write the sentence ONCE in the
+> default language and let the platform translate it:
+> `validation.addFieldError("<control name>", service.global.locale.message('The justification must be at least {0} characters.', minLen))`
+> — one literal, values in placeholders ([16](../16-groovy-service-api.md), [20](../20-localization.md)).
+
 **(e) Warnings at form level are used; warnings at control level are not.** `severity:"WARNING"` inside
 `conditionalValidations`: **0 occurrences**. `addFieldWarning` / `validation.addWarning` inside a form-level
 validator: used exactly where the message must name real numbers or real references —

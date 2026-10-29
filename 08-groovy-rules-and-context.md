@@ -600,8 +600,9 @@ The full surface:
 
 > ⚠️ **There is NO `service.feign(...)` or `service.localization(...)`** — older platform documentation
 > uses them, but they do **not** exist on `service`, and no working project calls them. For external services —
-> `inject('emailService')`/RIMM/global functions; for validation localization — the form's per-locale `*Messages` maps
-> or `service.global.locale.getKey()`.
+> `inject('emailService')`/RIMM/global functions; for validation localization — the form's per-locale `*Messages` maps,
+> `service.global.locale.message('…')` (the sentence in the caller's language, [16](16-groovy-service-api.md)) or
+> `service.global.locale.getKey()`.
 
 #### `inject("beanName")` — allow/block-list
 

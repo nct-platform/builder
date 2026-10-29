@@ -319,6 +319,12 @@ validation.addError(MSG.evidence[loc] ?: MSG.evidence.en_US)
 This is the pattern to write for 3+ locales. For a strict two-locale project the pair-closure is tighter and
 unmissable in review:
 
+> **Superseded (2026-10-29):** wherever this bank works — a rule that has the reader's locale — write the sentence
+> ONCE in the default language as one literal: `service.global.locale.message('<sentence> {0}', value)`; the
+> platform translates it ([16](../16-groovy-service-api.md), [20](../20-localization.md)). Where no reader locale
+> reaches the rule (persist hooks, row actions, schedulers) neither the bank nor `message` can choose — there the one
+> text carries every project language at once.
+
 ```groovy
 def loc = (context.data.getAttr('__loc') ?: service.global.locale.getKey() ?: 'en_US') as String
 def alt = loc.toLowerCase().startsWith('<prefix>')
@@ -345,6 +351,11 @@ client and send it as an argument:
 const loc = document.documentElement.lang || 'en_US';
 const data = await ctx.callRule('<Screen> Data', { __loc: loc, … });
 ```
+
+> **Superseded (2026-10-29):** a studio script reads the reader's language as `ctx.locale`, and `ctx.callRule` runs
+> the rule in the reader's session locale, exactly as a form's rules do — the same as `ctx.locale` whenever the
+> project offers the reader's language ([24 §9](../24-html-component-studio.md)). Sniff nothing; if a rule still
+> wants it as an argument, pass `ctx.locale`.
 
 ---
 

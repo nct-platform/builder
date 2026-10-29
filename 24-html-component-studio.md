@@ -80,11 +80,12 @@ or when it is only layout (a classic html plugin with no `studioModel` is the ri
 ### 1.2 The cost you take on
 
 Everything the platform did for you becomes yours: **paging and filtering** ([24c](24c-html-data-tables-and-paging.md)),
-**validation**, **localization** (§9 — `ctx` has no locale), **theming across 5 skins** ([24a](24a-theming-and-dark-mode.md)),
+**validation**, **localization** (§9 — every text written as `ctx.t('…')` or `data-i18n`), **theming across 5 skins** ([24a](24a-theming-and-dark-mode.md)),
 **empty/loading/error states** (§4.4), **teardown of your own listeners** (§6), and **accessibility**. Offline
 `validate` checks that the `studioModel` *parses*, that every `libNames` entry is declared, that asset
-paths are relative, that the component's `<include>` graph resolves (§3.2), and it WARNs on bare colour literals
-in the **all-themes** `css.byTheme["*"]` block only
+paths are relative, that the component's `<include>` graph resolves (§3.2), in a multilingual project it WARNs on a
+`ctx.t(…)` whose text is not one literal and on a `data-i18n` mark in a plain html block (§9), and it WARNs on bare
+colour literals in the **all-themes** `css.byTheme["*"]` block only
 (per-skin blocks and every chart's CSS are never scanned — [24a](24a-theming-and-dark-mode.md) §9). It can
 **not** tell you that
 `ctx.callRule('<Screen> Data')` names a rule that exists, and — beyond the include graph it now walks (§3.2) — it
@@ -230,11 +231,18 @@ This table is the whole surface — `ctx` has nothing else:
 | `ctx.field` | the form value of an **Html Field** component (`value`, `set`, `type`, …) — [24e](24e-html-field-control.md) §3; `null` in an html block |
 | `ctx.settings` | an **Html Field**'s own settings — read in the field, read/written in its settings sections (`get`, `set`, `values`, `onChange`) — [24e](24e-html-field-control.md) §5; `null` in an html block |
 | `ctx.catalog` | in an Html Field's settings section only: the project's rules, CRUDs, fields, methods, contexts to bind the field to — [24e](24e-html-field-control.md) §5.2; `null` elsewhere |
+| `ctx.locale` / `ctx.lang` | the reader's locale key (`ru_RU`) and language (`ru`) — the value a rule this component calls reads as `service.global.locale.getKey()` — §9 |
+| `ctx.locales` / `ctx.defaultLocale` | the project's locale keys, the default first, and the default itself — the language your texts are written in — §9 |
+| **`ctx.t(text, ...args)`** | the text in the reader's language, **synchronously** (no `await`) — §9 |
+| `ctx.translate([elOrSelector])` | apply the `data-i18n` marks inside markup a script inserted (default: the root) — §9 |
+| `ctx.user` | the signed-in reader `{id, email, firstName, lastName, name, roleGroups, roles}`, frozen; `null` for an anonymous visitor — and for every component whose scripts never mention `user` or `security` (the page only carries the reader to a component that reads it) — §9a |
+| `ctx.toast.success/info/warning/error(text[, title])` | the platform's toasts; the text is shown as text, never as markup |
+| **`ctx.service.*`** | the Groovy rule's `service`, as far as a browser can offer it — §3.3 |
 
 Page-global registry:
 
 ```js
-window.Dokie.__v        // runtime version marker — 3 since ctx.include, 4 since ctx.field, 5 since ctx.settings/ctx.catalog; guard on it, see below
+window.Dokie.__v        // runtime version marker — 3 since ctx.include, 4 since ctx.field, 5 since ctx.settings/ctx.catalog, 6 since ctx.t/ctx.locale/ctx.user/ctx.service; guard on it, see below
 window.Dokie.plugins    // identifier -> the ctx.api of the most recent instance of that component
 window.Dokie.libs       // lib name -> the loaded library, page-wide (first requester wins)
 window.Dokie.bus        // the cross-component event bus behind ctx.bus / ctx.emit / ctx.on
@@ -248,7 +256,8 @@ notice.
 `ctx.<new thing>` is a bare `TypeError`, and because all of an instance's scripts share ONE `AsyncFunction` that
 aborts the whole author program, not just the new call. Compare against the feature you need: a runtime reporting
 `2` has the breadcrumb API (§7) but **no `ctx.include`**; `3` has `ctx.include` but **no `ctx.field`**; `4` has
-`ctx.field` but **no `ctx.settings` / `ctx.catalog`**. The idiom
+`ctx.field` but **no `ctx.settings` / `ctx.catalog`**; `5` has those but **no `ctx.t` / `ctx.locale` / `ctx.user` /
+`ctx.toast` / `ctx.service`**. The idiom
 the runtime itself documents:
 
 ```js
@@ -279,9 +288,10 @@ if ((window.Dokie.__v || 0) < 3) {          // old cached runtime: ctx.include m
 > `{ signal }` and capture do **nothing** — a `once` listener keeps firing. Use `ctx.on()` (auto-removed at
 > teardown) and unregister explicitly rather than relying on listener options.
 
-Also absent by construction, so do not plan around them: **no user / locale / tenant / skin** on the mount
-payload (it carries only `id, domId, activeDoc, docs, libs, scripts, contextData` — and `field` / `settings` on an
-Html Field and its settings sections, [24e](24e-html-field-control.md));
+Also absent by construction, so do not plan around them: **no tenant / skin** on the mount payload (it carries
+`id, domId, activeDoc, docs, libs, scripts, contextData`, the reader's language with the component's texts already
+translated, the signed-in reader (when the scripts read it), and the page-path prefix — and `field` / `settings` on an Html Field and its
+settings sections, [24e](24e-html-field-control.md));
 no DOM-query or event-delegation helper; no way to ask Wicket to re-render anything (the plugin's server-side
 refresh is not reachable from author JS); no `onMount`/`onDestroy` hooks other than
 `ctx.onCleanup`.
@@ -352,6 +362,51 @@ A component is in exactly one of two selection modes, and the mode is decided by
 > **Fix:** run `validate` before every pack; then live-render and search the page source for `dokie:`.
 > **Rule: `validate` green means the graph resolves, not that the expansion is what you meant.**
 
+### 3.3 `ctx.service` — the rule's `service.*`, in the browser
+
+The same names, arguments and results as in a Groovy rule ([16](16-groovy-service-api.md)), so a line written for
+a rule — a date pattern, a rounding, a role check — means the same in a component (a TEXT is the exception: write it
+with `ctx.t`, §9). Everything answers **at once**, except the two that go to the server, which answer a `Promise`.
+Anything not in this table is not there:
+
+| `ctx.service.*` | What it does |
+|---|---|
+| `global.locale.getKey()` / `getLanguage()` / `getLocale()` | `'ru_RU'` / `'ru'` / `{language, country, toLanguageTag()}` — the reader's |
+| `global.locale.message(text, ...args)` | **is `ctx.t`** (§9) |
+| `global.locale.localized(row, '<field>'[, localeKey])` | a CRUD row's localized field in the reader's language: `row.localize[field][locale]`, then its language, then any key of that language, else `row[field]` (§9) |
+| `global.formatting.date.format(date, pattern)` | Java pattern letters (`dd.MM.yyyy HH:mm`, `d MMMM yyyy`, `EEE`, `LLLL`, `'quoted'`); month and day names in the **reader's** language; no pattern = the reader's medium date. Takes a `Date`, epoch millis or ISO text (`'2025-03-01'` is that day locally) |
+| `global.formatting.date.parse(text, pattern)` / `now()` / `addDays(date, n)` | the same letters read back — **throws** on text that does not fit, like the rule's |
+| `global.formatting.number.format(value[, decimals])` | grouped the reader's way (`1 234,50`); with `decimals`, exactly that many |
+| `global.formatting.number.formatCurrency(amount, '<ISO>')` / `formatPercent(v)` / `round(v, d)` | as in the rule, but in the reader's language |
+| `global.formatting.text.*`, `global.validation.*`, `global.conversion.*`, `global.collection.*` | as in the rule — except that `collection.transform.sortBy` / `unique` return a **copy** (the rule's change the list itself), and `aggregate.sum` of an empty list is `0` |
+| `security.user()` | `ctx.user` |
+| `security.hasAnyRoleGroup(...)` / `hasAllRoleGroups(...)` / `hasAnyRole(...)` / `hasAllRoles(...)` | the reader's groups and roles — names or one array; for **drawing** per person, never as the protection (§9a) |
+| `await rule(name, input)` | `ctx.callRule` (§4) — unlike the rule's one-argument `service.rule(name)`, it takes the input object the called rule reads |
+| `await crud.<alias>.<method>(...args)` | `ctx.callBl` with each argument as one argument of the method: `crud.<alias>.find({active: true})`. Like `ctx.callBl` it carries **no locale**: a method reached this way answers `message('…')` as written and `localized(…)` with the base field — use `rule(…)` for a locale-aware answer |
+| `redirectPage('<projectAlias>/<page>')` | opens a page of this project — the path a rule's `service.redirectPage` takes, refused the same way (a full URL, `..`, a scheme); the browser goes there at once |
+
+**Not here, on purpose — call a rule for these:** `service.global.rest` (the browser has `fetch`; a server-side
+proxy would hand every visitor of a public page an outbound HTTP client), `service.store` (a store the browser could
+write is a store no rule could trust again), and everything that acts on OTHER people or on the platform:
+`notification`, `access`, `pubsub`, `security.users` / `security.roleGroups`, `rimm`, `workflow`, `report`,
+`mailbox`, `enums`, `actionName` / `actionId`.
+
+> ⚠️ **Formatting speaks the reader's language here, and the server's in a rule** — except a rule's
+> `number.format`, which follows the caller's locale too. The same `formatCurrency(1234.5, 'EUR')` answers in the
+> server's locale in a rule (`€1,234.50` on an English server) and `1 234,50 €` in a Russian reader's component. For
+> display that is what you want; never compare or parse a formatted string. Digits are always Latin.
+>
+> ⚠️ **`ctx.locale` is a locale KEY (`ru_RU`), not a language tag.** `new Intl.NumberFormat('ru_RU')` throws. A
+> library that wants a tag gets `ctx.lang` (`'ru'`) or `ctx.service.global.locale.getLocale().toLanguageTag()`
+> (`'ru-RU'`).
+>
+> ⚠️ **`date.format` reads Java's letters** — `G y Y M L w W D d F E u a H k K h m s S z Z X`, `'quoted'` text,
+> `''` for a quote — and an unquoted letter outside that list throws, as in Java (write `'T'`, not `T`). `Y`/`w`/`W`
+> are ISO weeks here (Monday first); a rule's follow its server's locale and can differ around New Year. A month
+> written alone (`MMMM`) takes its standalone form (Russian «январь»), inside a date its date form («15 января»).
+> `date.parse` reads from the start and ignores what follows; a year of exactly two digits under `y`/`yy` lands
+> within 80 years before and 20 after now.
+
 ---
 
 ## 4 · Calling rules and business logic
@@ -375,10 +430,11 @@ const data = await ctx.callRule('<Screen> Data', { entityId: 42, mode: 'open' })
   attr, **then** the whole object is set under the reserved key `input` — in that order, so a field literally
   named `input` cannot clobber the whole-payload contract.
 * **Locale**: the server stamps the session locale onto the rule context before executing (the value is the
-  Wicket page locale as `language_COUNTRY`, e.g. `en_US`/`hy_AM`). This is the ONLY way a component learns the
-  locale — §9. Read it in Groovy with **`service.global.locale.getKey()`** ([16](16-groovy-service-api.md)): the
-  Groovy executor copies the context's `localeKey` into the thread-local locale before running the body
-  and restores the previous value after. ⛔ **`context.data.localeKey` returns `null`** —
+  page's locale as `language_COUNTRY`, e.g. `en_US`/`hy_AM`) — the same value the component itself has as
+  `ctx.locale` (§9). Read it in Groovy with **`service.global.locale.getKey()`** ([16](16-groovy-service-api.md)) —
+  it holds for the rule's whole body, including the rules and methods it calls — and answer sentences with
+  **`service.global.locale.message('…')`**, which translates exactly as `ctx.t` does. ⛔ **`context.data.localeKey`
+  returns `null`** —
   `context.data.<x>` is an *attribute* lookup (it asks for the attribute `"localeKey"`)
   and nothing ever writes an attr by that name. The raw field is reachable as
   `context.contextData.localeKey` if you prefer it.
@@ -398,8 +454,9 @@ const data = await ctx.callRule('<Screen> Data', { entityId: 42, mode: 'open' })
 // '<Screen> Data' — EXECUTION_RULE
 def input   = context.data.getAttr('input')       // the whole object: [entityId:42, mode:'open']
 def entityId = context.data.getAttr('entityId')   // per-field convenience: 42
-def locale  = service.global.locale.getKey() ?: 'en_US'   // NOT context.data.localeKey (always null)
-return [ok: true, locale: locale, rows: service.crud.<alias>.findAll([rowsInPage: 500, pageNumber: 0])]
+def rows    = service.crud.<alias>.findAll([rowsInPage: 500, pageNumber: 0])
+// the reader's language is already in the rule — NOT context.data.localeKey (always null)
+return [ok: true, rows: rows, note: service.global.locale.message('Data refreshed')]
 ```
 
 ### 4.2 `ctx.callBl(alias, method, argsObjectOrArray)` — the direct dynamic-CRUD call
@@ -741,8 +798,8 @@ ctx.addBreadcrumbButton(def)       // alias of .add()
 | `wait` | bool | **true** | when `onClick` returns a Promise, spin the button until it settles |
 | `block` | string | — | CSS selector to cover with the blockUI overlay while that Promise is pending (document-wide — scope it, §8) |
 
-**`label` may be a function** — `{ key: 'save', label: () => t('Save'), … }` — which is convenient when the label
-comes from a message map that is populated by the fetch rule. But it is resolved **once, when you declare the
+**`label` may be a function** — `{ key: 'save', label: () => ctx.t('Save'), … }` — which is convenient when the
+label depends on state. But it is resolved **once, when you declare the
 button**, and only the resulting string is stored: a function cannot survive `JSON.stringify`, so an unresolved one
 would leave the button rendering its *key*. Practical consequence: a label function is **not** a live binding. When
 the locale (or any state it closes over) changes, you must re-declare the set — which is what `syncBar()` in §7.4
@@ -759,20 +816,20 @@ can follow the user as they drill in — without ever accumulating stale buttons
 function syncBar() {
   if (state.mode === 'list') {
     ctx.breadcrumb.set([
-      { key: 'new',  label: t('New <entity>'), icon: 'pe-7s-plus',  variant: 'primary',
+      { key: 'new',  label: ctx.t('New <entity>'), icon: 'pe-7s-plus',  variant: 'primary',
         onClick: () => openForm(null) },
-      { key: 'sel',  label: t('Edit selected'), icon: 'pe-7s-pen',  variant: 'secondary',
+      { key: 'sel',  label: ctx.t('Edit selected'), icon: 'pe-7s-pen',  variant: 'secondary',
         disabled: !state.selectedId, onClick: () => openForm(state.selectedId) }
     ]);
   } else {
     ctx.breadcrumb.set([
       // SAME keys, different labels/handlers -> the buttons morph, they do not stack.
-      { key: 'new',  label: t('Save'),   icon: 'pe-7s-diskette', variant: 'success',
+      { key: 'new',  label: ctx.t('Save'),   icon: 'pe-7s-diskette', variant: 'success',
         onClick: async () => { await save(); state.mode = 'list'; await load(); syncBar(); } },
-      { key: 'sel',  label: t('Cancel'), icon: 'pe-7s-back',     variant: 'secondary',
+      { key: 'sel',  label: ctx.t('Cancel'), icon: 'pe-7s-back',     variant: 'secondary',
         onClick: () => { state.mode = 'list'; render(); syncBar(); } },
-      { key: 'del',  label: t('Delete'), icon: 'pe-7s-trash',    variant: 'danger',
-        title: t('Delete this <entity>'), block: '#' + ctx.root.id,   // scope it: `block` is document-wide (§8)
+      { key: 'del',  label: ctx.t('Delete'), icon: 'pe-7s-trash',    variant: 'danger',
+        title: ctx.t('Delete this <entity>'), block: '#' + ctx.root.id,   // scope it: `block` is document-wide (§8)
         onClick: async () => { await ctx.callRule('Delete <Entity>', { id: state.selectedId });
                                state.mode = 'list'; await load(); syncBar(); } }
     ]);
@@ -905,77 +962,131 @@ returned `done()` is idempotent: calling it twice is harmless, which is why `fin
 
 ## 9 · Localization inside a component
 
-> `ctx` carries **no locale**. The mount payload has no user/locale/tenant field,
-> and the context projection deliberately omits it (§5). This is the single most common thing builders get wrong.
-
-**The locale reaches you exactly one way: through the rule.** The server stamps the session locale on the rule
-context before executing, the Groovy executor copies it
-into the thread-local locale, and
-**`service.global.locale.getKey()`** hands it to your script, so a fetch rule can simply return it:
-
-```groovy
-// '<Screen> Data' — EXECUTION_RULE
-def loc = 'en_US'
-try { loc = service.global.locale.getKey() ?: 'en_US' } catch (Throwable t) { }
-return [ok: true, locale: loc, rows: service.crud.<alias>.findAll([rowsInPage: 500, pageNumber: 0])]
-```
-
-> ⛔ **Do not write `context.data.localeKey` — it is always `null`.** `context.data.<name>` resolves through
-> the global-data wrapper's `propertyMissing` → `contextData.getAttr("<name>")`,
-> i.e. it reads the **attrs map**, and nothing ever stores the locale there. The rule then always reports the
-> default language, the component silently renders in English, and (because it *looks* right in code review)
-> the mistake survives — and once one rule has it, every rule pasted from it has it too, which is exactly why
-> components end up sniffing the browser and letting the rule only *confirm* a language.
-> `service.global.locale.getKey()` is the working call ([16](16-groovy-service-api.md),
-> [20](20-localization.md)); `context.contextData.localeKey` reads the same value straight off the DTO.
-> `validate` cannot catch either form.
-
-**Recommended pattern — one message map keyed by locale, driven by `d.locale`:**
+**Write every text once, in the project's DEFAULT language, as `ctx.t('…')` in a script or as a `data-i18n` mark
+in a document. Each reader gets it in their language — no locale to fetch, no per-language map to keep.**
 
 ```js
-const MSG = {
-  en_US: { title: '<Entity> console', neu: 'New <entity>', save: 'Save', empty: 'Nothing yet' },
-  hy_AM: { title: '…', neu: '…', save: '…', empty: '…' }
-};
-let LOC = 'en_US';
-const t = k => (MSG[LOC] || MSG.en_US)[k] || (MSG.en_US[k] || k);
-
-const d = await ctx.callRule('<Screen> Data', {});
-LOC = (MSG[d.locale] ? d.locale : 'en_US');       // fall back, never crash on an unlisted locale
-ctx.root.querySelector('.x-title').textContent = t('title');
-syncBar();                                        // breadcrumb labels use t() too — with ASCII keys (§7.5)
+title.textContent = ctx.t('<Entity> register');                     // a text
+count.textContent = ctx.t('{0} of {1} shown', rows.length, total);  // {0}, {1}… from the arguments
+note.textContent  = ctx.t('{who} approved {what}', {who: name, what: number});   // {name} from ONE plain object
+ctx.addBreadcrumbButton({key: 'new', label: ctx.t('New <entity>'), onClick: openNew});
 ```
 
-Why a map beats the alternatives: it is one source of truth, it survives a third locale being added (add a key,
-not a code path), the *same* `t()` feeds your markup, your breadcrumb labels and your empty/error states, and it
-matches how the rest of the project stores per-locale text ([20](20-localization.md)).
+```html
+<h2 data-i18n>[Entity] register</h2>
+<button data-i18n="text title" title="Search the register"><i class="pe-7s-search"></i> Search</button>
+<input data-i18n="placeholder" placeholder="Number or [customer]">
+```
+
+(`<Entity>` / `[entity]` stand for your words — inside markup write plain words: `<h2 data-i18n><Entity> …</h2>`
+would be read as a tag and leave the heading with no text to translate.)
+
+**How it works — and the rules that follow from it.** Before the page is sent, the platform reads the component's
+own source: every call of the text function whose first argument is **one string literal**, and every `data-i18n`
+mark in its documents. The calls it reads are exactly these: `ctx.t('…')`, `ctx.service.global.locale.message('…')`,
+and a bare `t('…')` through `const t = ctx.t` or `const { t } = ctx` — **any other name is not seen**
+(`const tr = ctx.t; tr('…')`, `const loc = ctx.service.global.locale; loc.message('…')`, `this.t('…')`): write
+`ctx.t('…')` in full and nothing can go wrong. A component that makes its **own function** named `t` or `message` — the
+`const t = k => MSG[lang][k]` key lookup of components written before `ctx.t` — means that function by the bare name:
+those calls are left alone, only its `ctx.t(…)` calls are read (a `t` that is no function — an element, a loop's item
+— changes nothing). A call on anything else (`i18n.t(…)`) is that library's. To move such a component over, replace its
+keys with `ctx.t('<the default-language text>')` and drop the maps.
+Each such text is machine-translated into the reader's language once — then remembered by the platform, for every
+project that writes the same words in the same language — and travels with the page. So `ctx.t` answers
+**synchronously**, and marked markup is translated the moment the component mounts, before your first script line runs
+and before its libraries load (until then the browser shows the markup as written — a page in another language can
+flash its default-language words). A page waits for the translations of its components **at most about two seconds in
+all**: a reader who comes first in a new language, when the translator is slower than that, sees the default language
+— the translation still arrives and the next page view has it. `data-i18n` works only in a studio component (an
+`nct.html.plugin` with a studio model, an Html Field, a settings section): a plain html block runs no runtime, and
+`validate` WARNs on a mark there.
+
+1. **One literal per text.** A text built at run time — `ctx.t('Status: ' + s)`, a template literal with
+   `${…}`, `ctx.t(labelVariable)` — cannot be found in the source and is shown **as written** (logged at the
+   browser console's *debug* level, and only for a reader who was sent translations). Put the value in a
+   placeholder: `ctx.t('Status: {0}', s)`. The placeholder survives the translation and is filled after it.
+2. **The default language, and only it.** Every text is sent to the translator as written in
+   `tenant.json.defaultLocale` ([20](20-localization.md) §ii): a reader of that language sees it exactly as written,
+   everyone else gets a translation FROM that language. A text written in another language is treated as the default
+   language anyway, and typically comes back unchanged — so it is shown untranslated to everybody. Write every text
+   in the default language.
+3. **A reader of a language the project does not offer reads the default** — as forms do. Asking for a language by
+   `?lang=` or the language switch never machine-translates a component into a language missing from
+   `tenant.json.locales`; `ctx.locale` then reports the default. (The rules the component calls keep running in the
+   reader's session locale, as a form's rules do.)
+4. **Your own words where the machine's will not do** — a legal term, a brand, a word with two meanings: give a
+   map instead of a text. It is used as given, never machine-translated, and resolved reader's locale → its
+   language → another key of that language → the default → the first non-blank:
+   `ctx.t({en_US: '<Entity> statement', ru_RU: '…', hy_AM: '…'})`. Placeholders work the same.
+5. **`data-i18n` translates text nodes and named attributes, nothing else.** An empty `data-i18n` takes the
+   element's OWN text nodes — an icon or nested element beside the words is left alone, and a nested element's
+   words need their own mark. Words split by a nested element are separate texts: `<p data-i18n>Pay <b>now</b> or
+   later</p>` is translated as "Pay" and "or later" — rephrase, or put the whole sentence in one text node. `data-i18n="placeholder title"` takes those attributes; add `text` to take the
+   words as well. The attributes that can be named are the ones words live in: `title`, `placeholder`, `alt`,
+   `label`, the `aria-*` labels, the tooltip/popover `data-(bs-)title` / `data-(bs-)content` / `data-original-title`
+   / `data-tooltip` / `data-placeholder`, and `value` where it is the caption of an `<input type="button|reset">`
+   or an unnamed `<input type="submit">` — never a value the form sends (a `<button>`'s `value`, a named submit's).
+   A `<textarea>`'s text is its value and is never translated; an `<option>` without a `value` keeps submitting its
+   original words. Marks inside a `<template>` are translated in its content. What `ctx.t` returns is TEXT: put it into
+   `textContent` (or through your `esc()` into markup) — a placeholder value is filled in as given, never escaped.
+6. **Markup inserted later.** `ctx.setHtml`, `ctx.showHtml` and `ctx.include` re-apply the marks to what they
+   insert, and `ctx.translate(target)` does it for markup a script builds — an element, a fragment, a list of
+   elements or a selector; called with nothing, the whole root; given an element that was not found, nothing. Only a
+   text the platform found in the source has a translation: a text that also appears under a `data-i18n` mark in a
+   document (a `<template>` is the natural place) or as a `t('…')` literal. A string a script assembles is not one:
+   put `ctx.t('…')` into it. A text the binder translated stays the author's once a script writes something else
+   there — a later `ctx.translate` never puts the translation back — and a translation is never translated again,
+   even in a copy (a cloned template, markup set again from `getHtml()`): a translated element carries
+   `data-i18n-done`.
+7. **Limits.** At most 500 texts per component (scripts first, then documents) and 5 000 characters per text;
+   anything beyond is shown as written.
+
+> ⚠️ **Nothing of this is checked offline beyond `validate`'s two checks.** `validate` WARNs on a `t(…)` /
+> `message(…)` call whose text is not one literal and on a `data-i18n` mark in a plain html block; it cannot tell
+> whether a text is in the default language, and translations exist only on a live platform. Check every language
+> live (§12a) — over MCP, `nct_ui_get_component_texts` makes the missing translations and lists every text the
+> platform found with its translation per project language, plus the calls that stay as written and
+> `ownTextFunctions` (a `t` the component makes its own); a sentence the machine got wrong gets the map of rule 4.
+> Right after a component is published, ask the tool first: a page viewed while the first translation was still being
+> made shows the default language.
+
+**Numbers and dates** in the reader's language — `ctx.service.global.formatting` (§3.3), never a hand-made month
+table: `formatting.date.format(d, 'd MMMM yyyy')` (the month in the reader's language, in the case a date needs),
+`formatting.date.format(d)` (their medium date), `formatting.number.format(v, 2)`,
+`formatting.number.formatCurrency(v, '<ISO>')`. For a library's own locale option pass `ctx.lang`, or
+`ctx.service.global.locale.getLocale().toLanguageTag()` — never `ctx.locale` (`ru_RU` is not a language tag). The
+week letters `w` / `W` / `Y` follow the reader's week (Sunday-first in en_US, ISO in ru_RU), as Java's do. Month,
+weekday, AM/PM and era names, the medium date and the digits come from the SERVER (Java's own), not from the browser —
+so a component writes a date exactly as a rule does, and an Armenian reader in Chrome (which has no Armenian date names)
+still reads `երկուշաբթի, 15 հունվարի 2024`. Numbers follow the same rule where the browser does not know the
+reader's language at all (Chrome: Armenian, Georgian, Kazakh, …): the server's marks and patterns write `1 234,50`,
+`1 234,50 ֏`, `12%`, never the browser's English `1,234.50`; a currency other than the language's own is then written
+with its code (`1 234,50 USD`). `parse` reads `z` as an offset (`GMT+03:00`, `UTC`) or as the name the
+browser writes for its own zone, and refuses any other zone NAME (`PST` far from America) — parse those in a rule.
 
 **Row data** is localized separately: a CRUD with a `localizationField` carries `{field: {locale: text}}` in a
-`jsonb` column, so display values come from the row, not from `MSG`. ⛔ **Read it under `row.localize`, never
-under the DB column name.** Whatever the author called the column (`localized`, `translations`, …), the
-dynamic-CRUD executor renames the CRUD's configured `localizationField` to the canonical wire key `localize` on
-every read — so reaching for `row.<yourColumnName>` yields `undefined` and your helper silently falls through to
-the untranslated value:
+`jsonb` column, so display values come from the row, not from `ctx.t`. Read it with
+`ctx.service.global.locale.localized(row, '<field>')` — the reader's locale, then its language, then the main
+field. ⛔ **It lives under `row.localize`, never under the DB column name.** Whatever the author called the column
+(`localized`, `translations`, …), the dynamic-CRUD executor renames the CRUD's configured `localizationField` to the
+canonical wire key `localize` on every read — a hand-rolled `row.<yourColumnName>` yields `undefined` and silently
+falls through to the untranslated value.
 
-```js
-const loc = (row, field) => {
-  const m = row && row.localize;          // canonical wire key — NOT the CRUD's column name
-  const o = (typeof m === 'string') ? (() => { try { return JSON.parse(m); } catch (e) { return null; } })() : m;
-  return (o && o[field] && o[field][LOC]) || row[field];
-};
-```
+**The rules your component calls** answer in the reader's language too: a rule called with `ctx.callRule` /
+`ctx.service.rule` runs in the reader's session locale (`service.global.locale.getKey()`) — exactly as a form's rules
+do, and the same as `ctx.locale` whenever the project offers the reader's language — and there
+`service.global.locale.message('…')` translates the rule's own literals through the same translation memory, with the
+same placeholders ([16](16-groovy-service-api.md)). It is not the same translation of the same words to the letter: a
+rule does not know the project's default language, so the translator detects it. `ctx.callBl` / `ctx.service.crud`
+carry no locale. ⛔ **Never read
+it as `context.data.localeKey`** — that is an attribute lookup and always `null` (§4.1).
 
-> ⚠️ **The pattern projects reach for, and why you should not copy it.** A common bilingual shortcut hard-codes
-> the second language into `data-<lang>="…"` attributes on the markup and swaps them at runtime
-> (`root.querySelectorAll('[data-xx]')…el.textContent = t`), plus in-JS `L('English','<other>')` helpers, plus a
-> `MON_EN`/`MON_XX` month table, plus browser sniffing (`?lng=` → `?lang=` → `lang` cookie → `<html lang>`) with
-> the rule only allowed to *confirm* the language, never revoke it. It works, but: it is bilingual-only by
-> construction (a third locale means editing every `data-*` attribute in every component), the default language is
-> baked into the markup so the "untranslated" state is invisible, the same strings get copy-pasted across every
-> component in the project, and the sniffing can disagree with the server's own locale. Note *why* it ends up
-> there: rules written this way
-> read the locale as `context.data.localeKey`, which is always `null` (see the ⛔ above), so the server could
-> never be trusted to answer. **Drive labels from the locale the rule returns; keep the map in one place.**
+> ⛔ **Do not hand-roll what this replaces.** A per-language message map, `data-<lang>="…"` attributes swapped at
+> runtime, `L('English', '<other>')` helpers, month tables, sniffing `?lng` / the `lang` cookie / `<html lang>`, a
+> locale field sent along with every rule call, a rule that returns the locale so the script can pick a map — every
+> one of them is bilingual by construction (a third language means editing every component), hides which texts are
+> untranslated, and can disagree with the server about the reader's language. `ctx.locale` / `ctx.lang` are there
+> when you genuinely need the language (a library's own locale option, a locale-specific asset).
 
 ---
 
@@ -1020,66 +1131,63 @@ any".
 > permission table in a CRUD — a hand-rolled table drifts from the real membership the moment an
 > administrator changes something, and it is not what the rest of the platform checks.
 
-### 9a.2 There is NO client-side check — and that is deliberate
+### 9a.2 The reader is known to your JS — for DRAWING, never as the protection
 
-Nothing about the current user reaches your JS. The mount payload carries the component's documents,
-libraries, scripts and the read-only context projection — no user, no email, no roles, no groups.
-`ctx` has no `user` and no `hasRole`.
-
-That is not an oversight to work around. Author JS is first-party code running in the visitor's browser:
-anything you check there can be edited in the console. **A browser-side check is a UI convenience, never a
-protection.** The decision has to be made on the server, by a rule.
-
-### 9a.3 The recipe — one rule returns the flags, JS only draws
-
-Two methods on `service.security` are available inside any rule (EXECUTION, PREDICATE and VALIDATION all get
-the same object), and they answer for **the user the request is executed as**:
-
-```groovy
-service.security.hasAnyRoleGroup("<GroupA>", "<GroupB>")    // AT LEAST ONE of them
-service.security.hasAllRoleGroups("<GroupA>", "<GroupB>")   // EVERY one of them
-```
-
-Write ONE rule per screen that answers every question that screen asks, and return a flat map:
-
-```groovy
-// EXECUTION rule — "<Screen> Permissions"
-return [
-    canView   : service.security.hasAnyRoleGroup("<Viewer>", "<Approver>", "<Supervisor>"),
-    canEdit   : service.security.hasAnyRoleGroup("<Editor>", "<Supervisor>"),
-    canApprove: service.security.hasAllRoleGroups("<Approver>", "<Trained>"),   // both required
-    canExport : service.security.hasAnyRoleGroup("<Auditor>")
-]
-```
-
-> ⚠️ The same pair exists for the low-level roles behind the groups
-> (`service.security.hasAnyRole` / `hasAllRoles`) — **use the roleGroup pair.** Groups are what an
-> administrator actually manages per project; branching on raw roles couples your screen to internals.
->
-> ⚠️ There is no bare `hasAnyRoleGroup(...)` — always write the `service.security.` prefix, or the script
-> fails with a missing-method error. And do not confuse this with `service.global.*` (the YAML global
-> functions, doc 16): different namespace, different thing.
->
-> ⛔ **SMOKE-TEST the group check on your platform before you build a permission model on it.** Import a
-> project, put `return [g: service.security.hasAnyRoleGroup('<a group you really hold>'), me:
-> service.security.user()]` in one rule, and call it from a component while signed in as a member. If it
-> answers `false` for a genuine member, the cause is identity plumbing, not your spelling: rules triggered
-> from the UI are handed the platform's **internal user id**, while the group checker resolves users by
-> identity-provider id or email, and every failure inside that lookup is swallowed into a plain `false`.
-> `service.security.user().email` is unaffected — so until you have confirmed the group check on your
-> platform, prefer **ownership/email comparisons** (§9a.5) for anything that must not fail open, and raise
-> the group check with the platform team.
-
-Then the component asks once and renders:
+The page carries who is reading: `ctx.user` (`{id, email, firstName, lastName, name, roleGroups, roles}`,
+`null` for an anonymous visitor) and the rule's own checks under `ctx.service.security`:
 
 ```js
-const acl = await ctx.callRule('<Screen> Permissions', {});
-if (acl.canApprove) { approveBtn.hidden = false; }
-if (!acl.canEdit)   { form.querySelectorAll('input,select,textarea').forEach(el => el.disabled = true); }
+ctx.service.security.hasAnyRoleGroup('<GroupA>', '<GroupB>')    // AT LEAST ONE of them
+ctx.service.security.hasAllRoleGroups('<GroupA>', '<GroupB>')   // EVERY one of them
 ```
 
-> ✅ **One rule, one call, all flags.** The bridge is synchronous and blocks the tab (§4.4), so three
-> permission calls freeze the page three times. Ask once, at mount, before the first `await` that draws.
+They answer from the same membership the page's own access checks use, at once and without a call, comparing names
+case-blind as the rule does — including the platform's "I am author" switch: an author browsing their site as a
+visitor is answered as a visitor. `roles` are the roles the reader holds through their groups.
+
+That is a UI convenience and nothing more. Author JS runs in the visitor's browser: anything checked there can be
+edited in the console, and a hidden button's `ctx.callBl(...)` can still be typed. **The decision is made on the
+server, by the rule or method the action calls** — §9a.4.
+
+### 9a.3 The recipe — draw from `ctx.service.security`, decide in the rule
+
+Draw per person straight from the groups:
+
+```js
+const sec = ctx.service.security;
+approveBtn.hidden = !sec.hasAllRoleGroups('<Approver>', '<Trained>');   // both required
+if (!sec.hasAnyRoleGroup('<Editor>', '<Supervisor>')) {
+  form.querySelectorAll('input,select,textarea').forEach(el => el.disabled = true);
+}
+```
+
+…and put the same question where the action happens. Inside any rule (EXECUTION, PREDICATE and VALIDATION all get
+the same object) `service.security` answers for **the user the request is executed as**:
+
+```groovy
+if (!service.security.hasAnyRoleGroup("<Editor>", "<Supervisor>")) {
+    throw new RuntimeException(service.global.locale.message('You may not edit this <entity>'))
+}
+```
+
+When a flag depends on the RECORD — "the author of the draft", "the clerk it is assigned to" — the browser cannot
+know it: let the rule that loads the screen return it beside the data (`[rows: …, canEdit: …]`, one call at mount)
+and scope the data itself (§9a.5).
+
+> ⚠️ The same pair exists for the low-level roles behind the groups (`hasAnyRole` / `hasAllRoles`, in a rule and in
+> `ctx.service.security`) — **use the roleGroup pair.** Groups are what an administrator actually manages per
+> project; branching on raw roles couples your screen to internals.
+>
+> ⚠️ In a rule there is no bare `hasAnyRoleGroup(...)` — always write the `service.security.` prefix, or the script
+> fails with a missing-method error. And do not confuse it with `service.global.*` (the YAML global functions,
+> doc 16): different namespace, different thing.
+>
+> ⚠️ **The browser and the rule can answer differently for an AUTHOR.** The page masks an author who browses their
+> site as a visitor (the "I am author" switch), so `ctx.service.security` says "not an author" while the rule, which
+> asks for the real membership, says "author". For every other reader both answer from the same groups. Draw from
+> the browser's answer; decide with the rule's. A group check that fails inside the rule answers a plain `false`,
+> never an error — so smoke-test the groups you gate on once on your platform
+> (`return [g: service.security.hasAnyRoleGroup('<a group you hold>'), me: service.security.user()]`).
 
 ### 9a.4 Hiding the control is not the protection
 
@@ -1138,9 +1246,9 @@ return service.crud.<entity>.find(filter)
 and the component simply draws what it is given, plus the filter control when allowed:
 
 ```js
-const acl  = await ctx.callRule('<Screen> Permissions', {});
-const rows = await ctx.callRule('<Screen> Rows', { assignedTo: acl.canSeeAll ? picked : null });
-clerkFilter.hidden = !acl.canSeeAll;    // the manager's "filter by clerk" control
+const seesAll = ctx.service.security.hasAnyRoleGroup('<Manager>');   // drawing only — the rule decides again
+const rows = await ctx.callRule('<Screen> Rows', { assignedTo: seesAll ? picked : null });
+clerkFilter.hidden = !seesAll;    // the manager's "filter by clerk" control
 ```
 
 Three consequences worth stating plainly:
@@ -1169,7 +1277,7 @@ Three consequences worth stating plainly:
   next click; do not build a screen that expects an instant flip after an administrator edits groups.
 - ⚠️ **An anonymous / public page has no user**, so every check answers `false`. If a screen is meant to
   be public, drive it from something other than role groups.
-- ✅ **Default to hidden.** Write the JS so a failed or empty permissions response leaves privileged
+- ✅ **Default to hidden.** Write the JS so a failed rule call, or a reader the page does not know, leaves privileged
   controls *off* rather than on — a rule that fails to run must not open a door.
 
 ---
@@ -1243,7 +1351,7 @@ lib** load strictly sequentially. A `.woff2` alone does nothing — a `FONT` ass
    per component** (`<pfx>-page`, `<pfx>-body`, … — the examples below use `x-`): the same prefix keeps your CSS,
    your `ctx.busy` block selectors and your query selectors from colliding with any other component on the page.
    Keep server-rendered `<plugin>` children *outside* any container you will rewrite (§6.4).
-3. **The fetch rule** — one EXECUTION rule per screen, returning `[ok, locale, …lists]`:
+3. **The fetch rule** — one EXECUTION rule per screen, returning `[ok, …lists]`:
    ```bash
    python3 mrjun.py rule add --name "<Screen> Data" --type EXECUTION_RULE \
        --context <context-alias> --script @screen-data.groovy --project ./app
@@ -1261,7 +1369,7 @@ lib** load strictly sequentially. A `.woff2` alone does nothing — a `FONT` ass
    python3 mrjun.py pack ./app app.mrjun
    ```
    `validate` checks the studioModel parses, that every `libNames` entry is declared, and that asset paths are
-   relative. It does **not** resolve rule names or CRUD methods — grep them by hand:
+   relative — and, in a multilingual project, WARNs on a `ctx.t(…)` whose text is not one literal (§9). It does **not** resolve rule names or CRUD methods — grep them by hand:
    `mrjun.py list rules --project ./app | grep '<Screen> Data'` — it *does* resolve the include graph and ERRORs
    on a cycle (§3.2), but it never expands it.
 7. **Live-render.** Import, open the page, and check: the component draws, the breadcrumb buttons appear, the
@@ -1275,15 +1383,15 @@ lib** load strictly sequentially. A `.woff2` alone does nothing — a `FONT` ass
 ```html
 <div class="x-page">
   <div class="x-head">
-    <h2 class="x-title">…</h2>
+    <h2 class="x-title" data-i18n>Records console</h2>
     <!-- NO icon-wait here: the script drives this button with ctx.busy (§8). Both would arm the
          platform spinner on the same <i> and stack two rings. Pick ONE. -->
     <button type="button" class="btn btn-sm btn-secondary x-refresh">
-      <i class="pe-7s-refresh-2"></i><span class="x-refresh-l">Refresh</span>
+      <i class="pe-7s-refresh-2"></i><span data-i18n>Refresh</span>
     </button>
   </div>
   <div class="x-kpis"></div>
-  <div class="x-body"><div class="x-empty">Loading…</div></div>
+  <div class="x-body"><div class="x-empty" data-i18n>Loading…</div></div>
 </div>
 ```
 
@@ -1309,23 +1417,13 @@ const state = { rows: [], selectedId: null, busy: false };
 const q  = sel => ctx.root.querySelector(sel);
 const esc = s => String(s == null ? '' : s);
 const arr = x => Array.isArray(x) ? x : (x && Array.isArray(x.content) ? x.content : []);
-
-const MSG = {
-  en_US: { title: '<Entity> console', refresh: 'Refresh', neu: 'New <entity>', del: 'Delete',
-           empty: 'No <entity> yet', total: 'Total', open: 'Open' },
-  hy_AM: { title: '…', refresh: '…', neu: '…', del: '…', empty: '…', total: '…', open: '…' }
-};
-let LOC = 'en_US';
-const t = k => (MSG[LOC] || MSG.en_US)[k] || MSG.en_US[k] || k;
+// Every visible text is ONE ctx.t('…') literal or a data-i18n mark, in the project's default language (§9).
 
 // ---- render --------------------------------------------------------------
 function render() {
-  q('.x-title').textContent      = t('title');
-  q('.x-refresh-l').textContent  = t('refresh');
-
   q('.x-kpis').innerHTML = '';
-  [[t('total'), state.rows.length],
-   [t('open'),  state.rows.filter(r => r.status === 'open').length]
+  [[ctx.t('Total'), state.rows.length],
+   [ctx.t('Open'),  state.rows.filter(r => r.status === 'open').length]
   ].forEach(([label, value]) => {
     const d = document.createElement('div');
     d.className = 'x-kpi';
@@ -1339,11 +1437,14 @@ function render() {
   body.innerHTML = '';
   if (!state.rows.length) {
     const e = document.createElement('div'); e.className = 'x-empty';
-    e.textContent = t('empty'); body.appendChild(e); return;
+    e.textContent = ctx.t('No <entity> yet'); body.appendChild(e); return;
   }
   const table = document.createElement('table');
   table.className = 'table table-hover mb-0';
-  table.innerHTML = '<thead><tr><th>#</th><th>Name</th><th>Status</th></tr></thead><tbody></tbody>';
+  table.innerHTML = '<thead><tr></tr></thead><tbody></tbody>';
+  ['#', ctx.t('Name'), ctx.t('Status')].forEach(label => {
+    const th = document.createElement('th'); th.textContent = label; table.querySelector('thead tr').appendChild(th);
+  });
   const tb = table.querySelector('tbody');
   state.rows.forEach(r => {
     const tr = document.createElement('tr');
@@ -1374,8 +1475,7 @@ async function load() {
   await paint();
   try {
     const d = await ctx.callRule('<Screen> Data', {});      // ONE call for the whole screen — and it BLOCKS
-    if (!d || d.ok === false) { return fail((d && d.message) || 'No data'); }
-    LOC = MSG[d.locale] ? d.locale : 'en_US';
+    if (!d || d.ok === false) { return fail((d && d.message) || ctx.t('No data')); }
     state.rows = arr(d.rows);
     if (!state.rows.some(r => String(r.id) === String(state.selectedId))) { state.selectedId = null; }
     render(); syncBar();
@@ -1389,9 +1489,9 @@ async function load() {
 // ---- breadcrumb (page-level actions) ------------------------------------
 function syncBar() {
   ctx.breadcrumb.set([
-    { key: 'new', label: t('neu'), icon: 'pe-7s-plus', variant: 'primary', order: 0,
+    { key: 'new', label: ctx.t('New <entity>'), icon: 'pe-7s-plus', variant: 'primary', order: 0,
       onClick: async () => { await ctx.callRule('Create <Entity>', {}); await load(); } },
-    { key: 'del', label: t('del'), icon: 'pe-7s-trash', variant: 'danger', order: 1,
+    { key: 'del', label: ctx.t('Delete'), icon: 'pe-7s-trash', variant: 'danger', order: 1,
       disabled: !state.selectedId, block: '#' + ctx.root.id,   // scoped: `block` is document-wide (§8)
       onClick: async () => {
         await ctx.callRule('Delete <Entity>', { id: state.selectedId });
@@ -1424,14 +1524,12 @@ await load();
 
 ```groovy
 def page = [rowsInPage: 500, pageNumber: 0]
-def loc  = 'en_US'
-try { loc = service.global.locale.getKey() ?: 'en_US' } catch (Throwable t) { }   // NOT context.data.localeKey
 try {
-    return [ok: true, locale: loc,
-            rows: service.crud.<alias>.findAll(page) ?: []]
+    return [ok: true, rows: service.crud.<alias>.findAll(page) ?: []]
 } catch (Throwable ex) {
-    return [ok: false, locale: loc,
-            message: ex.getClass().getSimpleName() + ': ' + (ex.getMessage() ?: 'no message')]
+    return [ok: false,
+            message: service.global.locale.message('The <entity> list could not be loaded: {0}',
+                    ex.getMessage() ?: ex.getClass().getSimpleName())]
 }
 ```
 
@@ -1514,8 +1612,8 @@ says the screen does — and a red one is fixed like any other defect (30 §5):
 | a control does <action> | the action's effect — the record written, the number moved — read back after re-opening, and ONE click = ONE effect, also after an ajax re-render re-mounted the component (§6.2) | `click(...)` is a real click, never a synthetic event; `count_effect(...) == 1` |
 | it pages, sorts, filters | across the server's pages, not within the first one ([24c](24c-html-data-tables-and-paging.md)) | read page 2 after paging; a filter value that matches nothing shows zero rows |
 | empty, loading, error | each state drawn — the bridge REJECTS on a broken rule (§4.4), and the component must show that | provoke each (a filter that matches nothing, a role with no data) and `wait_text(...)` the state |
-| role X sees / may do Y (§9a) | the flags come from the rule; a role without the right sees no control AND is refused by the rule if it calls anyway | as a test user holding the role (`as_user(...)`), and as one without it |
-| it is localized (§9) | each locale's labels; no text of one language in another | the test file's `LOCALE` and the captions in `helpers/locales.py` |
+| role X sees / may do Y (§9a) | the control is drawn from `ctx.service.security`; a role without the right sees no control AND is refused by the rule if it calls anyway | as a test user holding the role (`as_user(...)`), and as one without it |
+| it is localized (§9) | each locale's labels; no text of one language in another | the test file's `LOCALE`; a caption in another language is the platform's machine translation, not yours — read it from `nct_ui_get_component_texts` (or the live page) instead of writing it into `helpers/locales.py` |
 | it works on a dark skin ([24a](24a-theming-and-dark-mode.md)) | readable on `Standard` and on a dark skin | `{manual}` — a person looks; the suite cannot judge contrast |
 | always | no page error, no console error, no failed request while it works | `problems()` is empty at the end of each test |
 
@@ -1546,8 +1644,12 @@ the breadcrumb bar and morph by key as the user drills in; every timer/listener 
 - [ ] One EXECUTION rule per screen for reads; one per mutating action — all confirmed to exist by name
       (`mrjun.py list rules`)
 - [ ] Every rule returns **plain maps/lists/scalars** — a non-serializable value makes the call reject (§4.4)
-- [ ] The fetch rule returns `locale` from **`service.global.locale.getKey()`** (never `context.data.localeKey`,
-      which is always `null` — §9), and labels come from one message map
+- [ ] Every visible text is ONE `ctx.t('…')` literal or a `data-i18n` mark, written in the project's default
+      language — no hand-made per-language message maps (a `ctx.t({…})` map only for words the machine gets
+      wrong), no `data-<lang>` attributes, no locale returned by a rule; values go in
+      placeholders; each project language checked **live** (§9). Rules read the locale with
+      `service.global.locale.getKey()` / answer with `service.global.locale.message('…')`, never
+      `context.data.localeKey` (always `null`)
 - [ ] Every `ctx.callRule`/`ctx.callBl` is wrapped in `try/catch`; empty and error states are rendered
 - [ ] On a **public** page: only `ctx.callRule`, every rule it calls has access `anyone` (`mrjun.py rule access
       '<Rule>' --access anyone`), the CRUD methods behind them stay at their default, and `validate` shows none of

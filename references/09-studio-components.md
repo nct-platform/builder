@@ -755,6 +755,11 @@ function dimHuman(v){
 > message map. If you inherit a project with `__loc` in it, that is the tell. **Keep exactly one thing
 > from it:** the confirm-only asymmetry — *a default value is not an answer.* Treat the fallback locale
 > as **unknown**, never as evidence of the default language.
+>
+> **Superseded for new work (2026-10-29):** a studio script now gets the reader's language and its translations
+> from the platform — `ctx.locale` / `ctx.lang`, `ctx.t('<text in the default language>')`, `data-i18n` in
+> markup — [24 §9](../24-html-component-studio.md). Write no message map; the map above is only how components
+> written before `ctx.t` did it (the platform leaves a component's own `t(key)` alone).
 
 > ⛔ **`el.textContent = t` on a container is a subtree delete wearing a string assignment** — and this
 > applies to any translate-in-place routine, `data-*` or not. In the corpus every conditional-requirement
@@ -1292,7 +1297,7 @@ and **colour in `style=`** (each one needs a per-theme `!important` rescue and c
 | 8 | [24 §4.4](../24-html-component-studio.md): the envelope is `{ok:false,error:"…"}` or a serialization error | a third shape exists — `error` holding a Java identity hash | **Add the opaque branch to `errText`**; keep the hash as a correlation token, not a sentence (§5.3) |
 | 9 | [24 §4.4](../24-html-component-studio.md): `paint()` yield before every blocking call | 21/22 carry no `paint()` — `Loading…` is authored in `properties.html` | **Author the loading state in the markup.** Keep the yield for a click-triggered re-fetch |
 | 10 | [24 §6.3](../24-html-component-studio.md): register `ctx.on`/`onCleanup` before the first await | 22/22 have **no** top-level await at all | **Make it structural**: define → bind → declare actions → `load().catch(...)` |
-| 11 | [24 §9](../24-html-component-studio.md): drive labels from `service.global.locale.getKey()`; do not copy `data-<lang>` + browser sniffing | **the exact anti-pattern in all 22**, because the rules read the always-`null` `context.data.localeKey` | **Fix the rule, then one message map.** Keep only the confirm-only asymmetry: a default is not an answer |
+| 11 | [24 §9](../24-html-component-studio.md): drive labels from `service.global.locale.getKey()`; do not copy `data-<lang>` + browser sniffing | **the exact anti-pattern in all 22**, because the rules read the always-`null` `context.data.localeKey` | **Fix the rule, then one message map.** Keep only the confirm-only asymmetry: a default is not an answer. *(2026-10-29: no map any more — `ctx.t('…')` + `data-i18n`, 24 §9)* |
 | 12 | [24 §11.1](../24-html-component-studio.md): `createElement` + `textContent` | `innerHTML` template strings with `esc()` on every interpolation, 22/22 | **Either, never mixed.** The template form is far more readable for a 12-column row; its safety rests entirely on `esc()`, so put `esc()` in the kit and grep for unescaped `+ pick(` before shipping |
 | 13 | [24a §6](../24a-theming-and-dark-mode.md): one `"*"` block; per-skin only for images/shadows/gradients/rescues | **five keys on 22/22** — `"*"` plus four identical dark patches | **Follow the projects.** Platform status tokens collapse to one hue on two dark skins. Patch **only** the alias lines |
 | 14 | [24b §4](../24b-html-composition-and-plugin-tags.md): `<prop>` is a seed, not a setting | C seeds 583 localized captions inline; B and D seed **zero** | **Seed only captions you never expect to change.** Anything a customer may edit belongs on the child node |

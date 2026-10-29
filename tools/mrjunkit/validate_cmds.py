@@ -387,6 +387,8 @@ def cmd_validate(args):
     _check_enum_column_shows_code(p, cruds, r)
     # -- a rule showing the user a message in ONE language while the project is multilingual --
     _check_rule_strings_multilingual(p, r)
+    # -- a locale.message(…) text glued from values -> never translated, every reader gets it as written --
+    _check_rule_messages_are_literals(p, r)
     # -- a choices rule mapping options by 'id' -> raw uuids in the picker --
     _check_choices_display_is_identifying(p, r)
     # -- a mandatory document number nobody generates -> typed by hand, duplicated, drifting --
@@ -533,6 +535,10 @@ def cmd_validate(args):
                                    "tenant root (studio/<lib>/<file>) so it survives import (doc 24 §10)"
                                    % (node.get("name"), a["path"]))
                 _check_theme_safe_css(model, node, r)
+                if pn in _STUDIO_PLUGINS and len(locales) > 1:
+                    _check_studio_texts_are_literals(model, node, r)
+        if pn in ("html.plugin", "nct.html.plugin") and len(locales) > 1:
+            _check_marks_need_the_runtime(node, pn, props, r)
         # An inline <style> in the html property is GLOBAL (it is not scoped like css.byTheme) and is the
         # usual home of a hardcoded light palette. See doc 24a §5.5.
         _html_prop = props.get("html")
@@ -9554,6 +9560,8 @@ _USER_STRING_HEADS = (
     re.compile(r"(?<![\w.])note\s*:\s*"),
 )
 _GROOVY_STR_RE = re.compile(r"'((?:[^'\\\n]|\\.)*)'")
+# `service.global.locale.message(` — a sentence the platform translates into the caller's language.
+_LOCALE_MESSAGE_RE = re.compile(r"\blocale\s*\.\s*message\s*\(")
 
 
 def _expression_after(src, start):
@@ -9597,15 +9605,22 @@ def _expression_after(src, start):
 
 
 def _check_rule_strings_multilingual(p, r):
-    """LOCALISATION (WARN). A Groovy rule cannot ask which locale the caller is in, so every sentence
-    a rule hands a user has to carry ALL the project's languages at once — conventionally
-    `hy / ru / en`.
+    """LOCALISATION (WARN). A sentence a Groovy rule hands a user either carries ALL the project's
+    languages at once — conventionally `hy / ru / en` — or, in a rule that runs in the reader's locale (a
+    component's ctx.callRule, a validation rule, a choices rule), is one literal passed to
+    `service.global.locale.message('…')`, which the platform translates. Persist hooks, register row
+    actions, workflow tasks and schedulers have no reader locale, so only the first way works there.
 
     This flags a user-facing expression whose text is written in only ONE script. It is the most
     common localisation hole in a multilingual project precisely because the screens look perfect:
     the monolingual text only appears when something is REFUSED, which no happy-path walkthrough
     reaches. The whole expression is read, not one literal, so a message assembled by `+` from
-    per-language fragments is correctly seen as multilingual. (20-localization.md)"""
+    per-language fragments is correctly seen as multilingual. (20-localization.md)
+
+    A sentence passed to `service.global.locale.message('…')` is not judged: the platform translates it
+    wherever a session locale reaches the rule — and asking for every language inside it would only hand the
+    translator a sentence in three languages at once. Whether THIS rule gets a locale cannot be seen offline
+    (doc 16 lists which rules do)."""
     locales = set(p.locales() or [])
     if len(locales) < 2:
         return
@@ -9617,6 +9632,8 @@ def _check_rule_strings_multilingual(p, r):
         for head in _USER_STRING_HEADS:
             for m in head.finditer(src):
                 expr = _expression_after(src, m.end())
+                if _LOCALE_MESSAGE_RE.search(expr):
+                    continue
                 lits = [g for g in _GROOVY_STR_RE.findall(expr)]
                 text = " ".join(lits).strip()
                 if len(text) < 8:
@@ -9633,9 +9650,463 @@ def _check_rule_strings_multilingual(p, r):
                 if key in seen:
                     continue
                 seen.add(key)
-                r.warn("rule %r hands the user a sentence written in ONE language only: %r. A rule "
-                       "has no locale, so the text must carry every project language at once "
-                       "('hy / ru / en'). (20-localization.md)" % (rule.get("name"), text[:70]))
+                r.warn("rule %r hands the user a sentence written in ONE language only: %r. Write every "
+                       "project language into it ('%s') — or, in a rule that runs in the reader's locale (a "
+                       "component's ctx.callRule, a validation rule, a choices rule), pass it as one literal to "
+                       "service.global.locale.message('…'), which the platform translates. (20-localization.md)"
+                       % (rule.get("name"), text[:70], " / ".join(sorted(locales))))
+
+
+def _groovy_string_end(src, i):
+    """The index just past the Groovy string literal that opens at `i` — single, double or triple quoted."""
+    q = src[i]
+    if src.startswith(q * 3, i):
+        end = src.find(q * 3, i + 3)
+        return len(src) if end < 0 else end + 3
+    j = i + 1
+    while j < len(src) and src[j] != q and src[j] != "\n":
+        j += 2 if src[j] == "\\" else 1
+    return min(j + 1, len(src))
+
+
+def _groovy_first_argument(src, start):
+    """The first argument of the call whose `(` ends at `start`: the string literals at its top level, and whether
+    a top-level `+` glues something to them."""
+    depth, i, n = 0, start, len(src)
+    literals, plus = [], False
+    while i < n:
+        c = src[i]
+        if c in "'\"":
+            j = _groovy_string_end(src, i)
+            if depth == 0:
+                literals.append(src[i:j])
+            i = j
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and c == ",":
+            break
+        elif depth == 0 and c == "+":
+            plus = True
+        i += 1
+    return literals, plus
+
+
+_GSTRING_DOLLAR_RE = re.compile(r"(?<!\\)\$")
+
+
+def _blank_groovy_strings(src):
+    """A Groovy script with the TEXT of its '…', "…" and triple-quoted strings blanked out (quotes and positions kept):
+    what is left is code."""
+    out, i, n = list(src), 0, len(src)
+    while i < n:
+        if src[i] in "'\"":
+            end = _groovy_string_end(src, i)
+            q = 3 if src.startswith(src[i] * 3, i) else 1
+            for k in range(i + q, max(i + q, end - q)):
+                if out[k] != "\n":
+                    out[k] = " "
+            i = end
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _check_rule_messages_are_literals(p, r):
+    """LOCALISATION (WARN). `service.global.locale.message(text, values…)` translates its text only when the text is
+    ONE literal of the rule (doc 16): a sentence built at run time is never sent to the translator — that would be a
+    paid translation, a stored row and a copy of somebody's input for every value. So a text glued from values,
+    `message('Record ' + n + ' is closed')` or `message("Record ${n} is closed")`, reaches every reader as written.
+    The values belong in placeholders: `message('Record {0} is closed', n)`. A variable that holds a literal of the
+    rule counts as that literal, so a bare name is never reported."""
+    if len(set(p.locales() or [])) < 2:
+        return
+    for rule in (p.rep.get("rules") or []):
+        src = _strip_groovy_comments(((rule.get("rule") or {}).get("ruleScriptStr") or ""))
+        code = _blank_groovy_strings(src)        # a call quoted inside a string ("calling …message(…)") is none
+        lines, line, counted = [], 1, 0
+        for m in _LOCALE_MESSAGE_RE.finditer(code):
+            literals, plus = _groovy_first_argument(src, m.end())
+            gstring = any(lit.startswith('"') and _GSTRING_DOLLAR_RE.search(lit) for lit in literals)
+            if not (gstring or (plus and literals)):
+                continue
+            line += src.count("\n", counted, m.start())
+            counted = m.start()
+            lines.append(line)
+        if lines:
+            r.warn("rule %r: %d service.global.locale.message(…) call(s) handed a text glued from values (line %s) "
+                   "— only ONE literal of the rule is translated, so every reader gets these as written. Write the "
+                   "sentence as one literal with placeholders and pass the values after it: "
+                   "message('Record {0} is closed', row.number). (16-groovy-service-api.md)"
+                   % (rule.get("name"), len(lines), ", ".join(str(n) for n in lines[:5]) + (", …" if len(lines) > 5 else "")))
+
+
+# `t(…)` / `message(…)` in a studio script — the runtime's text function under every name it goes by: `ctx.t`,
+# `ctx.service.global.locale.message`, and a bare `t` / `message` unless the component declares that name itself (an
+# author's own key lookup over per-language maps; an alias `const t = ctx.t` is not its own) — and the one argument
+# shape the platform translates: ONE string literal (a template literal without `${…}`), then `,` or `)`. Kept in
+# step with the platform's own reading of a script (doc 24 §9).
+_STUDIO_TEXT_CALL_RE = re.compile(r"(?<![\w$])(?:t|message)\s*\(")
+# A FUNCTION the author names t / message — `function t(…)`, `t = k => …`, `const t = (k, ...a) => …`; a t holding
+# anything else (an element, a timer, a loop's item) leaves the name to the runtime.
+_OWN_FUNCTION_RE = re.compile(
+    r"(?<![\w$.])function\s*\*?\s*(t|message)\s*\("
+    r"|(?<![\w$.])(t|message)\s*=(?![=>])\s*(?:async\s+)?(?:function\b|\([^()]*\)\s*=>|[\w$]+\s*=>)")
+# The runtime's function under the author's name for it: `const t = ctx.t`, `= ….locale.message`.
+_TEXT_ALIAS_RE = re.compile(
+    r"(?<![\w$.])(t|message)\s*=(?![=>])\s*(?:ctx\s*\.\s*t|[\w$.\s]*locale\s*\.\s*message)(?![\w$])")
+_DESTRUCTURED_RE = re.compile(r"\{([^{}]*)\}\s*=(?![=>])\s*([\w$.]*)")
+_BOUND_NAME_RE = re.compile(r"(?<![\w$])(t|message)(?![\w$])(?!\s*:)")
+_RUNTIME_TEXT_FUNCTION_RE = re.compile(r"(?<![\w$])ctx\s*\.\s*t(?![\w$])|(?<![\w$])locale\s*\.\s*message(?![\w$])")
+_STUDIO_TEXT_LITERAL_RE = re.compile(
+    r"""\s*(?:'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\$]|\\.|\$(?!\{))*`)\s*[,)]""", re.S)
+_EMPTY_CALL_RE = re.compile(r"\s*\)")
+_BRACE_AHEAD_RE = re.compile(r"\s*\{")
+_FUNCTION_BEHIND_RE = re.compile(r"(?:^|[^\w$])function\s*\*?\s*$")
+_MAX_DECLARATION_CHARS = 10000
+_MAX_DECLARATIONS = 200
+_REGEX_AFTER_WORDS = frozenset(("return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw",
+                                "case", "do", "else", "yield", "await"))
+
+
+_MAX_TEMPLATE_DEPTH = 32
+_MAX_CALL_CHARS = 2000
+_MAX_REGEX_CHARS = 512
+
+
+def _js_quote_end(js, i):
+    """The index just past the '…' / "…" string that opens at `i` (a quote ends at a line break)."""
+    q, j, n = js[i], i + 1, len(js)
+    while j < n and js[j] != q and js[j] != "\n":
+        j += 2 if js[j] == "\\" else 1
+    return min(j + 1, n)
+
+
+_STATEMENT_HEADS = frozenset(("if", "while", "for", "with"))
+
+
+def _js_statement_head_before(js, close):
+    """Whether the `)` at `close` ends the head of `if` / `while` / `for` / `with` (a regex may follow it)."""
+    depth, i, stop = 0, close, max(0, close - _MAX_DECLARATION_CHARS)
+    while i >= stop:
+        c = js[i]
+        if c == ")":
+            depth += 1
+        elif c == "(":
+            depth -= 1
+            if depth == 0:
+                j = i - 1
+                while j >= 0 and js[j].isspace():
+                    j -= 1
+                end = j + 1
+                while j >= 0 and (js[j].isalnum() or js[j] in "_$"):
+                    j -= 1
+                return js[j + 1:end] in _STATEMENT_HEADS
+        i -= 1
+    return False
+
+
+def _js_regex_may_start(js, i):
+    """Whether a `/` at `i` opens a regex: it stands where an expression starts, not after an operand."""
+    j = i - 1
+    while j >= 0 and js[j].isspace():
+        j -= 1
+    if j < 0:
+        return True
+    if js[j] in "+-" and j > 0 and js[j - 1] == js[j]:
+        return False                      # a++ / 2: the end of an operand
+    if js[j] == ")":
+        return _js_statement_head_before(js, j)   # if (ok) /re/.test(s)
+    if js[j] in "(,=:[!&|?{};+-*%<>~^":
+        return True
+    if not (js[j].isalnum() or js[j] in "_$"):
+        return False
+    start = j
+    while start > 0 and (js[start - 1].isalnum() or js[start - 1] in "_$"):
+        start -= 1
+    return js[start:j + 1] in _REGEX_AFTER_WORDS
+
+
+def _js_regex_end(js, i):
+    """The index just past the regex opening at `i`, or -1 when it does not close on its line, soon enough."""
+    in_class, j, stop = False, i + 1, min(len(js), i + _MAX_REGEX_CHARS)
+    while j < stop:
+        c = js[j]
+        if c == "\n":
+            return -1
+        if c == "\\":
+            j += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "/":
+            return j + 1
+        j += 1
+    return -1
+
+
+def _js_blank(out, js, start, end):
+    for k in range(max(0, start), min(end, len(js))):
+        if js[k] != "\n":
+            out[k] = " "
+
+
+def _js_walk_template(js, i, out, literals, depth):
+    """A template literal from its opening backtick: its text, and its `${…}` walked as the code it is."""
+    j, n = i + 1, len(js)
+    while j < n:
+        c = js[j]
+        if c == "`":
+            return j + 1
+        if c == "\\":
+            if literals:
+                _js_blank(out, js, j, j + 2)
+            j += 2
+        elif c == "$" and j + 1 < n and js[j + 1] == "{" and depth < _MAX_TEMPLATE_DEPTH:
+            j = _js_walk_code(js, j + 2, out, literals, depth + 1, True)
+        else:
+            if literals and c != "\n":
+                out[j] = " "
+            j += 1
+    return n
+
+
+def _js_walk_code(js, i, out, literals, depth, in_template):
+    """Code from `i` to the end — or, inside a template's `${…}`, to just past the brace that closes it."""
+    braces, n = 0, len(js)
+    while i < n:
+        c = js[i]
+        if c in "'\"":
+            end = _js_quote_end(js, i)
+            if literals:
+                _js_blank(out, js, i + 1, end - 1)
+            i = end
+        elif c == "`":
+            i = _js_walk_template(js, i, out, literals, depth)
+        elif js.startswith("//", i):
+            end = js.find("\n", i)
+            end = n if end < 0 else end
+            _js_blank(out, js, i, end)
+            i = end
+        elif js.startswith("/*", i):
+            end = js.find("*/", i + 2)
+            if end < 0:
+                i += 2                    # never closes: the lexer is lost, leave the rest as it is
+            else:
+                _js_blank(out, js, i, end + 2)
+                i = end + 2
+        elif c == "/" and _js_regex_may_start(js, i):
+            end = _js_regex_end(js, i)
+            if end > 0 and literals:
+                _js_blank(out, js, i + 1, end - 1)
+            i = end if end > 0 else i + 1
+        else:
+            if in_template and c == "{":
+                braces += 1
+            elif in_template and c == "}":
+                if braces == 0:
+                    return i + 1
+                braces -= 1
+            i += 1
+    return n
+
+
+def _js_blanked(src, literals):
+    """A studio script with its comments blanked out — and, with `literals`, the TEXT of its string, template and regex
+    literals too (their quotes, and a template's `${…}` code, stay) — every other character in place. Read by a small
+    JavaScript lexer, as the platform reads it: a `//` in a URL, a quote in a regex, a `/*` inside `image/*`, a template
+    nested in another's `${…}` are each read for what they are; a `/*` that never closes is not blanked."""
+    src = (src or "").replace("\r\n", "\n").replace("\r", "\n")
+    out = list(src)
+    _js_walk_code(src, 0, out, literals, 0, False)
+    return "".join(out)
+
+
+def _strip_js_comments(src):
+    """A studio script with its comments blanked out, its literals kept (`_js_blanked`)."""
+    return _js_blanked(src, False)
+
+
+def _js_code_only(src):
+    """A studio script with its comments and the text of its literals blanked out — only code is left."""
+    return _js_blanked(src, True)
+
+
+def _js_call_end(js, i):
+    """The index just past the `)` closing the call whose argument list starts at `i` in a code-only text — read for a
+    bounded length."""
+    depth, n = 0, min(len(js), i + _MAX_CALL_CHARS)
+    while i < n:
+        c = js[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return i + 1
+            depth -= 1
+        i += 1
+    return n
+
+
+def _js_goes_on(js, line_break):
+    """Whether a statement goes on past this line break: the code before it (blank and commented-out lines skipped)
+    ends in `=` / `=>`, or a `{` opens what follows."""
+    j = line_break - 1
+    while j >= 0 and js[j].isspace():
+        j -= 1
+    open_end = j >= 0 and (js[j] == "=" or (js[j] == ">" and j > 0 and js[j - 1] == "="))
+    return open_end or bool(_BRACE_AHEAD_RE.match(js, line_break))
+
+
+def _js_statement_end(js, i):
+    """Where the declaration whose head ends at `i` ends in a code-only text: the first `;`, closing bracket or line
+    break outside brackets (a line ending in `=` / `=>`, or followed by one opening with `{`, goes on) — read for a
+    bounded length."""
+    depth, stop = 0, min(len(js), i + _MAX_DECLARATION_CHARS)
+    while i < stop:
+        c = js[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif depth == 0 and (c in ";," or (c == "\n" and not _js_goes_on(js, i))):
+            return i                      # a comma: the next declarator of a list is not this one's body
+        i += 1
+    return min(i, len(js))
+
+
+def _own_text_functions(codes):
+    """The names among `t` / `message` a component makes its OWN function — an author's `const t = k => MSG[lang][k]`,
+    a `function message(text, bad) {…}`, a `t` destructured out of its own i18n helper. Its bare calls of such a name
+    are its own, whose argument is a key or anything else, never a text for the platform. The runtime's function under
+    the author's name wins over any of that — an alias (`const t = ctx.t`, `const { t } = ctx`) or a wrapper that hands
+    the call on (`(k, ...a) => ctx.t(k, ...a)`) — and a `t` that is no function (`const t = ev.target`, a loop's
+    item, `let t;`) changes nothing. The scripts of a component run as one program, so the names are the component's.
+    Kept in step with the platform's own reading."""
+    own, runtimes = set(), set()
+    for code in codes:
+        js = _js_code_only(code)
+        runtimes.update(m.group(1) for m in _TEXT_ALIAS_RE.finditer(js))
+        for seen, m in enumerate(_OWN_FUNCTION_RE.finditer(js)):
+            if seen >= _MAX_DECLARATIONS:
+                break
+            declared = m.group(1) is not None
+            start = m.end() - 1 if declared else m.end()       # a declaration's match ends inside its "("
+            body_end = _js_statement_end(js, start)
+            reads_runtime = _RUNTIME_TEXT_FUNCTION_RE.search(js, start, body_end)
+            (runtimes if reads_runtime else own).add(m.group(1) or m.group(2))
+        for seen, m in enumerate(_DESTRUCTURED_RE.finditer(js)):
+            if seen >= _MAX_DECLARATIONS:
+                break
+            source = m.group(2)
+            for bound in _BOUND_NAME_RE.finditer(m.group(1)):
+                name = bound.group(1)
+                runtime = source == "ctx" if name == "t" else source.endswith("locale")
+                (runtimes if runtime else own).add(name)
+    return own - runtimes
+
+
+def _is_runtime_text_call(js, at, own):
+    """Whether the `t(` / `message(` call named at `at` is the runtime's: `ctx.t(…)`, `….locale.message(…)`, or the
+    bare name unless the component makes it its own (`own`). A call on anything else (`i18n.t(…)`) is that thing's."""
+    name = "message" if js.startswith("message", at) else "t"
+    i = at - 1
+    while i >= 0 and js[i].isspace():
+        i -= 1
+    if i < 0 or js[i] != ".":
+        return name not in own
+    i -= 1
+    if i >= 0 and js[i] == "?":
+        i -= 1                                        # ctx?.t(
+    while i >= 0 and js[i].isspace():
+        i -= 1
+    end = i + 1
+    while i >= 0 and (js[i].isalnum() or js[i] in "_$"):
+        i -= 1
+    return js[i + 1:end] == ("ctx" if name == "t" else "locale")
+
+
+def _untranslatable_text_calls(code, own=None):
+    """(line, call) of every `t(…)` / `message(…)` call in `code` whose text is not one literal. Not such a call:
+    `t()`, the per-language map `t({en_US: '…', ru_RU: '…'})` (it carries its own translations), a function DEFINED
+    under either name (`function t(key)`, a `message(text) {…}` method), and a call that is not the runtime's (the
+    author's own `t`, `i18n.t(…)`). `own`: the names the component makes its own — by default, this script's."""
+    text = _strip_js_comments(code)       # the literals still there, to tell one from a built text
+    program = _js_code_only(code)         # only code: no call is found inside a string
+    own = _own_text_functions([code]) if own is None else own
+    found, line, counted = [], 1, 0
+    for m in _STUDIO_TEXT_CALL_RE.finditer(program):
+        if not _is_runtime_text_call(program, m.start(), own) or _STUDIO_TEXT_LITERAL_RE.match(text, m.end()) \
+                or _EMPTY_CALL_RE.match(program, m.end()) or _BRACE_AHEAD_RE.match(program, m.end()):
+            continue
+        if _FUNCTION_BEHIND_RE.search(program[max(0, m.start() - 40):m.start()]) \
+                or _BRACE_AHEAD_RE.match(program, _js_call_end(program, m.end())):
+            continue
+        line += program.count("\n", counted, m.start())
+        counted = m.start()
+        end = text.find("\n", m.start())
+        call = text[m.start():len(text) if end < 0 else end].strip()
+        found.append((line, call if len(call) <= 80 else call[:80] + "…"))
+    return found
+
+
+def _studio_model_runs(props):
+    """Whether a node's studio model makes the page run the component runtime — any library, document, script or
+    styling in it (an empty model renders the html as written)."""
+    raw = (props.get("studioModel") or {}).get("stringValue")
+    try:
+        model = json.loads(raw) if raw else None
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(model, dict):
+        return False
+    if any(model.get(k) for k in ("libs", "docs", "scripts")):
+        return True
+    by_theme = (model.get("css") or {}).get("byTheme") if isinstance(model.get("css"), dict) else None
+    return isinstance(by_theme, dict) and any(isinstance(v, str) and v.strip() for v in by_theme.values())
+
+
+def _check_marks_need_the_runtime(node, pn, props, r):
+    """LOCALISATION (WARN). A `data-i18n` mark is applied by the studio runtime (doc 24 §9). A plain html block — an
+    `html.plugin`, or an `nct.html.plugin` without a studio model — renders its markup as written, so its marks are
+    never translated and every reader sees the default language."""
+    html = (props.get("html") or {}).get("stringValue") or ""
+    if "data-i18n" not in html or (pn == "nct.html.plugin" and _studio_model_runs(props)):
+        return
+    r.warn("node %r (%s) marks text with data-i18n, but it is a plain html block: no runtime runs there, so the "
+           "marks are never applied and every reader sees the default language. Make it a studio component (an "
+           "nct.html.plugin with a studioModel — a script is enough). (24-html-component-studio.md §9)"
+           % (node.get("name"), pn))
+
+
+def _check_studio_texts_are_literals(model, node, r):
+    """LOCALISATION (WARN). A studio component in a multilingual project writes its texts once, in the project's
+    default language, and the platform translates them before the page runs — which it can do only for a text it
+    finds in the source: the first argument of a `t(…)` / `message(…)` call that is ONE string literal, or a
+    `data-i18n` mark (doc 24 §9). `ctx.t('Total: ' + n)`, `ctx.t(row.label)` and `ctx.t(`Total: ${n}`)` reach every
+    reader as written — unless the very same words also appear as a literal or a mark somewhere in the component.
+    A component that declares its own `t` / `message` (written before `ctx.t`, over its own per-language maps) means
+    its own function by the bare name: those calls are not judged."""
+    scripts = [s for s in model.get("scripts") or [] if isinstance(s, dict) and s.get("enabled") is not False]
+    own = _own_text_functions(s.get("code") for s in scripts)
+    for scr in scripts:
+        calls = _untranslatable_text_calls(scr.get("code"), own)
+        if not calls:
+            continue
+        r.warn("node %r script %r: %d t(…)/message(…) call(s) whose text is not one string literal — %s. The "
+               "platform finds a text before the page runs only as ONE literal, so these stay as written in every "
+               "language. Write ctx.t('Total: {0}', n); a text taken from data is translated only when the same "
+               "words also appear as a t('…') literal or under data-i18n. (24-html-component-studio.md §9)"
+               % (node.get("name"), scr.get("name"), len(calls),
+                  "; ".join("line %d: %s" % c for c in calls[:3]) + ("; …" if len(calls) > 3 else "")))
 
 
 def _check_choices_display_is_identifying(p, r):

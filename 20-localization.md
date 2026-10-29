@@ -28,6 +28,7 @@ are runtime/platform behaviour you author *toward* but cannot fully set from the
 | **L3** | **Entity data** — per-locale *row values* | `localize[field][locale]` inside a jsonb column, in `project-db.dump` | **Yes** (+ runtime bulk auto-fill) |
 | **L4** | **Runtime resolution & rendering** — session locale → tables/forms/Groovy | runtime (session / cookie / `?lng`) | **Partially** — the `multiLanguage`/`localized` flags author the behaviour |
 | **L5** | **Auto-translate** — an external MT service fills empty locales | live UI only (never on import) | **No** — understand it, then hand-fill |
+| **L5′** | **Texts written in CODE** — a studio component's `ctx.t('…')` / `data-i18n`, a rule's `service.global.locale.message('…')` | the platform's translation memory, addressed by the text — made at run time, per reader's language | **Yes, as code** — write each text ONCE in the default language; nothing to fill ([24 §9](24-html-component-studio.md), [16](16-groovy-service-api.md)) |
 
 **The one thing to remember:** L2/L3 maps are keyed by the full locale string (`en_US`, `hy_AM`, …). Resolvers
 fall back **full-key → language-only (`en`) → first non-blank → legacy scalar** (where a deprecated scalar still
@@ -210,20 +211,34 @@ filter" / "Clear filter") is resolved through the **L1** key path (§iii), so it
    ([22](22-charts-params-and-filters.md)), so there is no automatic `:locale` — the locale has to arrive as an
    ordinary query parameter (a filter-bar param, with a default), or the SQL has to pick a locale itself. That
    makes this workaround good for *data-derived* labels and awkward for anything else.
-3. **Build the visual as an HTML Component Studio component instead** ([24](24-html-component-studio.md)). A studio
-   script's `await ctx.callRule('<Rule>')` runs the rule with the **viewer's session locale** placed in the rule
-   context, so `service.global.locale.getKey()` (§vi) inside that Groovy returns `en_US`/`hy_AM`/… and the rule can
-   hand back every label already translated. This is the only path on which a chart's *static* text genuinely
-   follows the language. ⚠️ `ctx.callBl` carries **no** locale — use `ctx.callRule` for anything locale-aware.
+3. **Build the visual as an HTML Component Studio component instead** ([24](24-html-component-studio.md)). Its
+   texts are written once, in the default language, as `ctx.t('…')` / `data-i18n` and arrive translated
+   ([24 §9](24-html-component-studio.md)); `ctx.lang` (not `ctx.locale` — `ru_RU` is no language tag) feeds a chart library's own locale option, and
+   `ctx.service.global.formatting.*` formats numbers and dates the reader's way. This is the only path on which a
+   chart's *static* text genuinely follows the language. A rule it calls gets the reader's locale too
+   (`service.global.locale.getKey()`, §vi) — ⚠️ `ctx.callBl` carries **no** locale, so use `ctx.callRule` for a
+   server-side answer that must be locale-aware.
 
 For a **single-language** project none of this matters: type the text in that language and move on — one more
 reason to settle `locales` in Phase 0 before any dashboard work starts.
 
-### ⛔ A GROOVY RULE has no locale — every sentence it shows carries all of them at once
+### ⛔ A GROOVY RULE often has no locale — then every sentence it shows carries all of them at once
 
-A rule cannot ask which language the caller is reading in. `service.global.locale.getKey()` answers
-only where a session context reached the rule (§vi); a persist hook, an action engine, a workflow
-complete-rule and a scheduler sweep have none. So every string a rule hands a user —
+**Where a session locale reached the rule** — a component's `ctx.callRule`, a form's validation rule, a dropdown's
+choices rule ([16](16-groovy-service-api.md) ⛔ lists which) — write the sentence ONCE, in the default language,
+with placeholders for its values, and let the platform translate it:
+
+```groovy
+throw new RuntimeException(service.global.locale.message('A record in status {0} cannot be edited', row.status))
+```
+
+Only the rule's own literals are translated — a sentence glued from values (`'… ' + row.status`, a `"${…}"` string)
+comes back as written, so keep values in placeholders.
+
+**Everywhere else a rule cannot ask which language the caller is reading in.** `service.global.locale.getKey()`
+answers only where a session context reached the rule (§vi); a persist hook, an action engine, a workflow
+complete-rule and a scheduler sweep have none — and there `message('…')` hands the text back as written. So every
+string such a rule hands a user —
 
 * `throw new RuntimeException('…')` → the red toast,
 * `return [ok: true, message: '…']` → the green toast,
@@ -259,7 +274,13 @@ Two more places the same blindness hits:
   in Armenian; so does an Armenian sentence pasted into the Russian segment.
 
 `mrjun.py validate` reports a user-facing rule expression written in one script — it reads the whole
-`+`-chain, so a message assembled per language is correctly seen as multilingual.
+`+`-chain, so a message assembled per language is correctly seen as multilingual. A sentence passed to
+`service.global.locale.message('…')` is NOT judged: the platform translates it wherever a reader's locale reaches the
+rule, and validate cannot see whether THIS rule gets one. In a persist hook, a register row action, a workflow task
+or a scheduler such a sentence shows one language — and passes validate silently. Use `message` only in rules a
+screen calls (a component's `ctx.callRule`, a validation rule, a choices rule); write every language in the others.
+`validate` does WARN when a `message(…)` call's text is not one literal (glued from values): that one is never
+translated anywhere.
 
 ### ⛔ An enum column shows its raw CODE unless you point at the translated twin
 
@@ -455,10 +476,10 @@ persist* → base-column fallback.
 
 ---
 
-## (vii) L5 — the auto-translate mechanism (one engine, five entry points)
+## (vii) L5 — the auto-translate mechanism (one engine, six entry points)
 
 All auto-translation goes through the **external MT service**, reached the same way: through the localization
-microservice (the L1 engine). The five places it fires:
+microservice (the L1 engine). The six places it fires:
 
 1. **The per-locale text editor** — on **blur of the default-locale row**, fills every still-empty target-locale
    slot. This is the L2-map editor (no button).
@@ -469,6 +490,10 @@ microservice (the L1 engine). The five places it fires:
 4. **Bulk column Localize** — localizes a whole column's data across all rows (L3).
 5. **The translation cache** + the key-based default-message path — mail + UI chrome
    (L1/L4).
+6. **Texts written in code** (L5′) — a studio component's `ctx.t('…')` literals and `data-i18n` marks, a rule's
+   `service.global.locale.message('…')` literals: translated when a reader of another language first needs them,
+   then kept for every project that writes the same words. This is the one L5 path that DOES cover a hand-authored
+   export — because the text lives in code, not in a map you would have to fill.
 
 > **Critical builder consequence (the reason for the coverage rule).** Auto-translate runs **only inside the live
 > UI**. When you **hand-author the export you get NO translation** — you must write every `tenant.json.locales`
@@ -522,7 +547,7 @@ and [19 Phase 14](19-build-decision-procedure.md) gates):
 - [ ] ⛔ **Charts:** on a 2+-locale project, no user-facing wording is typed into a `chart.js.plugin`'s JS/HTML
       (there is no per-locale slot — it would show one language to everyone). Headings live on an
       `nct.label.plugin`, labels arrive from the replacement query, or the visual is an HTML Studio component
-      driven by `ctx.callRule` (§iv "Chart text has NO per-locale slot").
+      whose texts are `ctx.t('…')` / `data-i18n` (§iv "Chart text has NO per-locale slot").
 
 _Related: locale set + `tenant.json` → [00](00-export-format-and-import.md); the L2 shapes live in
 [01](01-content-model-and-pages.md)/[02](02-form-controls-reference.md)/[03](03-generate-fields-from-crud.md)/
@@ -530,4 +555,4 @@ _Related: locale set + `tenant.json` → [00](00-export-format-and-import.md); t
 [07](07-workflows-and-tasks.md); L3 in [10](10-database-management.md)/[11](11-business-logic-dynamic-crud.md)/
 [18](18-existing-schema-to-dynamic-wiring.md); Groovy locale in [16](16-groovy-service-api.md); PDF/mail in
 [15](15-pdf-and-mail.md); the chart dead zone in [22](22-charts-params-and-filters.md) and the HTML-studio
-`ctx.callRule` escape hatch in [24](24-html-component-studio.md)._
+`ctx.t` / `data-i18n` escape hatch in [24 §9](24-html-component-studio.md)._

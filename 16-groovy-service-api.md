@@ -242,6 +242,19 @@ YAML. The full current catalog:
 |---|---|---|
 | `service.global.locale.getKey` | `() → String` | Session locale key (`en_US`, `ru_RU`). |
 | `service.global.locale.getLocale` | `() → Locale` | Session `java.util.Locale`. |
+| `service.global.locale.getLanguage` | `() → String` | Session language (`en`, `ru`); `null` without a session locale. |
+| `service.global.locale.message` | `(Object text, Object... args) → String` | The text in the caller's language — machine-translated once by the platform, then remembered (the same translation memory as an html component's `ctx.t('…')`; a rule does not know the project's default language, so the translator detects the text's language — a very short text can be read as another language, so write a few words, not one). Only a string literal of the running rule is translated; a text built at run time is returned as written. `{0}`, `{1}`… from `args`, `{name}` from one Map or from named arguments (`message('{who} saved', who: name)`), filled after translating; a Map of your own translations (`[ru_RU: '…', en: '…']`) is used as given — the caller's locale, then its language, then any key of that language, then the first value. Without a session locale: a text comes back as written, a Map gives its first value. |
+| `service.global.locale.localized` | `(Object row, String field, String localeKey=null) → Object` | A CRUD row's localized field: `row.localize[field]` in the locale, then its language, then any key of that language, else `row[field]`. |
+
+**`message` — what to write.** The text in the project's DEFAULT language, as ONE string literal of the rule with
+placeholders for the values: `service.global.locale.message('Record {0} is closed', row.number)`. Only the rule's own
+literals are sent to the translator — `'Record ' + n + ' is closed'`, `"Record ${n} is closed"` or a text taken from
+input is returned as written, because translating it would make a paid translation, a stored row and a copy of
+somebody's input for every value (offline `validate` WARNs on the glued and the `${…}` forms). A literal assigned to a
+variable first (`def m = 'Record {0} is closed'; message(m, n)`) counts — it is a literal of the rule. For a reader of
+the text's own language the translator hands it back unchanged. Where the session locale is null (the ⛔ below: row
+actions, persist hooks, schedulers) it comes back as written too — keep the all-languages string there
+([20](20-localization.md)).
 
 > ⛔ **Where the session locale is actually populated** (measured on a live stand, 2026-10-15, hy_AM/ru_RU/en_US):
 > a form's **VALIDATION** rule and a dropdown's **choices** rule get it (`getKey()` = `hy_AM`…); a register's **row-action**
@@ -250,6 +263,9 @@ YAML. The full current catalog:
 > user's language therefore needs a fallback — `def MSG = { hy, en, ru -> … getKey() … ; fallback hy + ' / ' + en + ' / ' + ru }`
 > — and a user-visible refusal thrown from a row action will carry every language it has. Probe before promising: throw
 > `'DBG ' + service.global.locale.getKey()` from a temporary rule body and read the toast.
+
+| Path | Signature (params → returns) | Purpose |
+|---|---|---|
 | `service.global.conversion.toSelectOptions` | `(Object result, String keyField, String displayField) → List` | CRUD result/list → key-value list for a **dropdown**. |
 | `service.global.conversion.toSelectOptionsLocalized` | `(Object result, String keyField, String displayField, String localeKey=null, String localizationFieldName='localize') → List` | Same + localized `display` (fallback to the base field). |
 | `service.global.conversion.toAutoCompleteOptions` | `(Object result, String field) → List` | List → suggestions for **autocomplete** (single field). |
@@ -266,6 +282,7 @@ YAML. The full current catalog:
 | `service.global.formatting.number.formatCurrency` | `(Number amount, String currencyCode) → String` | As currency. |
 | `service.global.formatting.number.formatPercent` | `(Number value) → String` | As percent (0.5 → 50%). |
 | `service.global.formatting.number.round` | `(Number value, int decimals) → Number` | Round to N decimals. |
+| `service.global.formatting.number.format` | `(Number value, Integer decimals=null) → String` | Grouped in the caller's language (`1 234,5`; the server's without a session locale); `decimals` = exactly that many fraction digits. `formatCurrency`/`formatPercent` format in the server's language. |
 | `service.global.formatting.text.capitalize` | `(String value) → String` | First letter uppercase. |
 | `service.global.formatting.text.truncate` | `(String value, int maxLength, String suffix) → String` | Truncate + suffix. |
 | `service.global.collection.filter.byField` | `(List list, String fieldName, Object value) → List` | Filter by field value. |
@@ -2094,8 +2111,9 @@ language** —
 - **`service.crudimport.*`** — not a member of `service` and not in hints. CRUD-import is a UI feature,
   not a Groovy-script binding.
 - **`service.localization.*` / the `localization` binding** — does not exist. The session locale is available via
-  `service.global.locale.getKey()`/`getLocale()`; localized options — via
-  `service.global.conversion.toSelectOptionsLocalized(...)`.
+  `service.global.locale.getKey()`/`getLocale()`/`getLanguage()`; a sentence in the caller's language — via
+  `service.global.locale.message('…')`; a row's localized field — via `service.global.locale.localized(row, field)`;
+  localized options — via `service.global.conversion.toSelectOptionsLocalized(...)`.
 
 The namespaces most likely to be **guessed by analogy** — also confirmed absent:
 

@@ -100,6 +100,17 @@ project mailed links to `http://localhost` for weeks that way. Keep a gate that 
 open lines of this transfer» are SQL methods on the CRUD: one place, testable with `nct_crud_executeMethod`, reusable by
 the choices rule, the default-value rule, the change event and the validation alike.
 
+**A convention must survive an empty table — and must not cost the person who extends it a second trip.** Inferring a category's
+code prefix only from the codes already in use («the series most of its materials carry») is right while those records exist
+and silently wrong the day the catalog is emptied: on a live project every category fell back to its WHOLE code — FABRIC-001,
+BUTTON-001 instead of the agreed FAB-001, BTN-001. The first repair — a setting per category — was wrong too: «people use this,
+not machines» (the owner) — whoever adds a category would have to find a second page and add a setting there, and that settings
+form could not even create a row. What works: **derive the default from what the person already types** (the first three letters
+of the category code: FABRIC → FAB, a new ZIPPER → ZIP), fall back to the whole code only when those letters belong to an
+earlier member, keep a setting ONLY for the agreed exceptions (BUTTON → BTN), let a hand-typed first code start a series, and
+validate the setting against the pattern codes are read back with (letters only for `LETTERS-DIGITS` — a digit in the prefix
+makes codes no series counts). Ask of every configurable default: what does a person adding the NEXT member have to do?
+
 ---
 
 ## 4. Helper closures — a body defines every helper it calls

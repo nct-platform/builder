@@ -20,7 +20,7 @@
 | Plugin name | `dynaform.form.html.field.plugin` — display name "Html Field", UI group "Form Controls" |
 | Config slots | `properties.settings` — the ordinary form-control settings ([02](02-form-controls-reference.md)) plus ONE key of its own, `custom`: the values its settings sections wrote (§5) · `properties.html` + `properties.studioModel` — the component, exactly as on an `nct.html.plugin` ([24](24-html-component-studio.md) §2) · `properties.fieldModel` — the value contract (§2) |
 | The value | ONE value of the bound type — what the form submits, validates and stores for this field |
-| Script surface | `ctx.field` (§3) and `ctx.settings` (§5) — every other `ctx.*` member works as in [24](24-html-component-studio.md) §3; needs runtime `window.Dokie.__v >= 4` (`ctx.field`) / `>= 5` (`ctx.settings`) |
+| Script surface | `ctx.field` (§3) and `ctx.settings` (§5) — every other `ctx.*` member works as in [24](24-html-component-studio.md) §3, the field and each of its settings sections alike: `ctx.t('…')` / `data-i18n` translate the field's texts (a section's too), `ctx.locale`, `ctx.user`, `ctx.service.*` ([24](24-html-component-studio.md) §3.3, §9); needs runtime `window.Dokie.__v >= 4` (`ctx.field`) / `>= 5` (`ctx.settings`) / `>= 6` (`ctx.t` and the rest) |
 | Public API | a writable field of the bound type ([32](32-public-api.md)) — the same strict conversion as the screen (§4.1) |
 | Children | the nodes its own `<plugin>` tags address, as on an html block ([24b](24b-html-composition-and-plugin-tags.md)) — never another form control (§7) — and its settings sections (§5) |
 

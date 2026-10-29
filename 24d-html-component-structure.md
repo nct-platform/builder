@@ -186,7 +186,7 @@ and the matching `main.html` (`properties.html.stringValue`):
 <div class="pfx-page">
   <include src="parts/header.html"/>
   <include src="parts/filters.html"/>
-  <div class="pfx-body"><div class="pfx-empty">Loading…</div></div>
+  <div class="pfx-body"><div class="pfx-empty" data-i18n>Loading…</div></div>
   <div class="pfx-detail-host"></div>
 
   <!-- the row template: included ONCE, hidden, cloned per row by render.js -->
@@ -545,7 +545,7 @@ be the cheaper choice in a real build; make it runtime once it grows or once the
 <div class="decl-page">
   <include src="parts/toolbar.html"/>
   <include src="parts/summary.html"/>
-  <div class="decl-body"><div class="decl-empty">Loading…</div></div>
+  <div class="decl-body"><div class="decl-empty" data-i18n>Loading…</div></div>
   <div class="decl-detail-host"></div>
 
   <!-- the program, in run order -->
@@ -637,9 +637,11 @@ function renderKpis(k) {
 }
 function renderRows() {
   const body = q1('.decl-body'); body.innerHTML = '';
-  if (!S.rows.length) { body.appendChild(el('div', 'decl-empty', 'Nothing to review')); return; }
+  if (!S.rows.length) { body.appendChild(el('div', 'decl-empty', ctx.t('Nothing to review'))); return; }
   const t = document.createElement('table'); t.className = 'table table-hover mb-0';
-  t.innerHTML = '<thead><tr><th>Number</th><th>Status</th><th>Consignee</th></tr></thead><tbody></tbody>';
+  t.innerHTML = '<thead><tr></tr></thead><tbody></tbody>';
+  [ctx.t('Number'), ctx.t('Status'), ctx.t('Consignee')]
+    .forEach(h => t.querySelector('thead tr').appendChild(el('th', '', h)));
   const tb = t.querySelector('tbody');
   S.rows.forEach(r => {
     const tr = document.createElement('tr'); tr.dataset.id = r.id;

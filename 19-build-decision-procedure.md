@@ -395,7 +395,7 @@ cruds = json.load(open("dynamic-cruds.json", encoding="utf-8"))["cruds"]
 rules = json.load(open("rep-objects.json", encoding="utf-8"))["rules"]
 
 SAFE = ("computeLineAmounts", "recomputeTotals")     # status-neutral only — see the constraints above
-SPECIAL = {}   # e.g. {"cutMarker": ("stampLines","stampConversion","computeMarker","recomputeSizes")}
+SPECIAL = {}   # e.g. {"document": ("stampLines","stampConversion","computeDerived","recomputeTotals")}
 
 methods = {c["alias"]: {m["methodName"] for m in (c.get("methods") or [])} for c in cruds}
 persist = {}

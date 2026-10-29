@@ -521,7 +521,8 @@ per-priority target without a switch in the rule.
 
 The most-copyable screen in the set. One page, one `nct.tab.plugin`, N tabs, each tab an `nct.parsis.plugin`
 holding exactly `dynaform.filter.form.plugin` + `crud.table.plugin` over a **different** CRUD.
-`tabModel.items[i]` maps to child parsis node *i* **by order**.
+Each `tabModel.items[]` entry renders the child parsis whose `identifier` equals the item's `id` — **the
+identifier decides, not the position** ([14](../14-plugin-catalog-all.md)).
 
 ```
 Case workbench      7 tabs / 7 CRUDs   Case · Timeline · Trail · Control checklist ·

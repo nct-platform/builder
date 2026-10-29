@@ -314,22 +314,16 @@ def result = service.crud.<alias>.find(filter) ?: [:]
 def rows   = (result.content ?: []) as List
 long total = (result.totalElements ?: 0) as long
 
-// 5 · locale — JS has none; the bridge passes the page locale into the rule, and the executor puts it in
-//     the thread-local locale that service.global.locale.getKey() reads.
+// 5 · locale — the bridge passes the reader's locale into the rule (the component has it as ctx.locale);
+//     localized() reads a row's `localize` map in it: the locale, its language, else the plain field.
 //     ⛔ NOT context.data.localeKey — that is an ATTRS lookup and nothing ever writes it (always null).
-def loc = service.global.locale.getKey() ?: 'en_US'
-def label = { row, field, fallback ->
-    def m = row?.localize                                  // the canonical key, whatever the column is called
-    if (m instanceof String) { try { m = new groovy.json.JsonSlurper().parseText(m) } catch (Throwable t) { m = null } }
-    def per = (m instanceof Map) ? m[field] : null
-    (per instanceof Map && per[loc]) ? per[loc] : fallback
-}
+def label = { row, field -> service.global.locale.localized(row, field) }
 
 // 6 · project: only the columns the table draws, under stable names
 def today = java.time.LocalDate.now().toString()
 def content = rows.collect { r ->
     [ id      : r.id,
-      name    : label(r, 'name', r.name),
+      name    : label(r, 'name'),
       status  : r.status,
       zone    : r.zoneName,                                // from a LEFT JOIN in findAll — never an N+1 in JS
       amount  : r.amount,
@@ -344,8 +338,7 @@ return [ ok         : true,
          page       : page,
          size       : size,
          sortKey    : sortKey,
-         sortDir    : sortDir,
-         locale     : loc ]
+         sortDir    : sortDir ]
 ```
 
 Why each block earns its place:
@@ -364,8 +357,9 @@ Why each block earns its place:
    `itemsPerPage`, `offset` and `parameters` are the request fields;
    it returns a plain `List`, so **there is no total** and you owe the user one of §7's honest fallbacks —
    [16 §2.4](16-groovy-service-api.md), [12](12-queries-sources-schedulers-and-rest.md).
-5. **Locale server-side, through `service.global.locale.getKey()`.** `ctx` carries no locale at all; the rule is
-   the only place that knows it, and that accessor is the only supported way to read it — see the ⛔ below.
+5. **The rule has the reader's locale.** `service.global.locale.localized(row, field)` reads a row's per-locale field
+   in it, `service.global.locale.message('…')` translates a sentence, `service.global.locale.getKey()` returns it —
+   and the component already knows it as `ctx.locale`, so do not send it back. See the ⛔ below.
 6. **Projection is the payload budget.** 25 rows × 6 fields is a few kB; 25 raw entities with 30 columns and a
    `localize` blob each is 50×. It is also the only way a column the user must not see stays off the wire —
    dropping the field here is the *only* real gate for "supervisors also see the cost column"; hiding the `<td>`
@@ -377,7 +371,7 @@ Why each block earns its place:
 > `localeKey` is a *field* on the context-data DTO, not an attr, and nothing ever writes an attr by that name.
 > The executor copies that DTO field into a thread-local locale context before it runs your script, and
 > `service.global.locale.getKey()` is the accessor that reads it (the localizing helpers such as
-> `service.global.conversion.toSelectOptionsLocalized` default to the same source). Symptom: `loc` is null, the
+> `service.global.conversion.toSelectOptionsLocalized` default to the same source). Symptom: the locale is null, a
 > `?: 'en_US'` fallback fires on every call, and a fully translated project renders one language — with no error
 > anywhere. Cross-references: [20 §"Groovy"](20-localization.md) and
 > [24 §4](24-html-component-studio.md) carry the same ⛔. It is the single most-copied mistake in studio data
@@ -414,6 +408,8 @@ const errText = (e) => e == null ? 'unknown error'
   : (typeof e === 'string' ? e : (e.message || e.error || 'request failed'));
 // The bridge is a BLOCKING round-trip, so a DOM write in the same task never paints. Yield one macrotask.
 const paint = () => new Promise((r) => setTimeout(r, 0));
+const fmt = ctx.service.global.formatting;           // numbers and dates in the reader's language
+const STATUS = { open: ctx.t('Open'), done: ctx.t('Done') };   // a code shown as words — one literal each
 
 const S = { page: 0, size: 25, sortKey: 'id', sortDir: 'asc', filters: { q: '', status: '' } };
 
@@ -442,7 +438,7 @@ function schedule(ms) {                              // debounce: typing must no
 async function reload() {
   const my = ++seq;                                  // in-flight guard
   wrap.setAttribute('aria-busy', 'true');
-  body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr>';
+  body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">' + esc(ctx.t('Loading…')) + '</td></tr>';
   await paint();                                     // let the row above actually appear
   try {
     const res = await ctx.callRule(RULE, {
@@ -463,7 +459,7 @@ async function reload() {
 
 function fail(msg) {
   body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">'
-                 + esc(msg || 'Could not load data') + '</td></tr>';
+                 + esc(msg || ctx.t('Could not load data')) + '</td></tr>';
   pager.innerHTML = '';
   note.textContent = '';
 }
@@ -476,7 +472,7 @@ function render(res) {
 
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">'
-                   + (S.filters.q || S.filters.status ? 'Nothing matches this filter.' : 'No records yet.')
+                   + esc(S.filters.q || S.filters.status ? ctx.t('Nothing matches this filter.') : ctx.t('No records yet.'))
                    + '</td></tr>';
   } else {
     body.innerHTML = rows.map((r) =>
@@ -484,12 +480,12 @@ function render(res) {
       + '<td>' + esc(r.name) + '</td>'
       + '<td>' + esc(r.zone) + '</td>'
       + '<td><span class="badge bg-' + (r.status === 'done' ? 'success' : 'secondary') + '">'
-          + esc(r.status) + '</span></td>'
-      + '<td class="text-end">' + esc(r.amount) + '</td>'
-      + '<td' + (r.overdue ? ' class="text-danger"' : '') + '>' + esc(r.dueDate) + '</td>'
+          + esc(STATUS[r.status] || r.status) + '</span></td>'
+      + '<td class="text-end">' + esc(fmt.number.format(r.amount, 2)) + '</td>'
+      + '<td' + (r.overdue ? ' class="text-danger"' : '') + '>' + esc(fmt.date.format(r.dueDate)) + '</td>'
       + '<td class="text-end">'
         + '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="open" '
-        +   'aria-label="Open ' + esc(r.name) + '"><i class="pe-7s-look"></i></button>'
+        +   'aria-label="' + esc(ctx.t('Open {0}', r.name)) + '"><i class="pe-7s-look"></i></button>'
       + '</td>'
       + '</tr>').join('');
   }
@@ -510,8 +506,9 @@ function renderPager(res) {
   const pages = Math.max(1, Number(res.totalPages) || 1);
   const from  = total === 0 ? 0 : S.page * S.size + 1;
   const to    = Math.min(total, (S.page + 1) * S.size);
-  note.textContent = total === 0 ? '0 records'
-    : (from + '–' + to + ' of ' + total.toLocaleString());
+  const num = ctx.service.global.formatting.number;    // the reader's digit grouping, not the browser's
+  note.textContent = total === 0 ? ctx.t('No records')
+    : ctx.t('{0}–{1} of {2}', num.format(from), num.format(to), num.format(total));
 
   const btn = (p, label, disabled, current) =>
     '<li class="page-item' + (disabled ? ' disabled' : '') + (current ? ' active' : '') + '">'
@@ -607,46 +604,46 @@ do not hardcode a hex.
 <div class="main-card mb-3 card">
   <div class="card-body">
     <h5 class="card-title d-flex align-items-center justify-content-between">
-      <span>[entity] list</span>          <!-- [entity] = placeholder; a bare <entity> is parsed as an element -->
+      <span data-i18n>[entity] list</span>   <!-- [entity] = placeholder; a bare <entity> is parsed as an element -->
       <span data-role="note" class="small text-muted">&nbsp;</span>
     </h5>
 
     <div class="row g-2 mb-3">
       <div class="col-sm-6 col-md-4">
-        <label class="form-label visually-hidden" for="tbl-q">Search</label>
+        <label class="form-label visually-hidden" for="tbl-q" data-i18n>Search</label>
         <input id="tbl-q" data-role="search" type="search" class="form-control form-control-sm"
-               placeholder="Search…" autocomplete="off">
+               data-i18n="placeholder" placeholder="Search…" autocomplete="off">
       </div>
       <div class="col-sm-4 col-md-3">
-        <label class="form-label visually-hidden" for="tbl-status">Status</label>
+        <label class="form-label visually-hidden" for="tbl-status" data-i18n>Status</label>
         <select id="tbl-status" data-role="status" class="form-select form-select-sm">
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="done">Done</option>
+          <option value="" data-i18n>All statuses</option>
+          <option value="open" data-i18n>Open</option>
+          <option value="done" data-i18n>Done</option>
         </select>
       </div>
     </div>
 
     <div data-role="wrap" class="tbl-wrap">
       <table class="table table-hover align-middle mb-0">
-        <caption class="visually-hidden">List of [entity] records</caption>
+        <caption class="visually-hidden" data-i18n>List of [entity] records</caption>
         <thead>
           <tr>
-            <th scope="col" data-sort="name"    aria-sort="none" tabindex="0">Name</th>
-            <th scope="col">Zone</th>
-            <th scope="col" data-sort="status"  aria-sort="none" tabindex="0">Status</th>
-            <th scope="col" class="text-end">Amount</th>
-            <th scope="col" data-sort="dueDate" aria-sort="none" tabindex="0">Due</th>
+            <th scope="col" data-sort="name"    aria-sort="none" tabindex="0" data-i18n>Name</th>
+            <th scope="col" data-i18n>Zone</th>
+            <th scope="col" data-sort="status"  aria-sort="none" tabindex="0" data-i18n>Status</th>
+            <th scope="col" class="text-end" data-i18n>Amount</th>
+            <th scope="col" data-sort="dueDate" aria-sort="none" tabindex="0" data-i18n>Due</th>
             <th scope="col" class="text-end">&nbsp;</th>
           </tr>
         </thead>
         <tbody data-role="rows">
-          <tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4" data-i18n>Loading…</td></tr>
         </tbody>
       </table>
     </div>
 
-    <nav data-role="pager" class="mt-3 d-flex justify-content-end" aria-label="Pagination"></nav>
+    <nav data-role="pager" class="mt-3 d-flex justify-content-end" data-i18n="aria-label" aria-label="Pagination"></nav>
   </div>
 </div>
 ```
@@ -785,7 +782,9 @@ number — "1–25 of 1 240" tells the user how much is behind the screen; "page
 ```js
 const from = total === 0 ? 0 : S.page * S.size + 1;
 const to   = Math.min(total, (S.page + 1) * S.size);
-note.textContent = total === 0 ? '0 records' : (from + '–' + to + ' of ' + total.toLocaleString());
+const num = ctx.service.global.formatting.number;
+note.textContent = total === 0 ? ctx.t('No records')
+  : ctx.t('{0}–{1} of {2}', num.format(from), num.format(to), num.format(total));
 ```
 
 > ⛔ **No `count` method ⇒ `totalElements` is the size of the page you just fetched.**
@@ -859,9 +858,9 @@ the plugin-contributed ones:
 
 ```js
 ctx.breadcrumb.set([
-  { key: 'new',     label: 'New <entity>', icon: 'pe-7s-plus',    variant: 'primary',
+  { key: 'new',     label: ctx.t('New <entity>'), icon: 'pe-7s-plus',    variant: 'primary',
     onClick: () => openCreate() },
-  { key: 'refresh', label: 'Refresh',      icon: 'pe-7s-refresh', variant: 'secondary',
+  { key: 'refresh', label: ctx.t('Refresh'),      icon: 'pe-7s-refresh', variant: 'secondary',
     onClick: async () => { await reload(); } }            // async ⇒ the button spins until it settles
 ]);
 ```
