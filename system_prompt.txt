@@ -521,6 +521,22 @@ Reference library — doc/builder/ :
                                         NORMAL page whose alias ends .js/.css/.png/.html/.txt... never
                                         opens. Use `page add-static` / `page set-static`, never hand-hash.
                                         Files on EVERY page are 29, not this.
+  36-messenger-integration.md ......... MESSENGERS - the project talking to PEOPLE on Telegram (bot or the
+                                        business's own account), WhatsApp, Viber, Messenger, Instagram, VK,
+                                        VK Teams, Teams, Google Chat, Slack, Discord, Mattermost, Rocket.Chat,
+                                        Matrix, Zulip. Read it when a PRD says "Telegram bot", "WhatsApp",
+                                        "notify in Slack/Teams", "chatbot". FIRST FACTS: CONNECTIONS (kind,
+                                        credentials, alias) and LISTENERS (events, chats, commands, rules) are
+                                        LIVE in Settings > Developer > Integrations > Messengers, NOT in the
+                                        .mrjun. You author the RULES: service.messenger.<alias>.send(to, text
+                                        [, [buttons: ...]]) / sendFile / edit / answer / reply(message, text)
+                                        in EXECUTION rules and CRUD GROOVY methods (a predicate/validation rule
+                                        gets a namespace that refuses); a LISTENER runs your EXECUTION rule,
+                                        which reads context.data.getAttr('message') - idempotent, delivery is
+                                        at-least-once. 24 h answer windows (WhatsApp: templates after). Live
+                                        over MCP: nct_messaging_messengerKinds / saveMessengerConnection /
+                                        messengerEvents (36 section 8). Handover note (36 section 9). The
+                                        Phase-1a starter value is MESSENGER MESSAGE.
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).

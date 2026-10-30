@@ -164,6 +164,12 @@ all, and neither do predicates and validation rules (where every member refuses)
 the alias from the editor in a project nobody has connected — the alias comes from the PRD and the handover.
 Option keys inside a map cannot be completed, so they are listed in the method's description instead.
 
+**`service.messenger` follows the same rule** ([36](36-messenger-integration.md)): present only when the project has a
+messenger connection, in the rule editor AND the CRUD GROOVY method editor (both write execution code), never in
+predicates or validation rules. Each alias offers exactly the members ITS connection can do (`edit` only where the
+messenger can edit, `answer` only where a button press is acknowledged …), and the descriptions carry that kind's
+recipient, limits and per-message options.
+
 An entry may also carry **`expandsCall`**, and that is what makes a hint depend on another argument. Some picks
 decide far more than themselves: choosing a workflow decides which contexts and CRUDs the context-data
 argument must carry; choosing a process table decides which filter keys and indexed values a listing may be

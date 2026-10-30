@@ -63,7 +63,7 @@ Before that, the runtime places a set of variables into the binding. The full li
 | `validation` | message collector | **Only in VALIDATION_RULE.** Accumulator of errors/warnings. |
 | `addError` / `addWarning` / `addFieldError` / `addFieldWarning` | template methods | **Only in VALIDATION_RULE.** Delegate to `validation.*` (see Part 3). |
 | `service.validation` | — | ⛔ **Does not exist.** The collector is the binding `validation` (row above) — never a member of `service`. Written as `service.validation.addFieldError(…)` a rule dies on its first violation with `Validation rule execution failed: validation` instead of your message. `mrjun validate` rejects it. (`service.global.validation.*` below are unrelated helper functions.) |
-| `inject(String beanName)` | template method | A platform service by name — **not a sandbox**. `rimmService` returns `service.rimm`; `contextService`, `reactorService`, `ruleService` and `crudReactor` throw `SecurityException`; a short list (`emailService`, `notificationService`, `validationService`, `calculationService`, `formatterService`, `dateService`) and any `*Helper`/`*Util` name are returned; ANY OTHER name prints a warning and is returned too. Do not use it: everything a rule needs is on `service.*`, and a raw service object bypasses the realm/client the proxies add. |
+| ~~`inject(String beanName)`~~ | — | ⛔ **Removed.** Everything a rule needs is on `service.*`. A rule that still calls it is refused before it runs (`inject() is gone`). Rules are sandboxed — what a rule may not write: [08](08-groovy-rules-and-context.md) "The rule sandbox". |
 
 > **Security invariant.** `realm` and `client` are **inaccessible** to the script: accessing them throws
 > `SecurityException`. All `service.*` proxies (rimm/security/notification/crud)
@@ -71,14 +71,10 @@ Before that, the runtime places a set of variables into the binding. The full li
 > for `service.rimm.query(...)` formally have `realmName/clientName` in the signature (that is the signature of the underlying
 > service, while the script-side proxy overrides the 1-/2-arg variants without realm/client).
 
-> **⚠️ Caveat — the `inject()` block-list is not the only path.** **Every** field of `service` is a reachable
-> Groovy property — including `service.ruleService`
-> `service.ruleExecutorReactor` and `service.contextData`, all populated for every executor.
-> `service.ruleService` hands back the **same** raw rule-service object that
-> `inject("ruleService")` refuses with `SecurityException`, and `service.ruleExecutorReactor`/`service.contextData`
-> likewise reach the raw rule-execution reactor / context-data object. So the `inject()` block-list only guards the
-> `inject()` path, not these getters — the "these beans are blocked" framing holds for `inject()` alone. Do not
-> call them: for rule reuse use `service.rule("Name")` (§2.10); the raw beans are internal, unsupported surface.
+> **The platform's plumbing does not exist for a rule.** `service.ruleService`, `service.ruleExecutorReactor` and
+> every non-public member of a platform object answer `MissingPropertyException` / `MissingMethodException` to a
+> rule — however it asks (a computed subscript `service[k]` included). For rule reuse use `service.rule("Name")`
+> (§2.10). `service.realm` / `service.client` read the NAMES of the rule's own realm and client and open nothing.
 
 ### `filter` is NOT a binding
 
@@ -1923,6 +1919,49 @@ a predicate with `service.rule("…")`. `mrjun.py validate` reports it.
 
 ---
 
+### 2.18 `service.messenger.*` — talking to people in a messenger
+
+Full picture — which messenger, what is configured LIVE, the delivery contract of listeners — in
+[36](36-messenger-integration.md). This is the member list.
+
+```
+service.messenger
+    .<alias>.send(Object to, Object text)                            // alias = the connection's name in Settings
+    .<alias>.send(Object to, Object text, Map options)               // or named options after the positionals
+    .<alias>.send(Map call)                                          // to: (chat:, chatId: …), text:, + options
+    .<alias>.sendFile(Object to, Object file[, Map options])         // byte[], an https:// address, or [bytes:, name:, kind:]
+    .<alias>.sendFile(Map call)                                      // to:, file:, text: (the caption), name:, + options
+    .<alias>.reply(Map message, Object text[, Map options])          // in the received message's chat and thread
+    .<alias>.answer(Map press[, Object text[, Map options]])         // acknowledge a button press; alert: true is its one option
+    .<alias>.edit(Object chat, Object messageId, Object text[, Map options])   // buttons are replaced: pass them again
+    .<alias>.delete(Object chat, Object messageId[, Map options])    // thread: message.thread where a thread is a channel
+    .<alias>.typing(Object chatOrMessage)                            // WhatsApp needs the received message itself
+    .<alias>.download(Object attachment)                             // byte[] of message.attachments[n]
+    .<alias>.chats()                                                 // [[id:, type:, title:, username:, lastSeenAt:], …]
+    .<alias>.alias
+    .reply(Map message, Object text[, Map options])                  // through the alias the message arrived on
+    .['alias']  .channel("alias")                                    // the same object, for an alias held in a variable
+    .list()                                                          // [[alias:, kind:, description:, canSend:, can: [...]], …]
+```
+
+```groovy
+def sent = service.messenger.<alias>.send(customer.chatId, "Order **#${order.number}** shipped",
+        [buttons: [[text: 'Track', url: order.trackingUrl]]])        // returns [ok:, id:, chat:, millis:]
+service.messenger.reply(message, 'Got it')                           // in a listener's rule
+```
+
+Options every messenger takes: `format` (`markdown` / `html` where the kind renders it / `text`), `buttons` (a list =
+one row, a list of lists = rows; `[text:, data:]` or `[text:, url:]` or a string), `replyTo`, `thread`, `silent`,
+`file`; plus each kind's own ([36](36-messenger-integration.md) §4). A key no messenger has is an ERROR, never ignored;
+a list or map value travels as JSON. Options go as a map in the last place or named after the positionals
+(`send(chat, 'Hi', silent: true)`, `answer(message, 'Saved', alert: true)`, `edit(chat, id, 'New', buttons: [...])`);
+only `send` and `sendFile` also have an all-named form — `reply`, `edit`, `delete`, `typing` take positions (a lone
+map finds no method; `validate` says so). `to` / `chat` is the chat's id (`message.chat.id`), never the chat or the
+message itself. Members the connection's messenger cannot do (`edit` on WhatsApp, `answer` on
+Slack's incoming webhook …) refuse with a sentence. **EXECUTION rules and CRUD GROOVY methods only**: in a predicate
+or a validation rule — and in any rule they call — every member refuses. A listener's rule reads
+`context.data.getAttr('message')` and `getAttr('messenger')`, and must be idempotent.
+
 ## Part 3 — `validation.*` (VALIDATION_RULE only)
 
 In a validation rule, the validation template places the `validation` collector and provides 4
@@ -2080,8 +2119,7 @@ resolution are done by the runtime. Step by step:
 - **PREDICATE: only `return <Boolean>`.** Because of the template's trailer `if(true){return null;}`,
   a bare `true` as the last line is discarded → `null` → "must return
   Boolean". Always write `return`.
-- **`inject(...)` is heavily restricted.** Most beans are blocked.
-  Do not count on pulling `reactorService`/`crudReactor` through it — use `service.crud.*`.
+- **There is no `inject(...)`** — the sandbox refuses it before the rule runs; use `service.crud.*` / `service.rimm`.
 - **`service.global.*` is a server-editable catalog (YAML).** The function list = the current
   `globalFunctions.yaml`. When the platform version changes, cross-check against the hints tree, not this table.
 - **`service.redirectPage` takes the path WITHOUT the organisation** and refuses a full URL. It navigates after

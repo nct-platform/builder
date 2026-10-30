@@ -272,6 +272,14 @@ on the tenant and would have been erased by the next import — with every other
 changed the project in the UI since your last session) and again when you finish. A support session that never
 compared is a session that does not know what it changed.
 
+**Compare rule NAMES both ways — a name inside a string is a reference nothing resolves.** A port that updates
+the rules found on both sides never creates the ones only the build has. On a live project (30.10.2026) every
+«Post» action ended with `CALL("Անցկացնել …")` → `service.rule(name)`, and six of the ten posting engines plus the
+audit writer they all call existed only in the build — for two weeks, under green gates (the BUILD has them) and a
+green suite (no test pressed «Post»; the chain test read the trace the seed had left). After every port: list the
+build's rule names missing on the tenant, prove each one orphan (no identifier reference, no `CALL`/`service.rule`
+by name) or create it, and press every lifecycle button once in a live test.
+
 ### 4a. Table plugins keep their settings in TWO places — and only one of them is the answer
 
 A CRUD Table, a CRUD Tree, a Process Table and a Calendar each carry their configuration twice:
@@ -398,6 +406,9 @@ a role inside a section that is not granted stays invisible.
 | A page LAYOUT — the shell a page renders into, and building a page from one | MCP `nct_ui_*_layout*` tools | available — see §5b |
 | A STATIC page — a page answering its URL with one text or file ([34](34-static-pages.md)) | MCP `nct_ui_create_page` (alias WITH the extension) then `nct_ui_set_static_page` {`body` \| `fileBase64`+`fileName`, `contentType`}; read back with `nct_ui_get_static_page` | available — `body` replaces an uploaded file; a `fileBase64` that is UTF-8 text up to 1 MiB lands in `body`, anything else becomes the file; without `contentType` the type guessed from `fileName` is STORED (send `contentType: ""` to leave it to the name); a page with pages under it, or under a static page, is refused; `pageType: "dokie"` turns it back (text and file kept). In the export: `page set-static`, so the next re-import does not undo it |
 | A mail template | MCP messaging tools | available — but see §6: a re-IMPORT of templates is delete-all-then-insert, so never mix the two channels |
+| The project's OWN mail accounts (sending, receiving) and what the mailbox holds ([31](31-email-integration-and-mailbox.md)) | MCP `nct_messaging_getMailIntegration`, `saveMailIntegration`, `saveMailAccount` (pass the id and only what changes), `testMailAccount`, `sendTestMail`, `setDefaultMailAccount`, `findMailMessages`, `getMailMessage`, `deleteMailAccount` | available — credentials are the user's (ask; never invent or echo one); never in an export, so this is the ONLY channel besides the screen |
+| A message-broker connection (MQTT, RabbitMQ, Kafka, ActiveMQ) and its listeners ([33](33-pubsub-integration.md)) | MCP `nct_messaging_pubsubKinds`, `listPubSubConnections`, `getPubSubConnection`, `savePubSubConnection`, `testPubSubConnection`, `publishTestMessage`, `deletePubSubConnection` | available — same rules; a listener names rules by IDENTIFIER (`nct_rule_findAll`) |
+| A messenger connection (Telegram, WhatsApp, Slack, Teams …) and its listeners ([36](36-messenger-integration.md)) | MCP `nct_messaging_messengerKinds`, `listMessengerConnections`, `getMessengerConnection`, `saveMessengerConnection`, `testMessengerConnection`, `sendMessengerTestMessage`, `messengerEvents`, `retryMessengerEvent`, `messengerChats`, `deleteMessengerConnection` | available — same rules; a connection saved through MCP has no acting user until an author saves it on the screen ([36](36-messenger-integration.md) §8) |
 | A PDF template | — | **no channel** (§6) |
 | A public API endpoint, an API key (its name and API / MCP marks included), a key's binding to an endpoint, an endpoint's descriptions for AI assistants ([32](32-public-api.md)) | — a person, in Settings → Developer → API | **no MCP channel.** Keys, their marks and bindings have no other channel at all; endpoint DEFINITIONS also arrive by a re-import whose archive carries `rep-objects.apiExposures` — which then REPLACES the whole list, and `[]` deletes every endpoint with its bindings ([32](32-public-api.md) §6). An MCP write to a table, form or rule changes what API callers get at once ([32](32-public-api.md) §10) |
 
@@ -600,6 +611,13 @@ requires a re-import (§7), and a re-import REPLACES the project.
 ⛔ **`DONE` is not proof.** An import can report success while every mail and PDF template silently failed —
 those writers log a warning and never reach the failure report. After any import, verify the things the report
 cannot see, and name them in the hand-over as unverified.
+
+⛔ **A right the database refuses the project's user is the author's to grant — never yours to route around.** Every MCP
+tool and every SQL method works as the user of its data source (`nct_repository_list_sources` names it). When a change
+fails for lack of a right — «must be owner of table …», «permission denied for …» — stop and tell the user that the author
+must give that user the rights to the project's schema (Database Management → Sources, the key button), then repeat the
+step. Nothing goes around it: no side table or copied column, no statement as the owner or the superuser, no other
+channel, the Database Management SQL window included. Unlike the rest of this section, it needs no re-import.
 
 ---
 

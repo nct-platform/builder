@@ -390,6 +390,23 @@ so on its card — pick the rule again.
 
 ---
 
+## 8a · Working on a LIVE project through MCP
+
+Connected to the live project ([28](28-support-mode-over-mcp.md)), the messaging service's tools do what the PubSub
+screen does — the same validation and address rules:
+
+| tool | for |
+|---|---|
+| `nct_messaging_pubsubKinds` | the four kinds; with `kind` — the connection fields, publish options a call may pass, listener options, what destination and source mean |
+| `nct_messaging_listPubSubConnections` / `getPubSubConnection` | aliases, kinds, hosts, switches, state, listeners (with their rule identifiers) |
+| `nct_messaging_savePubSubConnection` | create, or change by alias passing ONLY what changes (options merged key by key, listeners as a whole list naming rules by identifier — `nct_rule_findAll` / `nct_rule_create`) |
+| `nct_messaging_testPubSubConnection` / `publishTestMessage` | prove the broker answers / publish one real message (only when the user wants it) |
+| `nct_messaging_deletePubSubConnection` | only on the user's explicit request |
+
+The password is the **user's** — ask, never invent or echo one; the tools never return a stored one. A connection
+created or changed through MCP has no acting user: its listeners' rules run as the platform until an author saves it on
+the screen (an edit through MCP takes the previous author's name off it).
+
 ## 9 · What `mrjun.py validate` checks
 
 Offline, from the rule text (comments and string literals are ignored):

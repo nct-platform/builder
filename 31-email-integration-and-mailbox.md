@@ -414,6 +414,25 @@ service.mailbox.send(
 
 ---
 
+## 7a · Working on a LIVE project through MCP
+
+Connected to the live project ([28](28-support-mode-over-mcp.md)), the messaging service's tools do what the Email
+screen does — the same checks, the same write-only credentials:
+
+| tool | for |
+|---|---|
+| `nct_messaging_getMailIntegration` | the integration (on/off, default sender, fallback, polling, retention) and every account — address, transport, receiving, state, last errors, which credentials are stored |
+| `nct_messaging_saveMailAccount` | create an account, or change one: pass its `id` and ONLY what changes; a password left out is kept |
+| `nct_messaging_saveMailIntegration` | the integration's own switches, the same partial way |
+| `nct_messaging_testMailAccount` / `sendTestMail` | prove the servers answer / send one real test mail (only when the user wants it) |
+| `nct_messaging_setDefaultMailAccount` | which account the project sends from by default |
+| `nct_messaging_findMailMessages` / `getMailMessage` | what the receiving account fetched — what a mail-processing rule (§7.1) will see |
+| `nct_messaging_deleteMailAccount` | only on the user's explicit request |
+
+Templates and sending by template keep their own tools (`nct_messaging_listTemplates` … `sendEmail`). Credentials are
+the **user's** (§8.1: ask for an app password where the provider demands one) — never invent one, never echo one back;
+the tools never return a stored one.
+
 ## 8 · What you cannot check offline, and the handover note
 
 `validate` sees the plugin node and the rules. It cannot see whether a mailbox exists, whether a password

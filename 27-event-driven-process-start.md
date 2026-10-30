@@ -170,6 +170,12 @@ delivery is **at-least-once** (a retry, a redelivery after a restart and the sen
 rule again). Phase 1a records it as `BROKER MESSAGE`. The listener itself is configured live and is a handover
 row, never part of the `.mrjun`.
 
+**A message from a PERSON in a messenger is the same shape.** When the PRD says "a customer writes to our Telegram /
+WhatsApp and a request is opened", "a /order command starts …", a messenger listener ([36](36-messenger-integration.md))
+runs an EXECUTION rule per event; that rule is the starter — it validates, claims the business id (`message.id` with
+`message.chat.id`, or an id the customer typed), calls `service.workflow.start`, and answers the person with
+`service.messenger.reply(message, …)`. Phase 1a records it as `MESSENGER MESSAGE`. The listener is a handover row.
+
 ### 2.0.1 Two starters for one process is a decision, not a bonus
 
 If a document-driven start already exists and you ALSO add a start action, the same document can get two

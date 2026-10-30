@@ -28,12 +28,11 @@ for a key the rules select by.
 | T8 | **typed scalar** — money, quantity, date, boolean, e-mail list, URL | arithmetic, comparison or format applies | the type itself | numeric / date / boolean control **with** its format check | per lifecycle |
 | T9 | **free text** — names, notes, reasons | nobody computes with it | — | text / textarea | editable |
 
-⛔ **T1 vs T2 is the decision that is made wrong most often.** A list the customer will extend MUST NOT be a schema CHECK
-in a database the project role cannot alter: the settings screen then accepts a new code that every save refuses. If the
-base schema already carries such a CHECK (an inherited database), the app must read the constraint and offer only what it
-accepts — a business-logic method that joins the label table with `pg_get_constraintdef`, so the vocabulary opens by
-itself the day the owner drops the CHECK — and the settings form must refuse a new code the database will not take, in
-words. Never let a dropdown offer a value the database refuses.
+⛔ **T1 vs T2 is the decision that is made wrong most often.** A list the customer will extend MUST NOT be a schema CHECK:
+the settings screen then accepts a new code that every save refuses. If the base schema already carries such a CHECK (an
+inherited database), drop it with `nct_repository_execute_ddl`; if the database refuses the project's user that right, the
+author has to grant it first ([28 §6](28-support-mode-over-mcp.md)) — nothing is built around it. Never let a dropdown
+offer a value the database refuses.
 
 ⛔ **A T2 value that carries attributes** (a category's code prefix, a reason's «needs approval» flag, a cost type's
 allocation method) needs those attributes as COLUMNS of its table (or derivable from the data — e.g. the prefix most
@@ -153,7 +152,11 @@ screen or running a body.
 * **One reference, one spelling of its aliases.** Postgres folds an unquoted alias to lower case (`expenseCategory__name` →
   `expensecategory__name`) and keeps a quoted one (`"expenseCategory__kind"`). Mix the two for one camelCase reference and the
   platform builds TWO nested objects; the DTO field binds to one, and every column over the other's leaves is blank (a delivered
-  project's expense register showed no expense type for a week). Quote all of a reference's aliases or none.
+  project's expense register showed no expense type for a week). Leave them ALL bare and the field is lost whole: a generator
+  shipped 22 bare camelCase aliases among 318 warnings (`AS purchaseOrder__id` → `purchaseorder__id`), and a fresh install would
+  have opened receipts without their order and their landed costs — the stand had been fixed by hand, so every test passed there.
+  Quote every alias that has a capital letter, treat the `mrjun validate` (2c) warning «SQL alias … NOT quoted» as an error, and
+  diff the generator's bodies against the stand's whenever a method is re-pushed — the diff is how this was found.
 * **A derived value has a WHEN.** A column the system computes (net quantity after returns, a line amount, a total) must be
   computed on SAVE as well as on posting — and the seed data hides the gap, because the seeder writes derived columns
   itself. Every derived column needs a test on a row created through the UI, read back before submission.

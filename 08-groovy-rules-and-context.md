@@ -600,21 +600,36 @@ The full surface:
 
 > ⚠️ **There is NO `service.feign(...)` or `service.localization(...)`** — older platform documentation
 > uses them, but they do **not** exist on `service`, and no working project calls them. For external services —
-> `inject('emailService')`/RIMM/global functions; for validation localization — the form's per-locale `*Messages` maps,
+> `service.notification` / `service.rimm` / `service.global.rest`; for validation localization — the form's per-locale
+> `*Messages` maps,
 > `service.global.locale.message('…')` (the sentence in the caller's language, [16](16-groovy-service-api.md)) or
 > `service.global.locale.getKey()`.
 
-#### `inject("beanName")` — allow/block-list
+#### The rule sandbox — what a rule may NOT write
 
-This is the **authoritative security boundary** for platform services:
-- `inject("rimmService")` → returns a **safe proxy** `service.rimm` (not the raw bean).
-- `inject("contextService"|"reactorService"|"ruleService"|"crudReactor"|"securityDirectory"|
-  "securityRoleGroupDirectoryClient")` → **`SecurityException`** (blocked: they take a realm and a client as
-  ARGUMENTS, so a rule holding one could aim at another project; the last two build the `service.security.users` /
-  `.roleGroups` proxies). Not a sandbox — see [16](16-groovy-service-api.md) §2.1.
-- Allow-list by name: `emailService, notificationService, validationService, calculationService,
-  formatterService, dateService`, plus any bean whose name ends in `Helper` or `Util`.
-- Other beans load with a warning log (not recommended).
+There is **no `inject(...)`** (removed): everything a rule may use is on `service.*` and `context.*`. Every rule
+runs sandboxed. These are refused **before the rule runs**, with
+`This rule may not do what it asks: line N: …` (`mrjun validate` reports the same before you import):
+- **types** other than plain values — strings, numbers, dates and times (`java.time.*`, `Date`,
+  `SimpleDateFormat`), collections, `groovy.json.*`, `Math`, `BigDecimal`, exceptions. No files, URLs, sockets,
+  threads, processes, reflection, `GroovyShell`, platform or framework classes. `System` only for the clock
+  (`currentTimeMillis`, `nanoTime`) and `System.out`; `Thread` only for `Thread.sleep(ms)`;
+- **reflection and escape hatches, on ANY object**: `getClass()` / `.class` — except to read the class's NAME
+  (`e.class.simpleName`, `.name`) and a class literal `X.class` of an allowed type — `metaClass`, `invokeMethod`,
+  `getProperty(...)`/`setProperty(...)`, `getProperties()`, `dump()`, `getAt(...)`/`putAt(...)` written out
+  (subscripts `x[k]` are fine), `'…'.execute()`, `toURL()`, `evaluate`, `System.getenv`; and **`x.@field`**;
+- **any annotation** (`@Grab`, `@Field`, `@CompileStatic` …) — an `@` outside a string or a comment;
+- **`synchronized`**, and **changes to what every project shares**: `Locale.default = …`, `X.someStatic = …`,
+  `setDefault(...)`, `mixin(...)`.
+
+**Allowed** — everyday Groovy the platform's own API needs: names computed at run time (`service.crud."${alias}"`,
+`service.notification.mail."${alias}"(to, ph)` — a method's name is checked when it is known), `x instanceof AnyType`,
+`x.respondsTo('asText')`, `x.hasProperty('code')` (answers true/false), `map.default = v` (a map's key).
+
+At run time a value a member hands back may never be a class, a reflected member, a metaclass, a thread or a process
+(`This rule may not do what it asks: a rule may not hold …`); an exception always may. Keys are data and are never
+judged — `row[fieldName]`, `node['module']` work as always. The platform's own objects show a rule their public
+members only; `x.properties` answers without the class and metaclass entries.
 
 ### `param` — parameters of a delegated method (EXECUTION only)
 
@@ -1213,7 +1228,8 @@ that one is arithmetic, and it belongs in the project's own offline verifier.
     Bare `addError/addFieldError/...` work **only** in
     VALIDATION.
 14. **No `service.feign(...)` / `service.localization(...)`** — older platform docs invented them.
-    Use `inject('emailService')` / RIMM / `service.global` / per-locale `*Messages` maps.
+    Use `service.notification` / `service.rimm` / `service.global` / per-locale `*Messages` maps. There is no
+    `inject(...)` either — the rule sandbox (above) refuses it.
 15. **`param` is EXECUTION only**, `validation` is VALIDATION only. Predicates have neither.
     The `notification`/`report`/`quota` facades are built **only** for EXECUTION;
     in a predicate/validation `service.notification`/`service.report`
