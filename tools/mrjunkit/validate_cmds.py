@@ -6971,15 +6971,19 @@ _SANDBOX_REFUSALS = (
     (re.compile(r"(?<![.\w$])@\s*[A-Za-z_$]"),
      "carries an annotation - an annotation runs code while the rule is compiled, so none is allowed"),
     (re.compile(r"\.\s*@"), "reads a field past its accessors (.@)"),
-    # value.class / value.getClass() is fine for its NAME (e.class.simpleName in a message), and instanceof for any type.
+    # value.class / value.getClass() is fine for its NAME (e.class.simpleName in a message), compared with a type
+    # (e.getClass() == RuntimeException - see _CLASS_COMPARED), and instanceof for any type.
     (re.compile(r"(?:\b[a-z_$][\w$]*|[)\]])\s*\??\.\s*class\b(?!\s*\??\.\s*(?:simpleName|name|canonicalName|typeName|"
-                r"getSimpleName|getName|getCanonicalName|getTypeName)\b)"),
+                r"getSimpleName|getName|getCanonicalName|getTypeName)\b|\s*(?:===?|!==?|!?in\b))"),
      "reads .class of a value - test what it is with instanceof, or ask its name (.class.simpleName)"),
     (re.compile(r"(?<![\w$])(getClass(?!\s*\(\s*\)\s*\??\.\s*(?:simpleName|name|canonicalName|typeName|"
-                r"getSimpleName|getName|getCanonicalName|getTypeName)\b)|forName|newInstance|invokeMethod|getMetaClass|"
+                r"getSimpleName|getName|getCanonicalName|getTypeName)\b|\s*\(\s*\)\s*(?:===?|!==?|!?in\b))|forName|newInstance|invokeMethod|getMetaClass|"
                 r"setMetaClass|getProperties|getMetaPropertyValues|dump|mixin|setDefault|addShutdownHook|evaluate|"
-                r"execute|toURL|getenv|setAccessible|getDeclaredFields?|getDeclaredMethods?)\s*\("),
+                r"toURL|getenv|setAccessible|getDeclaredFields?|getDeclaredMethods?)\s*\("),
      "calls {0}(...) - reflection, a process, a URL or what every project shares"),
+    # Groovy's execute() on text or a list starts a process; a CRUD's execute() (service.crud.payment.execute) is its own.
+    (re.compile(r"(?:['\"\]]|\bnew\s+String\s*\[[^\]]*\]\s*\{[^}]*\})\s*\.\s*execute\s*\("),
+     "calls execute(...) on text or a list - that starts a process"),
     (re.compile(r"(?<![\w$])metaClass\b"), "uses metaClass"),
     (re.compile(r"(?<![\w$])synchronized\s*\("), "takes a lock (synchronized)"),
     # A CLASS's default (Locale.default = ...) is the JVM's; a map's key named default is data.
@@ -6995,6 +6999,13 @@ _SANDBOX_REFUSALS = (
 )
 
 
+def _class_compared_before(code, start):
+    """Whether the class read starting at `start` is the right-hand side of a comparison - `RuntimeException ==
+    e.getClass()`, `T != a.b.class`: compared, never held. The receiver chain before it is stepped over."""
+    before = re.sub(r"[\w$.?\s]*$", "", code[max(0, start - 200):start])
+    return bool(re.search(r"(?:===?|!==?)$", before))
+
+
 def _check_rule_sandbox(p, r):
     """ERROR for what the platform's rule sandbox refuses before the rule runs - an author's code runs in a service
     that serves every project, so a rule may compute with plain values and reach the rest through service.* and
@@ -7008,6 +7019,8 @@ def _check_rule_sandbox(p, r):
                 what = refusal.format(*[g for g in match.groups() if g is not None]) if match.groups() else refusal
                 # One sentence per mistake: System.getenv is one, though two of the patterns see it.
                 if what in reported or any(match.start() < end and start < match.end() for start, end in taken):
+                    continue
+                if ("getClass" in what or ".class" in what) and _class_compared_before(code, match.start()):
                     continue
                 reported.add(what)
                 taken.append(match.span())

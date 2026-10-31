@@ -380,6 +380,12 @@ the write. `nct_ui_get_page_detail` returns the same field. Note the name: it is
 a visitor can actually reach is that intersected with every ancestor section's access, so a page granted to
 a role inside a section that is not granted stays invisible.
 
+**`nct_rule_delete` needs the WHOLE rule object.** Sent `{id, identifier}` only (31.10.2026), it wrote every other column
+NULL and the database refused the row (`null value in column "client_name" … violates not-null constraint`): nothing was
+deleted. Send the rule as `nct_rule_findByIdentifier` returns it — `name`, `ruleType`, `status`, `clientName`, `realmName`,
+`description`, `contextIdentifiers` and the body in `executor` — and read it back. The same night `nct_rule_update` took
+the Groovy in `executor` (one probe rule written, read back and deleted first, as below).
+
 ---
 
 ---

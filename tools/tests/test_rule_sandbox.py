@@ -61,6 +61,9 @@ class RuleSandboxTest(unittest.TestCase):
             def c = (code == null || code instanceof Class) ? '' : code.toString()
             try { boom() } catch (e) { log("failed: " + e.class.simpleName + ' ' + e.getClass().getName()) }
             settings.default = true
+            def paid = service.crud.payment.execute([actor: who, id: rid])
+            if (__wf.getClass() == RuntimeException) { throw __wf }
+            if (RuntimeException != __wf.getClass() || a.b.class == String || x.getClass() in [A, B]) { }
             def x = row[fieldName]
             if (x instanceof Map) { x['default'] = 1 }   // a map's key named default is data
             return [total, stamp, qty, sum, mail, rows]
@@ -85,7 +88,7 @@ class RuleSandboxTest(unittest.TestCase):
         self.assertIn("carries an annotation", report.errors[1])
         self.assertIn("reads a field past its accessors", report.errors[2])
         self.assertIn("reads .class of a value", report.errors[3])
-        self.assertIn("calls execute(...)", report.errors[4])
+        self.assertIn("calls execute(...) on text or a list", report.errors[4])
         self.assertIn("uses System.getenv", " ".join(report.errors))
         self.assertIn("changes a class's default", " ".join(report.errors))
         self.assertIn("takes a lock", " ".join(report.errors))

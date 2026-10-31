@@ -1175,6 +1175,12 @@ snake_case on create/update (`doc_number`, `partner__id`, `lines`, `id`) — see
 [11](11-business-logic-dynamic-crud.md). A `value` map is keyed by **camelCase dtoField** names, which is what
 the **Get context data** popover shows. `value: param` would therefore write keys the process cannot read.
 
+⛔ **A key spelled otherwise is dropped in silence, and its column is written NULL.** A live project's receipt engine passed
+`receipt_id` to `materialRoll.create`, which declares `receipt__id` (the FK spelling): every roll was born without its
+receipt, the finance approval (`… WHERE receipt_id = :id`) matched no roll, and no roll ever got its final cost (31.10.2026).
+Compare each key with the called method's `parameters[]` — a reference is `<ref>__id` — and gate it: a key equal to a
+declared parameter up to `_`/`__` is always this defect.
+
 **To find out what a form produces**, open it and use **Get context data** in its settings
 ([25](25-form-settings-validation-and-events.md) §4.5). Two things to know before pasting:
 - The popover shows **JSON**, which is not a Groovy argument. Three conversions: `{…}` → `[…]`, `{}` → `[:]`,

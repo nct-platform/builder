@@ -105,8 +105,8 @@ and silently wrong the day the catalog is emptied: on a live project every categ
 BUTTON-001 instead of the agreed FAB-001, BTN-001. The first repair — a setting per category — was wrong too: «people use this,
 not machines» (the owner) — whoever adds a category would have to find a second page and add a setting there, and that settings
 form could not even create a row. What works: **derive the default from what the person already types** (the first three letters
-of the category code: FABRIC → FAB, a new ZIPPER → ZIP), fall back to the whole code only when those letters belong to an
-earlier member, keep a setting ONLY for the agreed exceptions (BUTTON → BTN), let a hand-typed first code start a series, and
+of the category code: FABRIC → FAB, a new ZIPPER → ZIP — nothing cleverer: two members with the same letters share a series
+until a setting parts them), keep a setting ONLY for the agreed exceptions (BUTTON → BTN), let a hand-typed first code start a series, and
 validate the setting against the pattern codes are read back with (letters only for `LETTERS-DIGITS` — a digit in the prefix
 makes codes no series counts). Ask of every configurable default: what does a person adding the NEXT member have to do?
 
