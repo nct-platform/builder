@@ -27,6 +27,11 @@
 
 ## What it is / when to use
 
+> Not the left nav: an icon in the header (left of the notifications bell) that opens a popup or a page, and a
+> component drawn with the footer → [37](37-header-actions-and-footer-popups.md) — a page's own, on its header /
+> footer node, or global (every page of the branch, `site-chrome.json`). ⛔ No page's node links to `Nct header actions`
+> / `Nct footer popups` the way pages link to `Nct left nav`.
+
 The **left navigation** ("left-nav") in the layout is a `site.kicker.plugin` content node whose `identifier`
 is the symbolic id **`left-nav`** (a layout child, like `header`/`footer`/`parsis`; see the layout wiring in
 [01-content-model-and-pages.md](01-content-model-and-pages.md) and the page-template ids in the toolkit's

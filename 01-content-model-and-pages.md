@@ -981,7 +981,9 @@ Full list of vps in `empty` (all projects start with it):
 | Label Fields | File Upload Label Field | false | false | nct.html.plugin |
 | Label Fields | Form Submit Button | false | false | nct.html.plugin |
 
-> For Step-2 assembly **don't touch `virtualPlugins`** — take them from `empty` as-is. New pages
+A project whose author added a GLOBAL header action or footer popup with a component also carries **`Nct header actions`** / **`Nct footer popups`** (group `Layout`, `commonContent: true`, `hidden: true`, over `site.header.plugin` / `site.footer.plugin`, identifier `header-actions` / `footer-popups`): the node the global items' components are drawn on and their `<plugin>` children hang under — the items themselves are in `site-chrome.json`, a page's own on its header/footer node ([37](37-header-actions-and-footer-popups.md)).
+
+> For Step-2 assembly **don't touch `virtualPlugins`** — take them from `empty` as-is (the one exception: `headerfooter add --scope global` appends `Nct header actions` / `Nct footer popups`, doc 37). New pages
 > reference existing names (`layout="Nct layout"`) and/or carry a materialized copy of the layout node
 > in their own parsis.
 

@@ -11,7 +11,9 @@
 > decision, not the syntax. This EXTENDS [14 §1.1](14-plugin-catalog-all.md) (the classic raw-HTML plugin and
 > the `<plugin>` tag): the Studio is **purely additive** — a node with no `studioModel` renders byte-for-byte
 > as before (the plugin hands back the raw `html` property untouched, with no wrapper and no runtime).
-> **Not here:** the theme/CSS token contract → [24a](24a-theming-and-dark-mode.md); the `<plugin>` embedding
+> **Not here:** a component kept in a HEADER ACTION's popup or a FOOTER POPUP (the same `html` + `studioModel`, in an
+> item — a page's or the branch's — instead of on a node of its own) → [37](37-header-actions-and-footer-popups.md); the theme/CSS
+> token contract → [24a](24a-theming-and-dark-mode.md); the `<plugin>` embedding
 > grammar and component reuse → [24b](24b-html-composition-and-plugin-tags.md); server-paged tables inside a
 > component → [24c](24c-html-data-tables-and-paging.md); the `<include>`/`<plugin>` tag grammar →
 > [24b](24b-html-composition-and-plugin-tags.md); how to lay a component out across documents and scripts and

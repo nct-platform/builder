@@ -513,45 +513,7 @@ def cmd_validate(args):
                 except json.JSONDecodeError as exc:
                     r.err("node %r (%s): malformed inner JSON in properties.%s: %s"
                           % (node.get("name"), pn, slot, exc))
-        # HTML Component Studio (properties.studioModel): must parse; each script's libNames must reference a
-        # DECLARED library; vendored asset paths must be RELATIVE (so they survive import). See doc 24.
-        sm = props.get("studioModel")
-        if sm and sm.get("stringValue"):
-            model = None
-            try:
-                model = json.loads(sm["stringValue"])
-            except json.JSONDecodeError as exc:
-                r.err("node %r (%s): malformed studioModel JSON: %s" % (node.get("name"), pn, exc))
-            if isinstance(model, dict):
-                lib_names = {l.get("name") for l in (model.get("libs") or []) if isinstance(l, dict)}
-                for scr in (model.get("scripts") or []):
-                    if not isinstance(scr, dict):
-                        continue
-                    for ln in (scr.get("libNames") or []):
-                        if ln not in lib_names:
-                            r.err("node %r studioModel: script %r references undeclared library %r (declared: %s)"
-                                  % (node.get("name"), scr.get("name"), ln,
-                                     ", ".join(sorted(n for n in lib_names if n)) or "none"))
-                for lib in (model.get("libs") or []):
-                    if not isinstance(lib, dict):
-                        continue
-                    for a in (lib.get("assets") or []):
-                        if isinstance(a, dict) and a.get("path") and str(a["path"]).startswith("t/"):
-                            r.warn("node %r studioModel: asset path %r is absolute; prefer a path RELATIVE to the "
-                                   "tenant root (studio/<lib>/<file>) so it survives import (doc 24 §10)"
-                                   % (node.get("name"), a["path"]))
-                _check_theme_safe_css(model, node, r)
-                if pn in _STUDIO_PLUGINS and len(locales) > 1:
-                    _check_studio_texts_are_literals(model, node, r)
-        if pn in ("html.plugin", "nct.html.plugin") and len(locales) > 1:
-            _check_marks_need_the_runtime(node, pn, props, r)
-        # An inline <style> in the html property is GLOBAL (it is not scoped like css.byTheme) and is the
-        # usual home of a hardcoded light palette. See doc 24a §5.5.
-        _html_prop = props.get("html")
-        if pn in _STUDIO_PLUGINS and _html_prop and "<style" in (_html_prop.get("stringValue") or ""):
-            r.warn("node %r: inline <style> in properties.html is GLOBAL — it leaks onto every other component "
-                   "on the page and cannot be per-theme. Move it to studioModel.css.byTheme, which is scoped to "
-                   "#dokie-plug-<id> (doc 24a §5.5)." % node.get("name"))
+        _check_studio_component(node, pn, props, locales, r)
         if pn == "nct.image.plugin":
             _check_image_per_theme(node, props, r)
         # localizedNames in inner config (column/action captions) should cover
@@ -597,6 +559,8 @@ def cmd_validate(args):
     _check_html_plugin_refs(p, root, r)
     # -- a studio component's <include> graph: a cycle never renders; a dangling/extension-less src renders nothing --
     _check_html_includes(p, root, r)
+    # -- header actions / footer popups: the shared lists and the html components they keep (doc 37) --
+    _check_header_footer(p, r)
     # -- a page renders its content from the child parsis named 'siteMapPageParsis'; lose it -> blank page --
     _check_page_top_parsis(p, root, r)
     # -- a STATIC page answers with its own text or file: the file must be in the bundle, byte-exact (doc 34) --
@@ -1465,6 +1429,220 @@ def _page_own_html_studio_nodes(page):
     w(page)
     return out
 
+
+def _check_studio_component(node, pn, props, locales, r):
+    """The checks of ONE studio component's own `html` + `studioModel` — run for every content node, and for the html
+    component of every header action and footer popup (`_check_header_footer`), which is the same component kept in a
+    list instead of on a node of its own."""
+    # HTML Component Studio (properties.studioModel): must parse; each script's libNames must reference a
+    # DECLARED library; vendored asset paths must be RELATIVE (so they survive import). See doc 24.
+    sm = props.get("studioModel")
+    if sm and sm.get("stringValue"):
+        model = None
+        try:
+            model = json.loads(sm["stringValue"])
+        except json.JSONDecodeError as exc:
+            r.err("node %r (%s): malformed studioModel JSON: %s" % (node.get("name"), pn, exc))
+        if isinstance(model, dict):
+            lib_names = {l.get("name") for l in (model.get("libs") or []) if isinstance(l, dict)}
+            for scr in (model.get("scripts") or []):
+                if not isinstance(scr, dict):
+                    continue
+                for ln in (scr.get("libNames") or []):
+                    if ln not in lib_names:
+                        r.err("node %r studioModel: script %r references undeclared library %r (declared: %s)"
+                              % (node.get("name"), scr.get("name"), ln,
+                                 ", ".join(sorted(n for n in lib_names if n)) or "none"))
+            for lib in (model.get("libs") or []):
+                if not isinstance(lib, dict):
+                    continue
+                for a in (lib.get("assets") or []):
+                    if isinstance(a, dict) and a.get("path") and str(a["path"]).startswith("t/"):
+                        r.warn("node %r studioModel: asset path %r is absolute; prefer a path RELATIVE to the "
+                               "tenant root (studio/<lib>/<file>) so it survives import (doc 24 §10)"
+                               % (node.get("name"), a["path"]))
+            _check_theme_safe_css(model, node, r)
+            if pn in _STUDIO_PLUGINS and len(locales) > 1:
+                _check_studio_texts_are_literals(model, node, r)
+    if pn in ("html.plugin", "nct.html.plugin") and len(locales) > 1:
+        _check_marks_need_the_runtime(node, pn, props, r)
+    # An inline <style> in the html property is GLOBAL (it is not scoped like css.byTheme) and is the
+    # usual home of a hardcoded light palette. See doc 24a §5.5.
+    _html_prop = props.get("html")
+    if pn in _STUDIO_PLUGINS and _html_prop and "<style" in (_html_prop.get("stringValue") or ""):
+        r.warn("node %r: inline <style> in properties.html is GLOBAL — it leaks onto every other component "
+               "on the page and cannot be per-theme. Move it to studioModel.css.byTheme, which is scoped to "
+               "#dokie-plug-<id> (doc 24a §5.5)." % node.get("name"))
+
+
+def _check_header_footer(p, r):
+    """HEADER ACTIONS / FOOTER POPUPS (ERROR + WARN) — doc 37. A page's own items are the JSON `{"items": [...]}` of
+    `properties.headerActions` / `footerPopups` on its header / footer node — and on a layout's, which every page made
+    from it copies; the branch's GLOBAL items are the entries of site-chrome.json, by branch name. Nothing at import
+    time looks inside them: the platform draws what it can read of a page's list and refuses to change the list while
+    any of it cannot be read, and draws no global item it cannot read.
+
+    ERROR: a list that is not {"items": [...]} of objects; an item without a uuid, or with one another item of its list
+    has; an item the platform's editor would refuse (`headerfooter_cmds.item_problems` — the platform's own rules,
+    field types included); one <plugin id> as two plugins among the components drawn on one node; a site-chrome.json
+    that is not {"items": [...]}, an entry without branch / area / uuid / item; a shared virtual plugin the platform
+    does not find by the area's identifier (`header-actions` / `footer-popups` — global items' components are drawn on
+    the node it finds by it), one without a templateNames list, another virtual plugin of the shared name `Nct header
+    actions` / `Nct footer popups` (a publish matches shared components by name). Every drawn component then goes
+    through the html block's own checks (`_check_studio_component`, the include graph).
+
+    WARN: a list on a node of another plugin, or on the shared node itself (nothing reads either); an entry of a branch
+    the export does not have (the import leaves it out); site-chrome.json without the pages (an import that takes no
+    pages does not read it); a `global` key in an item (where it is kept says it); a <plugin id> placed by two items
+    drawn on one node (one plugin, one configuration); a header item's title missing a locale of the project; global
+    items drawing components while the branch has no shared virtual plugin (the import makes an empty one, so the
+    plugins they place start from their <prop> seeds alone); a shared virtual plugin that is not hidden common
+    content."""
+    from . import headerfooter_cmds as hf
+    root = p.root_content
+    page_ids = hf.page_ids(p)
+    locales = set(p.locales())
+
+    def check_items(area, items, where, beside_label):
+        seen, placed = set(), {}
+        synthetic = {"pluginName": "siteMapPage", "name": where, "alias": "-", "children": []}
+        for i, item in enumerate(items):
+            uid = item.get("uuid")
+            label = "%s %s item #%d (%s)" % (where, area, i, uid or "no uuid")
+            if not uid:
+                r.err("%s: no uuid — the editors and the MCP tools address an item by it (doc 37)" % label)
+            elif uid in seen:
+                r.err("%s: another item %s has this uuid (doc 37)" % (label, beside_label))
+            seen.add(uid)
+            if "global" in item:
+                r.warn("%s: a `global` key is ignored — where an item is kept says whether it is global (doc 37)" % label)
+            titles = item.get("titles") if area == "header" and isinstance(item.get("titles"), dict) else {}
+            untitled = [loc for loc in sorted(locales) if not (isinstance(titles.get(loc), str) and titles[loc].strip())]
+            if titles and untitled and len(untitled) < len(locales):
+                r.warn("%s: no title for %s — the icon's tooltip and what a screen reader says fall back to another "
+                       "language there. `headerfooter set --title-loc <locale>=<text>` (doc 37)"
+                       % (label, ", ".join(untitled)))
+            problems = hf.item_problems(area, item, lambda ident: ident in page_ids)
+            for problem in problems:
+                r.err("%s: %s — the platform's editor would refuse it (doc 37)" % (label, problem))
+            if problems and any("must be" in pr or "JSON string" in pr for pr in problems):
+                continue
+            for problem in hf.clash_problems(area, item, items[:i]):
+                r.err("%s: %s (doc 37)" % (label, problem))
+            if not hf.draws_component(area, item):
+                continue
+            props = {"html": core.make_property_slot("html", item.get("html") or "")}
+            if isinstance(item.get("studioModel"), dict):
+                props["studioModel"] = core.make_property_slot("studioModel",
+                                                               json.dumps(item["studioModel"], ensure_ascii=False))
+            component = {"name": label, "identifier": uid, "pluginName": "nct.html.plugin", "properties": props,
+                         "children": []}
+            _check_studio_component(component, "nct.html.plugin", props, locales, r)
+            synthetic["children"].append(component)
+            for plugin_id in hf.plugin_tags(item):
+                placed.setdefault(plugin_id, set()).add(uid)
+        _check_html_includes(p, synthetic, r)
+        for plugin_id, owners in sorted(placed.items()):
+            if len(owners) > 1:
+                r.warn("%s %s: <plugin id=%r> is placed by %d items drawn on one node, so they show one plugin with one "
+                       "configuration. Give each its own id unless that is meant (doc 37)."
+                       % (where, area, plugin_id, len(owners)))
+
+    def shared_of(branch, area):
+        """The shared virtual plugin the platform finds, and the others of its name."""
+        shared = hf.shared_virtual_plugin(p, area, branch)
+        return [vp for vp in (branch.get("virtualPlugins") or [])
+                if vp.get("name") == hf.AREAS[area]["shared"] and vp is not shared], shared
+
+    # --- a page's own lists: on every node of the area's plugin, in the pages and in the layouts alike
+    tops = [("pages", root)] + [("virtual plugin %r" % vp.get("name"), vp["content"])
+                                for vp in (p.branches[0].get("virtualPlugins") or [])
+                                if isinstance(vp.get("content"), dict)]
+    for area, spec in hf.AREAS.items():
+        _named, shared = shared_of(p.branches[0], area)
+        for where, top in tops:
+            for node, _a, _b in core.iter_nodes(top):
+                if spec["property"] not in (node.get("properties") or {}):
+                    continue
+                at = "%s node %r (%s)" % (node.get("pluginName"), node.get("identifier"), where)
+                if node.get("pluginName") != spec["plugin"] or (shared is not None and node is shared["content"]):
+                    r.warn("%s carries properties.%s — nothing reads it there: a page's items are on its own %s, the "
+                           "branch's in site-chrome.json (doc 37)" % (at, spec["property"], spec["plugin"]))
+                    continue
+                try:
+                    data = core.get_inner_json(node, spec["property"])
+                except core.ToolError as exc:
+                    r.err("%s: %s — the platform draws none of it and refuses to change it (doc 37)" % (at, exc))
+                    continue
+                items = data.get("items") if isinstance(data, dict) else data
+                if data and not isinstance(items, list):
+                    r.err("%s: properties.%s is not {\"items\": [...]} (doc 37)" % (at, spec["property"]))
+                    continue
+                if any(not isinstance(it, dict) for it in items or []):
+                    r.err("%s: an item of properties.%s is not an object — the platform refuses to change the list "
+                          "while it cannot read all of it (doc 37)" % (at, spec["property"]))
+                check_items(area, [it for it in items or [] if isinstance(it, dict)], at, "of this page")
+
+    # --- the branch's global items
+    jf = p.site_chrome_file
+    if jf is None:
+        return
+    if not p.carries(core.F_BRANCHES):
+        r.warn("site-chrome.json without branches.json: an import that takes no pages does not read it (doc 37)")
+    if not isinstance(jf.data, dict) or not isinstance(jf.data.get("items"), list):
+        r.err("site-chrome.json is not {\"items\": [...]} — the import reads no global item from it (doc 37)")
+        return
+    branches = {b.get("name"): b for b in p.branches if isinstance(b, dict)}
+    groups = {}
+    for i, entry in enumerate(jf.data["items"]):
+        label = "site-chrome.json entry #%d" % i
+        if not isinstance(entry, dict):
+            r.err("%s is not an object (doc 37)" % label)
+            continue
+        missing = [k for k in ("branch", "area", "uuid") if not isinstance(entry.get(k), str) or not entry.get(k)]
+        if missing or not isinstance(entry.get("item"), dict):
+            r.err("%s: needs branch, area, uuid (text) and item (an object) — the import leaves it out%s (doc 37)"
+                  % (label, " (missing %s)" % ", ".join(missing) if missing else ""))
+            continue
+        if entry["area"] not in hf.AREAS:
+            r.err("%s: area must be one of %s, not %r (doc 37)" % (label, sorted(hf.AREAS), entry["area"]))
+            continue
+        if entry.get("order") is not None and not isinstance(entry.get("order"), int):
+            r.err("%s: order must be a whole number (doc 37)" % label)
+        if entry["branch"] not in branches:
+            r.warn("%s: branch %r is not in the export — the import leaves the entry out (doc 37)"
+                   % (label, entry["branch"]))
+            continue
+        item = dict(entry["item"], uuid=entry["uuid"])
+        groups.setdefault((entry["branch"], entry["area"]), []).append(item)
+    for (branch_name, area), items in sorted(groups.items()):
+        where = "branch %r global" % branch_name
+        check_items(area, items, where, "of the branch")
+        others, shared = shared_of(branches[branch_name], area)
+        spec = hf.AREAS[area]
+        if others:
+            r.err("branch %r has %d other virtual plugin(s) named %r besides the shared node the platform finds (the "
+                  "%s node %r): an environment's publish matches shared components by name, and an import that needs "
+                  "the node makes one more of that name. Rename them (doc 37)"
+                  % (branch_name, len(others), spec["shared"], spec["plugin"], spec["shared_identifier"]))
+        if shared is None:
+            if any(hf.draws_component(area, it) for it in items):
+                r.warn("%s %s items draw their components on the shared node %r, which the branch has not: the import "
+                       "makes an empty one, so the plugins those components place start from their <prop> seeds alone. "
+                       "`headerfooter add --scope global` makes it (doc 37)" % (where, area, spec["shared"]))
+            continue
+        if shared["content"].get("identifier") != spec["shared_identifier"]:
+            r.err("the content of virtual plugin %r of branch %r must have the identifier %r — the platform finds the "
+                  "node it draws global items' components on by it, and draws none of them without it (doc 37)"
+                  % (shared.get("name"), branch_name, spec["shared_identifier"]))
+        if shared.get("commonContent") is not True or shared.get("hidden") is not True:
+            r.warn("virtual plugin %r of branch %r is not hidden common content (commonContent: true, hidden: true) as "
+                   "the platform makes it — a visible one is offered in the palettes as a component to place on a page "
+                   "(doc 37)" % (shared.get("name"), branch_name))
+        if not isinstance(shared.get("templateNames"), list):
+            r.err("virtual plugin %r of branch %r has no templateNames list — the plugin palette reads it from every "
+                  "virtual plugin of the branch, and one without takes the palette down; [] is enough (doc 37)"
+                  % (shared.get("name"), branch_name))
 
 def _check_html_includes(p, root, r):
     """INCLUDE GRAPH (ERROR + WARN). An `nct.html.plugin` that carries a `studioModel` may split its markup

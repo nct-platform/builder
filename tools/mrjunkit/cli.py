@@ -11,8 +11,8 @@ except ImportError:  # pragma: no cover
     dist_cmds = None
 
 from . import (autotest_cmds, case_cmds, content_cmds, handoff_cmds, core, coverage_cmds, crud_cmds,
-               crudverify_cmds, execaccess, livediff_cmds, db_cmds, inspect_cmds, locale_cmds, mail_cmds,
-               packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
+               crudverify_cmds, execaccess, headerfooter_cmds, livediff_cmds, db_cmds, inspect_cmds, locale_cmds,
+               mail_cmds, packaging, pdf_cmds, quicklink_cmds, rep_cmds, roleaccess_cmds, validate_cmds,
                globalresource_cmds, staticpage_cmds, workflow_cmds)
 
 
@@ -391,6 +391,9 @@ def build_parser():
     _add_project(sp)
     sp.add_argument("--label", required=True, help="link name/label to remove")
     sp.set_defaults(func=quicklink_cmds.cmd_quicklink_rm)
+
+    # -- headerfooter (header actions / footer popups, doc 37) ------------------
+    headerfooter_cmds.register(sub, _add_project)
 
     # -- locale -------------------------------------------------------------
     loc = sub.add_parser("locale", help="per-locale text map coverage").add_subparsers(dest="sub", metavar="<sub>")

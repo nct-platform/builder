@@ -38,6 +38,8 @@ F_PROCESSES = "processes.json"
 F_PROCESS_AUDIT = "process-audit-logs.json"
 F_DATA_AUDIT = "data-audit-logs.json"
 F_RIMM_DATA = "rimm-data.json"
+# Every branch's GLOBAL header actions and footer popups, by branch name (doc 37) — written with the pages.
+F_SITE_CHROME = "site-chrome.json"
 
 # The rep-objects.json collections, for READING: identifier maps, shape checks, counts.
 # Every key is OPTIONAL (doc 00 §6): an export writes the keys of the parts its author ticked and leaves the
@@ -709,6 +711,19 @@ class Project:
         jf = self._get(F_INTEGRATIONS, required=False)
         data = jf.data if jf is not None else []
         return data if isinstance(data, list) else []
+
+    @property
+    def site_chrome_file(self):
+        """site-chrome.json — every branch's GLOBAL header actions and footer popups (doc 37); None when absent."""
+        return self._get(F_SITE_CHROME, required=False)
+
+    def ensure_site_chrome_file(self):
+        """Return the site-chrome JsonFile, creating it (empty) if absent."""
+        jf = self._get(F_SITE_CHROME, required=False)
+        if jf is None:
+            jf = JsonFile(self.path(F_SITE_CHROME), {"items": []}, None)
+            self._cache[F_SITE_CHROME] = jf
+        return jf
 
     def ensure_cruds_file(self):
         """Return the dynamic-cruds JsonFile, creating it if absent."""

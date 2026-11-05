@@ -306,6 +306,9 @@ The same mechanism as `nct.html.plugin`, but this is the **base plugin**.
 In practice `html.plugin` is precisely the **page's layout skeleton** (one per `siteMapPage`), inside
 which `site.header.plugin`, `site.kicker.plugin`, `site.breadcrumb.plugin`,
 `site.footer.plugin`, `site.right.kicker.plugin` and `nct.parsis.plugin` (the content slot) are embedded.
+The header's actions (icons left of the notifications bell) and the footer's popups: a page's own are the
+`headerActions` / `footerPopups` list of that page's header / footer node; the global ones (every page of the branch)
+are entries of `site-chrome.json` ([37](37-header-actions-and-footer-popups.md)).
 
 Real `properties.html.stringValue` (`erp`, an `html.plugin` layout node, decoded, abridged):
 

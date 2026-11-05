@@ -61,6 +61,7 @@ in the Export dialog. A full export, unpacked — each entry with the part (the 
   tenant.json              ← base layer — ALWAYS
   branches.json            ← base layer — content trees of the branches            [Pages, forms and rules]
   branch-metadata.json     ← base layer                                            [Pages, forms and rules]
+  site-chrome.json         ← the branches' GLOBAL header actions / footer popups   [Pages, forms and rules]
   rep-objects.json         ← one list per kind of object — ALWAYS; each key only with its part (§6)
   project-db.dump          ← JSON dump of the PRIMARY project DB (nct-jdbc-dump-v1) [Database]
   project-db-<db>.dump     ← dump of each ADDITIONAL distinct CRUD-source DB        [Database]
@@ -85,6 +86,7 @@ folder):
 |---|---|
 | `branches.json`, `branch-metadata.json` | Pages, forms and rules is ticked. Absent, an import leaves the target's pages, its published branch **and its languages** as they are |
 | `tenant-files/`, `favicon/` | Pages, forms and rules is ticked and the project has such files ([§8](#8-favicon-and-tenant-files)) |
+| `site-chrome.json` | Pages, forms and rules is ticked — always then, `{"items": []}` when no branch has a global item. Beside `branches.json` WITHOUT it (an older archive, one put together by hand), the import leaves the branches with no global header action or footer popup ([37](37-header-actions-and-footer-popups.md)) |
 | `template-files/` | Mail and PDF templates is ticked and the templates show images ([§13](#13-template-files--the-images-the-templates-show)) |
 | `dynamic-cruds.json` | Business logic is ticked, the project has a dynamic CRUD or an enumeration, and its business logic could be read WHOLE (a file missing some CRUDs would delete them on import, so it carries none instead); absent too when `bl` is not deployed — a static project never has it ([§7](#7-dynamic-crudsjson--dynamic-only)) |
 | `integrations.json` | Integration services is ticked and the project has at least one integration (their data-source bindings travel in `project-db-meta.json` either way) ([§9](#9-integrationsjson--the-projects-integrations-and-the-data-sources-they-provide)) |
@@ -167,7 +169,7 @@ log prints the DB **id** (freshly assigned; `id=null` on export), not the `ident
    the folder (files only: an empty folder does not reach the zip).
 2. **The application hook** appends into the same folder, part by part in the dialog's order (the order the
    export's progress names them in): the content's lists and `sources` (held for `rep-objects.json`),
-   `tenant-files/` + `favicon/`; the templates' lists and `template-files/`; the roles; the API endpoints, the
+   `tenant-files/` + `favicon/`, `site-chrome.json`; the templates' lists and `template-files/`; the roles; the API endpoints, the
    schedulers, the workflows — then **`rep-objects.json`**, once every part has put its keys there; then
    `workflow-history.json`, `processes.json` (+ `process-audit-logs.json`); `integrations.json`;
    `project-db.dump` (+ `project-db-<db>.dump`, or the legacy `rimm-data.json`) and `project-db-meta.json`;
