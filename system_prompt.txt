@@ -538,14 +538,17 @@ Reference library — doc/builder/ :
                                         messengerEvents (36 section 8). Handover note (36 section 9). The
                                         Phase-1a starter value is MESSENGER MESSAGE.
   37-header-actions-and-footer-popups.md  HEADER ACTIONS & FOOTER POPUPS - icons left of the notifications
-                                        bell (POPUP: a panel with the item's own html component; PAGE: a
-                                        page + params or an external link) and html components drawn with
-                                        the footer, always shown (cookie notice, chat corner, banner). An
-                                        item is a PAGE's (its own header/footer node) or GLOBAL (every page
-                                        of the branch: site-chrome.json, plugins on Nct header actions /
-                                        Nct footer popups); both drawn by `order`. html + studioModel are an
-                                        nct.html.plugin's (24). `headerfooter add --scope global|page`;
-                                        live nct_ui_*_header_footer_item(s).
+                                        bell (POPUP: the item's own html component, under the icon or in a
+                                        side panel left/right; PAGE: a page + params or an external link;
+                                        SCRIPT: its own JavaScript with ctx, on click/hover/...; HTML: no
+                                        icon, its own html component in the header; a standard icon's look:
+                                        color, style, shape, size, title, badge, pulse) and html
+                                        components drawn with the footer, always shown (cookie notice, chat
+                                        corner, banner). An item is a PAGE's (its own header/footer node)
+                                        or GLOBAL (every page of the branch: site-chrome.json, plugins on
+                                        Nct header actions / Nct footer popups); both drawn by `order`.
+                                        html + studioModel are an nct.html.plugin's (24). `headerfooter add
+                                        --scope global|page`; live nct_ui_*_header_footer_item(s).
 
 Toolkit — doc/builder/tools/ :
   mrjun.py ..... a stdlib-only CLI that edits an unpacked export SAFELY (encodes every hard rule below).

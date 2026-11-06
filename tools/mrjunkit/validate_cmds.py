@@ -1494,7 +1494,8 @@ def _check_header_footer(p, r):
     WARN: a list on a node of another plugin, or on the shared node itself (nothing reads either); an entry of a branch
     the export does not have (the import leaves it out); site-chrome.json without the pages (an import that takes no
     pages does not read it); a `global` key in an item (where it is kept says it); a <plugin id> placed by two items
-    drawn on one node (one plugin, one configuration); a header item's title missing a locale of the project; global
+    drawn on one node (one plugin, one configuration); a header item's title missing a locale of the project; a SCRIPT
+    action's t(…) whose text is not one literal (as a component script's, `_check_studio_texts_are_literals`); global
     items drawing components while the branch has no shared virtual plugin (the import makes an empty one, so the
     plugins they place start from their <prop> seeds alone); a shared virtual plugin that is not hidden common
     content."""
@@ -1529,6 +1530,10 @@ def _check_header_footer(p, r):
                 continue
             for problem in hf.clash_problems(area, item, items[:i]):
                 r.err("%s: %s (doc 37)" % (label, problem))
+            if area == "header" and hf.kind_of(item) == "SCRIPT" and len(locales) > 1:
+                # A script action's script is a component's script too: its texts are found as one literal each.
+                _check_studio_texts_are_literals({"scripts": [{"name": "script", "code": item.get("script") or ""}]},
+                                                 {"name": label}, r)
             if not hf.draws_component(area, item):
                 continue
             props = {"html": core.make_property_slot("html", item.get("html") or "")}
@@ -1626,8 +1631,8 @@ def _check_header_footer(p, r):
                   "the node makes one more of that name. Rename them (doc 37)"
                   % (branch_name, len(others), spec["shared"], spec["plugin"], spec["shared_identifier"]))
         if shared is None:
-            if any(hf.draws_component(area, it) for it in items):
-                r.warn("%s %s items draw their components on the shared node %r, which the branch has not: the import "
+            if any(hf.mounts_component(area, it) for it in items):
+                r.warn("%s %s items mount their components on the shared node %r, which the branch has not: the import "
                        "makes an empty one, so the plugins those components place start from their <prop> seeds alone. "
                        "`headerfooter add --scope global` makes it (doc 37)" % (where, area, spec["shared"]))
             continue
@@ -11377,6 +11382,8 @@ def _check_public_page_rule_access(p, cruds, r):
         skipped;
       * `ctx.callBl('<alias>', '<method>'…)` literals: here the METHOD must be open to anyone — reported apart,
         because the better fix is a rule (24 §4.3).
+      * the same in the scripts of the header actions and footer popups such a page shows everyone — its own and the
+        branch's global ones: a popup's component scripts, a SCRIPT action's script (doc 37).
 
     Hidden rules (CRUD method bodies) are skipped: their callers are governed by the method. Nested calls are not
     re-checked, so the CRUD methods a public rule calls stay at their default — never open them to fix this.
@@ -11415,6 +11422,22 @@ def _check_public_page_rule_access(p, cruds, r):
             if isinstance(obj.get(k), str):
                 store.setdefault(obj[k], page)
 
+    def scan_script(code, page, where):
+        code = _strip_groovy_comments(code or "")
+        called = set()
+        for m in _CALL_RULE_LIT_RE.finditer(code):
+            tok = m.group(2).strip()
+            rule = by_id.get(tok) or by_lname.get(tok.lower())
+            if rule is not None:
+                called.add(rule["identifier"])
+                add(refs, rule["identifier"], page, "callRule", where)
+        for m in _CALL_BL_LIT_RE.finditer(code):
+            add(bl_refs, (m.group(2), m.group(4)), page, "callBl", where)
+        for m in _JS_STR_LIT_RE.finditer(code):
+            rule = exec_by_name.get(m.group(2)) or by_id.get(m.group(2))
+            if rule is not None and rule["identifier"] not in called:
+                add(refs, rule["identifier"], page, "named", where)
+
     for node, page in anon:
         index(node_ids, node, page)
         index(page_ids, page, page)
@@ -11441,25 +11464,26 @@ def _check_public_page_rule_access(p, cruds, r):
                 for scr in inner.get("scripts") or []:
                     if not isinstance(scr, dict) or scr.get("enabled") is False:
                         continue
-                    code = _strip_groovy_comments(scr.get("code") or "")
-                    where = "%r/%s" % (node.get("name") or node.get("identifier"), scr.get("name"))
-                    called = set()
-                    for m in _CALL_RULE_LIT_RE.finditer(code):
-                        tok = m.group(2).strip()
-                        rule = by_id.get(tok) or by_lname.get(tok.lower())
-                        if rule is not None:
-                            called.add(rule["identifier"])
-                            add(refs, rule["identifier"], page, "callRule", where)
-                    for m in _CALL_BL_LIT_RE.finditer(code):
-                        add(bl_refs, (m.group(2), m.group(4)), page, "callBl", where)
-                    for m in _JS_STR_LIT_RE.finditer(code):
-                        rule = exec_by_name.get(m.group(2)) or by_id.get(m.group(2))
-                        if rule is not None and rule["identifier"] not in called:
-                            add(refs, rule["identifier"], page, "named", where)
+                    scan_script(scr.get("code"), page,
+                                "%r/%s" % (node.get("name") or node.get("identifier"), scr.get("name")))
                 continue
             for key, val in _json_strings(inner):
                 if val in by_id:
                     add(refs, val, page, "config", "%s %s" % (what, key or slot))
+
+    # A public page's header actions and footer popups an anonymous visitor is shown — its own and the branch's global
+    # ones — run their scripts as any component does: a popup's component, a script action's script (doc 37).
+    from . import headerfooter_cmds as hf
+    for page in {id(page): page for _node, page in anon}.values():
+        for area in hf.AREAS:
+            for item, _scope in hf.seen(p, area, hf.page_node(p, page, area)):
+                if not hf.seen_by_everyone(item):
+                    continue
+                titles = item.get("titles") if isinstance(item.get("titles"), dict) else {}
+                label = (next((t for t in titles.values() if isinstance(t, str) and t), None) if area == "header"
+                         else item.get("name"))
+                for name, code in hf.component_scripts(area, item):
+                    scan_script(code, page, "%s item %r/%s" % (area, label or item.get("uuid"), name))
 
     # forms whose form renders on a public page (`contentIdentifier` names the form PAGE — 06), form groups whose
     # landing page is public (the mapping predicates pick the form to open)

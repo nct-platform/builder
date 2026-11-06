@@ -1,11 +1,13 @@
 # 37 · Header actions and footer popups — the project's own pieces of the site chrome
 
 > **The terms.** A **header action** is an icon in the app's top bar, left of the notifications bell, drawn exactly like
-> the bell: clicking it either opens a **popup** — a panel under the icon showing the action's own html component — or
-> goes to a **page** (a page of the project with parameters, or another address). A **footer popup** is an html
-> component drawn with the footer and ALWAYS shown, placed by the footer or by the screen: a cookie notice, a chat
-> button, an announcement strip, a feedback tab. Each item is **a page's** (shown on that page only) or **global** (the
-> branch's — shown on every page of the branch).
+> the bell: clicking it opens a **popup** — the action's own html component, in a panel under the icon or in a **side
+> panel** along the left or right side of the screen — goes to a **page** (a page of the project with parameters, or
+> another address), or runs a **script** — the action's own JavaScript, with an html component's `ctx` — or is no
+> standard icon at all but **its own HTML**: an html component drawn in the header, doing what its scripts do. A **footer
+> popup** is an html component drawn with the footer and ALWAYS shown, placed by the footer or by the screen: a cookie
+> notice, a chat button, an announcement strip, a feedback tab. Each item is **a page's** (shown on that page only) or
+> **global** (the branch's — shown on every page of the branch).
 >
 > **Scope.** Where items live in the export, the shape of an item, the component it carries, who sees it, the commands
 > that write them, the MCP tools that change them live, and what `validate` checks.
@@ -20,17 +22,18 @@
 | A page's item | the JSON text `{"items": [...]}` of the STRING property `headerActions` / `footerPopups` of the page's OWN `site.header.plugin` / `site.footer.plugin` node — shown on that page |
 | A global item | an entry of **`site-chrome.json`** `{"items": [{"branch", "area", "uuid", "order", "item"}]}` — shown on every page of the branch |
 | Its component | `html` + `studioModel` — **exactly** an `nct.html.plugin`'s `html` and `studioModel` |
-| Header item | `titles`, `icon`, `kind` POPUP \| PAGE, `popupSize`, (PAGE) `identifier` + `params` or `link` |
+| Header item | `titles`, `kind` POPUP \| PAGE \| SCRIPT \| HTML, (POPUP) `popupSize`, `popupPlacement`, `panelTop` / `panelBottom` / `panelHeight`, `popupAnimation`, (PAGE) `identifier` + `params` or `link`, (SCRIPT) `event` + `script`; a standard icon (all but HTML): `icon` and its look — `iconColor` (+ `iconBackground` / `iconForeground`), `iconStyle`, `iconShape`, `iconSize`, `showTitle`, `badge` (+ `badgeTexts`, `badgeColor`), `pulse` |
 | Footer item | `name`, `side` LEFT \| RIGHT, `edge` TOP \| BOTTOM, `positioning` ABSOLUTE \| FIXED |
 | Order | `order` on every item — a page's and the global ones are drawn together, by it |
 | Who sees it | the item's `roleAccess` — everyone when absent |
 
 > **🔧 Tooling.** `headerfooter add --area header|footer --scope global|page [--page P] …` creates an item (and, for a
-> global one that draws a component, the shared `Nct header actions` / `Nct footer popups` virtual plugin its plugins
-> hang on), `set --id …` changes only the options given (`--scope` moves it), `rm`, `mv --index N`, `list [--page P]`. They refuse what the platform's editor
-> refuses (§7). `validate` checks every list and entry and runs every drawn component through the html component checks
-> (§8). Live, after import: MCP `nct_ui_list_header_footer_items`, `nct_ui_get_header_footer_item`,
-> `nct_ui_save_header_footer_item`, `nct_ui_delete_header_footer_item`, `nct_ui_move_header_footer_item` (§9).
+> global one that mounts a component — a POPUP or SCRIPT action, any footer popup — the shared `Nct header actions` /
+> `Nct footer popups` virtual plugin its plugins hang on), `set --id …` changes only the options given (`--scope` moves
+> it), `rm`, `mv --index N`, `list [--page P]`. They refuse what the platform's editor refuses (§7). `validate` checks
+> every list and entry and runs every drawn component through the html component checks (§8). Live, after import: MCP
+> `nct_ui_list_header_footer_items`, `nct_ui_get_header_footer_item`, `nct_ui_save_header_footer_item`,
+> `nct_ui_delete_header_footer_item`, `nct_ui_move_header_footer_item` (§9).
 
 ---
 
@@ -39,7 +42,11 @@
 | The PRD says | Build |
 |---|---|
 | "a help / support / contact button in the header", "a quick-create button in the top bar", "a calculator / converter at hand on every screen" | a **global header action**, `kind` POPUP — its component is the panel |
+| "a help / chat / notes panel along the side", "a panel that stays open while I work" | a **global header action**, `kind` POPUP, `popupPlacement` RIGHT (or LEFT) — a side panel |
 | "a link to <the knowledge base / the shop / a report> in the top bar", "an icon that opens <page>" | a **global header action**, `kind` PAGE |
+| "an icon that does <something> at once" — runs a rule, refreshes, copies, starts a process, shows a message | a **header action**, `kind` SCRIPT — its script runs on the icon's event |
+| "a search box / a status chip / a 'New order' button / our own widget in the header" — not an icon | a **header action**, `kind` HTML — its own html component in the header, doing what its scripts do |
+| "the help icon in our brand color", "a red icon with a NEW badge", "the icon with its name beside it" | a standard icon's **look** (§4) — no html needed |
 | "cookie consent", "an announcement / maintenance banner", "a chat / feedback button in the corner", "a notice shown when <condition>" | a **global footer popup** |
 | "on the <X> screen, a help popup about it", "only the <X> page shows a promo strip" | a **page's** header action / footer popup, on that page |
 | "a menu of our pages" | the left nav ([17](17-left-nav-quick-links.md)), not header actions — the header holds a few tools, not navigation |
@@ -96,10 +103,11 @@ area's plugin with the identifier `header-actions` / `footer-popups`:
 ```
 
 `Nct footer popups` is the same over `site.footer.plugin`, identifier `footer-popups`. `headerfooter add --scope global`
-makes it for an item that draws a component (a POPUP action, any footer popup), as the platform does on the first save
-of one; an import of global items that draw components into a branch without it makes an EMPTY one — their plugins then
-start from their `<prop>` seeds alone (§5). ⛔ Its shape: identifier `header-actions` / `footer-popups` (the platform
-draws global items' components on the node it finds by it — never `header`, every page's header node is called that);
+makes it for an item that mounts a component (a POPUP action, a SCRIPT action — its script runs in one — any footer
+popup), as the platform does on the first save of one; an import of such global items into a branch without it makes an
+EMPTY one — their plugins then start from their `<prop>` seeds alone (§5). ⛔ Its shape: identifier `header-actions` /
+`footer-popups` (the platform draws global items' components on the node it finds by it — never `header`, every page's
+header node is called that);
 `hidden: true` and `commonContent: true`, as the platform makes it (a visible one is offered in the palettes as a
 component to place on a page); `templateNames` a list (the plugin palette reads it from every virtual plugin of the
 branch and one without a list takes the palette down — `[]` is enough); its own `roleAccess` public (checked before
@@ -130,12 +138,38 @@ Every item: `uuid` (its id — the editors and the tools address it by it), `ord
 |---|---|---|
 | `titles` | `{locale: text}` | the icon's tooltip and its accessible name; at least one; write every locale of the project ([20](20-localization.md)) — a reader gets their language, else the language without the country, else the project's default |
 | `icon` | `pe-7s-*` class | the icon chooser's set, e.g. `pe-7s-help1`, `pe-7s-comment`, `pe-7s-calculator` |
-| `kind` | `POPUP` \| `PAGE` | required |
-| `popupSize` | `SMALL` \| `MEDIUM` \| `LARGE` | POPUP: the panel's width (22 / 32 / 48 rem, never wider than the screen); default MEDIUM. The height follows the component up to 75% of the screen, then it scrolls |
+| `kind` | `POPUP` \| `PAGE` \| `SCRIPT` \| `HTML` | required: POPUP opens its component, PAGE goes to a page or an address, SCRIPT runs its `script` and draws nothing, HTML is no standard icon — its `html` + `studioModel` drawn in the header (§5); `icon`, the look and every other kind's field do nothing for it, its title is only its name in the list |
+| `popupSize` | `SMALL` \| `MEDIUM` \| `LARGE` | POPUP: the panel's width (22 / 32 / 48 rem, never wider than the screen); default MEDIUM. Under the icon the height follows the component up to 75% of the screen, then it scrolls |
+| `popupPlacement` | `UNDER_ICON` \| `LEFT` \| `RIGHT` | POPUP: under the icon (default — the bell's kind of panel), or a **side panel** along that side of the screen, with a bar of its own: the title and a close button |
+| `panelTop` | `BELOW_HEADER` \| `OVER_HEADER` | side panel: its top under the header (default — the header, the icon with it, stays usable) or over it, from the screen's top |
+| `panelBottom` | `OVER_FOOTER` \| `ABOVE_FOOTER` | side panel: down to the screen's bottom, over the footer (default — steady whether the footer is fixed or scrolls) or to the footer's top while the footer is in view |
+| `panelHeight` | `FULL` \| `CONTENT` | side panel: all the room between its top and its bottom (default), or as tall as its component up to that room. A taller component scrolls INSIDE the panel either way; the page does not scroll with it |
+| `popupAnimation` | `SLIDE` \| `FADE` \| `ZOOM` \| `NONE` | POPUP: how it comes into view (a side panel goes out the same way). Absent — **automatic**, the default: a side panel slides in from its side, a popup under the icon opens as the header's menus do (the bell's) — and it follows a later change of placement, so write it only for an animation of the author's. NONE is none, the theme's either. A reader whose system asks for less motion gets none |
+| `event` | `CLICK` \| `DOUBLE_CLICK` \| `HOVER` \| `RIGHT_CLICK` | SCRIPT: what runs the script; default CLICK. Enter / Space on the focused icon run it too, whatever the event — once per key press, not as the key repeats. HOVER is the pointer resting on the icon a moment (one passing over runs nothing; a touch screen has none — a tap is a click). The focus alone runs nothing, for no event: Tab through the header sets nothing off. RIGHT_CLICK shows no browser menu |
+| `script` | JavaScript | SCRIPT: the body of an `async function` of `event`, run on every event — `ctx` exactly an html component's (§5), `this` is `ctx`. Required, and its brackets must close: one that closes what it did not open would end the function and run its rest as every page is drawn — the editor, the MCP tool and the commands refuse it |
 | `internal` | boolean | PAGE: a page of the project (default) or an address |
 | `identifier` | page identifier | PAGE + internal: the page's content `identifier` (not its `uniqueIdentifier`) — the link plugin's own field |
 | `params` | text | PAGE + internal: appended to the page's address as written — `?status=open`, `#part`, `/more/of/the/path`; never `//…` |
 | `link` | `https://…`, `http://…`, `mailto:…`, `tel:…`, `/a/path` | PAGE + not internal. Another site's address opens in a NEW TAB; a path of this site, an e-mail address and a phone number open in place. `javascript:`, `//host`, `/\host` are refused |
+
+**A standard icon's look** (every kind but HTML). Nothing set is the theme's own look for the header's tools — Standard
+draws them all on one neutral plate, the dark themes tint them; a color or a style set is the icon's own look, over any
+theme.
+
+| field | | |
+|---|---|---|
+| `iconColor` | `PRIMARY` \| `SECONDARY` \| `SUCCESS` \| `INFO` \| `WARNING` \| `DANGER` \| `FOCUS` \| `ALTERNATE` \| `DARK` \| `CUSTOM` | the theme's palette — each theme's own tone of it, light or dark — or `CUSTOM`: `iconBackground` (the plate, the ring) and `iconForeground` (the icon), each `#rgb` / `#rrggbb` and nothing else, the same in every theme (check a light and a dark one) |
+| `iconStyle` | `SOFT` \| `SOLID` \| `OUTLINE` \| `PLAIN` | a tinted plate (the default with a color) · a filled plate, the icon on it in white (dark on WARNING; CUSTOM's default) · a ring · the icon alone |
+| `iconShape` | `CIRCLE` \| `ROUNDED` \| `SQUARE` | default CIRCLE, the bell's |
+| `iconSize` | `SMALL` \| `MEDIUM` \| `LARGE` | 36 / 44 / 52 px; default MEDIUM, the bell's |
+| `showTitle` | boolean | the title written beside the icon (hidden below 1200px, where the header is narrow); no tooltip then |
+| `badge` | `DOT` \| `TEXT` | a fixed mark on the icon's corner — `TEXT` is `badgeTexts` `{locale: text}`, short ("New", "Beta"); never a count, nothing keeps one up to date |
+| `badgeColor` | the palette, not CUSTOM | default DANGER, as the bell's count |
+| `pulse` | boolean | a ring pulses from the icon until each reader first uses it — their browser remembers; still for a reader who asked for less motion |
+
+Every choice is read in any case, with `-` or a space for `_` — `double-click` is DOUBLE_CLICK — by the platform, the
+MCP tool and the commands alike; write it as the table does. A field of another kind (`popupSize` on a SCRIPT action, a
+`script` on a POPUP) is kept and does nothing — the editor keeps every part the author filled in when the kind changes.
 
 **Footer popup**
 
@@ -169,7 +203,9 @@ libraries, per-theme CSS, `ctx.t` and `data-i18n`, `ctx.callRule` / `ctx.callBl`
   node (§2). The components drawn on one node share its children: a `<plugin id="X">` binds to its child `X`, so two
   items there that both place `<plugin id="X">` show ONE plugin with ONE configuration (`validate` WARNs), and one
   id as TWO plugins is refused (the child would be turned into whichever was drawn last, wiping its settings). Give each
-  plugin an id no other item drawn there uses. An item that changes scope takes the children only it placed along.
+  plugin an id no other item drawn there uses. An item that changes scope takes along the children only its html places
+  — drawn or not: a POPUP made a PAGE or SCRIPT action keeps its html, and the plugins it placed, for when it is a popup
+  again.
 - **A `<plugin>` child is made the first time the component is drawn** — a footer popup on the next page view, a header
   popup on its first opening. Seed its settings with `<prop>` inside the tag ([24b](24b-html-composition-and-plugin-tags.md)
   §2.3 — a seed is written only while the key is absent); change them later on the child itself (MCP
@@ -184,12 +220,14 @@ libraries, per-theme CSS, `ctx.t` and `data-i18n`, `ctx.callRule` / `ctx.callBl`
 - **A header popup is drawn the FIRST time it is opened**, not with the page (its scripts, plugins and rules cost nothing
   until then), and stays as the reader left it until they leave the page. Clicks inside keep it open — and in the
   pickers and dialogs its component opens; outside, Escape and the icon close it. A Bootstrap `.modal` written into its
-  html cannot be shown — the panel clips it: a dialog belongs in a footer popup or on the page. To close the panel from
-  its script (after a form was sent):
+  html cannot be shown — the panel clips it: a dialog belongs in a footer popup or on the page. A Bootstrap dropdown in
+  it opens inside the panel and is cut off at its edge: in a side panel let it out with
+  `bootstrap.Dropdown.getOrCreateInstance(toggle, {popperConfig: {strategy: 'fixed'}})` before it is first opened
+  (this Bootstrap reads no JSON from a `data-bs-popper-config` attribute — one throws); under the icon a `<select>` is
+  the safe choice. To close the popup from its script (after a form was sent) — under the icon or at a side alike:
 
   ```js
-  var toggle = ctx.root.closest('.nct-header-action').querySelector('[data-bs-toggle="dropdown"]');
-  bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+  NctHeaderAction.close(ctx.root);
   ```
 - **A footer popup is always shown.** One that should appear only on command starts hidden in its html and is shown by
   its script — or by another component through its api:
@@ -202,8 +240,43 @@ libraries, per-theme CSS, `ctx.t` and `data-i18n`, `ctx.callRule` / `ctx.callBl`
   if (!localStorage.getItem('notice-seen')) { notice.hidden = false; }
   ctx.api.show = function () { notice.hidden = false; };
   ```
+- **A side panel** (`popupPlacement` LEFT / RIGHT) is not modal: it stays open while the reader works on the page — its
+  close button, Escape and its icon close it; one is open per side, and of two that overlap (a narrow screen) the one
+  opened last is in front. It is placed over the header, the left menu and the footer's popups and under the page's
+  dialogs, so the pickers and dialogs its component opens are usable; a menu of the header (the bell's, the user's,
+  another action's popup) opening where the panel covers it closes the panel. A component taller than the panel
+  scrolls inside it. Its top and bottom follow the header and the footer as a page that scrolls them away is scrolled.
+  For the keyboard it sits right after its icon: Tab on the icon goes into the open panel, Tab off its last control to
+  what follows the icon, Shift+Tab off its first back to the icon; Escape in a menu of the component closes the menu
+  alone. Its surface is the theme's card ground, opaque.
 - A public page shows the header and footer to anonymous visitors: a rule a public item calls must be open to
   them ([08](08-groovy-rules-and-context.md) §Execution access) — the same rule as for any public component.
+- **An action of its own html** (`kind` HTML) has no standard icon: its `html` + `studioModel` — an `nct.html.plugin`'s
+  in all — are drawn in the header's row of tools, left of the bell, WITH the page (not lazily, as a popup), and do
+  whatever its scripts do: its buttons, its menus, the rules it calls. No event, no look: what it looks like and does is
+  its own. Keep it as tall as the header's tools (44px), in theme tokens ([24a](24a-theming-and-dark-mode.md) — it shows
+  in every theme), what is clicked a `<button>` or a link with a name a screen reader can say. A Bootstrap dropdown it
+  opens may reach out of the header; a `.modal` cannot be shown from it (a dialog belongs in a footer popup). Its
+  `<plugin>` children are on the same node as a popup's (§2), with the same rules.
+- **A script action** (`kind` SCRIPT) draws nothing: its `script` is the body of an `async function` of `event` run on
+  every `event` of the icon, in a component mounted with the page (so the first click does not wait for it) — `ctx`
+  (and `this`) is an html component's: `await ctx.callRule('<rule>', {…})`, `await ctx.callBl('<crud alias>',
+  '<method>', […])`, `ctx.service.…`, `ctx.toast.success(…)`, `ctx.t('…')`, `ctx.user`. What is different from a
+  component's script:
+  - `ctx.root` is a hidden element: nothing the script draws into it is seen — show results with `ctx.toast`, or in a
+    footer popup through its api.
+  - No libraries: the `html` / `studioModel` it keeps from being a popup are not used — load one with
+    `await import('<url>')`.
+  - `event` is the browser's event, still live in the script's first synchronous part (`event.preventDefault()` works
+    before the first `await`). Another component runs it as `ctx.byName('header-<uuid>').run()` — with no event.
+  - The icon shows the platform's busy indicator while the script runs, and an event meanwhile (the second click of
+    a double click on a CLICK action) runs nothing — no `ctx.busy` call is needed. A thrown error or a rejected promise
+    is logged in the browser's console and told to the reader in a message — with its reason to an author.
+  - In the editor, `ctx.` completes as in the studio, and inside `callRule('…')` / `callBl('…', '…')` the project's
+    rules, CRUDs and methods are offered; examples go in at the cursor; the syntax is checked as it is typed, and a
+    script that does not compile is not saved.
+
+  The same rules apply as to any component's script: a rule it calls must be open to its readers.
 
 ## 6 · Who sees an item
 
@@ -232,6 +305,24 @@ mrjun.py headerfooter add --project ./app --area footer --scope global --name "C
 mrjun.py headerfooter add --project ./app --area header --scope page --page "<page>" --title "Help" \
          --icon pe-7s-help1 --kind popup --html @page-help.html
 
+# a side panel at the right, over the header, as tall as its content, zooming in — on every page
+mrjun.py headerfooter add --project ./app --area header --scope global --title "<Panel title>" --icon pe-7s-note \
+         --kind popup --size large --placement right --panel-top over-header --panel-height content \
+         --animation zoom --html @panel.html --studio @panel.studio.json
+
+# an icon that runs a script on a double click — a rule, a message
+mrjun.py headerfooter add --project ./app --area header --scope global --title "<What it does>" --icon pe-7s-refresh \
+         --kind script --event double-click --script @action.js
+
+# a green filled square icon with its title beside it and a NEW badge, pulsing until first used
+mrjun.py headerfooter add --project ./app --area header --scope global --title "<Title>" --icon pe-7s-gift \
+         --kind popup --html @whatsnew.html --icon-color success --icon-style solid --icon-shape rounded \
+         --show-title --badge text --badge-text "New" --badge-text-loc <locale2>="<…>" --pulse
+
+# no icon: a piece of the header of its own — a search box, a status chip — doing what its scripts do
+mrjun.py headerfooter add --project ./app --area header --scope global --title "<Its name in the list>" \
+         --kind html --html @search.html --studio @search.studio.json
+
 mrjun.py headerfooter list --project ./app --area header --page "<page>"     # what that page shows, in order
 mrjun.py headerfooter set  --project ./app --area header --id <uuid> --size large            # only the size changes
 mrjun.py headerfooter set  --project ./app --area header --id <uuid> --page "<page>" --scope global   # page → global
@@ -239,12 +330,20 @@ mrjun.py headerfooter mv   --project ./app --area header --id <uuid> --index 0 -
 mrjun.py headerfooter rm   --project ./app --area footer --id <uuid>
 ```
 
-The commands refuse what the platform's editor refuses: a header action without a title, an icon or a kind; a PAGE
+The commands refuse what the platform's editor refuses: a header action without a title, a kind, or — a standard
+icon — an icon; an HTML action without html; `iconColor` CUSTOM without both colors as `#rrggbb`; a TEXT badge with no
+text; `showTitle` / `pulse` that are not true or false; a PAGE
 action without a page, with a page the export does not have, with `params` that do not start with `?`, `#`, `&` or a
-`/path`, or with a `link` that is not `https://`, `http://`, `mailto:`, `tel:` or a `/path`; a footer popup without a
-name; one `<plugin id>` as two plugins among the items drawn on one node. `--studio` takes the `studioModel` OBJECT
-(`{libs, docs, scripts, css}`, [24](24-html-component-studio.md)) — never a JSON string inside JSON. What the studio
-checks (an include cycle) is `validate`'s (§8).
+`/path`, or with a `link` that is not `https://`, `http://`, `mailto:`, `tel:` or a `/path`; a SCRIPT action without a
+script or with brackets that do not match; a choice (`popupPlacement`, `panelTop`, `panelBottom`, `panelHeight`,
+`popupAnimation`, `event`) the platform does not know; a footer popup without a name; one `<plugin id>` as two plugins
+among the items drawn on one node. `--script` takes the JavaScript or `@file`; a script whose brackets do not match is
+refused (strings, templates, comments and regular expressions read as the text they are) — the full syntax check is the
+editor's, live. Every choice is taken in any case, `_` or `-` between words; `--animation automatic` takes an animation
+of the author's back out; an option that does nothing for the item's kind (`--size` on a SCRIPT action, `--panel-top` on
+a popup under the icon) is kept, and said. `--studio` takes the `studioModel` OBJECT (`{libs, docs, scripts, css}`,
+[24](24-html-component-studio.md)) — never a JSON string inside JSON. What the studio checks (an include cycle) is
+`validate`'s (§8).
 
 ## 8 · What `validate` checks
 
@@ -255,7 +354,9 @@ node; a `site-chrome.json` that is not `{"items": [...]}`, an entry without bran
 that is none; a shared virtual plugin whose node has not the identifier of §2 (no global component is drawn) or that
 has no `templateNames` list; another virtual plugin of the shared name. Every drawn component then goes through the
 html component checks — studio JSON, libraries, theme-safe CSS, `t('…')` literals, the global `<style>` trap, the
-include graph (a cycle is an ERROR).
+include graph (a cycle is an ERROR); a SCRIPT action's script through the `t('…')` literal check. The execution-access
+check of public pages ([08](08-groovy-rules-and-context.md)) reads the scripts of the items a public page shows everyone
+— its own and the branch's global ones — as it reads any component's: a rule they call must be open to anyone.
 WARN: a list on a node of another plugin or on the shared node (nothing reads it); an entry of a branch the export has
 not (the import leaves it out); `site-chrome.json` without `branches.json` (an import that takes no pages does not read
 it); a `global` key in an item (where it is kept says it); one `<plugin id>` placed by two items drawn on one node; a
@@ -270,8 +371,8 @@ identifier, alias or name; the page the user is on when not given).
 | tool | |
 |---|---|
 | `nct_ui_list_header_footer_items` | what a reader of the page sees, in order, each in short: `id`, `global`, label, kind / icon / target or placement, who sees it, its plugin ids, its problems |
-| `nct_ui_get_header_footer_item` {`id`, `part`?, `from`?} | one in full: `about` first (who sees it, the page it opens, its plugins with their `uniqueIdentifier`, the length of each part of its component) then `item` — exactly what the save takes back. A part longer than the answer: `part` = `html` \| `doc:<name>` \| `script:<name>` \| `css:<theme>`, read in pieces from `from` |
-| `nct_ui_save_header_footer_item` {`item`, `id`?, `edits`?} | creates (no id; `global` required) or changes ONLY the fields passed (`null` clears one — not `global` or `accessConfig`; `global` moves it). `edits` = `[{part, find, replace}]` changes text inside a part of a stored item's component, `find` occurring exactly once — without sending the rest. Conveniences: `title` (the default language), `targetPage` (a page: uniqueIdentifier, identifier, alias or name), `link`, `accessConfig` (patched like a page's — `roles` refused, a group grant on an item everyone sees refused without `publicReadAccess: false`). Refused with the editor's reason; an include cycle and a two-plugin `<plugin id>` refused; studio warnings and shared plugin ids returned as `warnings` |
+| `nct_ui_get_header_footer_item` {`id`, `part`?, `from`?} | one in full: `about` first (who sees it, the page it opens, its plugins with their `uniqueIdentifier`, the length of each part of its component) then `item` — exactly what the save takes back: each field as stored (`null` when never set — an automatic animation is `null`), of a header action only its kind's fields. A part longer than the answer: `part` = `html` \| `doc:<name>` \| `script:<name>` \| `css:<theme>` \| `script` (a SCRIPT action's own — no other item has one), read in pieces from `from` |
+| `nct_ui_save_header_footer_item` {`item`, `id`?, `edits`?} | creates (no id; `global` required) or changes ONLY the fields passed (`null` clears one — not `global` or `accessConfig`; `global` moves it). `edits` = `[{part, find, replace}]` changes text inside a part of a stored item's component, `find` occurring exactly once — without sending the rest; `part` not named is a SCRIPT action's `script`, any other item's `html`. A field changed that does nothing for the item's kind is kept and said in `warnings`. Conveniences: `title` (the default language), `targetPage` (a page: uniqueIdentifier, identifier, alias or name), `link`, `accessConfig` (patched like a page's — `roles` refused, a group grant on an item everyone sees refused without `publicReadAccess: false`). Refused with the editor's reason; an include cycle and a two-plugin `<plugin id>` refused; studio warnings and shared plugin ids returned as `warnings` |
 | `nct_ui_delete_header_footer_item` {`id`} | with the plugins only its component placed |
 | `nct_ui_move_header_footer_item` {`id`, `index`} | 0-based in what the page shows; the moved item takes an order between its new neighbours' (§3) |
 
@@ -293,3 +394,5 @@ item's id — so the next re-import does not undo it ([28](28-support-mode-over-
    header popup — it runs only once the popup is opened. Put it in a footer popup (always drawn) or in Global resources.
 7. **Hidden-until-command is the author's.** The platform shows every footer popup; "only on the first visit", "only
    during maintenance", "only for this role" is the component's script (or `roleAccess` for the last one).
+8. **A HOVER or DOUBLE_CLICK script has no touch twin.** A tap is a click: on a phone only Enter / Space (a keyboard)
+   reaches it. What a touch reader needs too belongs on CLICK.

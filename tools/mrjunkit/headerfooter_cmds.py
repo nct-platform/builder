@@ -1,7 +1,11 @@
 """Header actions and footer popups — html components in the site chrome (doc 37).
 
-  * area `header` — icons left of the notifications bell, in their order. `kind` POPUP opens a panel under the icon
-    with the item's own html component; `kind` PAGE goes to a page of the project (+ `params`) or to a `link`.
+  * area `header` — icons left of the notifications bell, in their order. `kind` POPUP opens the item's own html
+    component in a panel under the icon or along a side of the screen; `kind` PAGE goes to a page of the project
+    (+ `params`) or to a `link`; `kind` SCRIPT runs the item's `script` on its `event`, and draws nothing; `kind` HTML is
+    no standard icon: the item's own html component, drawn in the header with the page, doing what its scripts do.
+    A standard icon has a look — iconColor (the theme's palette, or CUSTOM + iconBackground/iconForeground), iconStyle,
+    iconShape, iconSize, showTitle, badge (+ badgeTexts, badgeColor), pulse; nothing set is the theme's own look.
   * area `footer` — html components drawn with the footer, ALWAYS shown, placed by `side` (LEFT/RIGHT), `edge`
     (TOP/BOTTOM) and `positioning` (ABSOLUTE = by the footer, FIXED = by the screen).
 
@@ -17,20 +21,34 @@ order between its new neighbours and leaves the rest — on every other page too
 An item's `html` + `studioModel` are EXACTLY an nct.html.plugin's `html` and `studioModel` (doc 24): the same runtime,
 `<plugin>` tags, ctx.callRule / ctx.callBl, scripts, libraries, per-theme CSS. The components drawn on ONE node — a
 page's on its header/footer, the global ones on the shared node — share its children, so a `<plugin id>` must not be
-two plugins among them.
+two plugins among them. A header POPUP opens under the icon or as a panel along a side of the screen (placement, its
+top / bottom / height against the header and the footer, its animation); a SCRIPT action runs its `script` — the body
+of an async function of ctx and event, ctx an html component's — on its `event`.
 
 Commands:
   headerfooter list --area header|footer [--page P]
   headerfooter add  --area header --scope global|page [--page P] --title T [--title-loc hy_AM=…] --icon pe-7s-…
-                    --kind popup|page [--size small|medium|large] [--target-page P [--params '?a=1'] | --link https://…]
-                    [--html H|@file] [--studio JSON|@file] [--public | --authenticated | --role-group G …] [--id UUID]
+                    --kind popup|page|script|html [--size small|medium|large]
+                    [--placement under-icon|left|right [--panel-top below-header|over-header]
+                     [--panel-bottom over-footer|above-footer] [--panel-height full|content]]
+                    [--animation automatic|slide|fade|zoom|none]
+                    [--target-page P [--params '?a=1'] | --link https://…] [--event click|double-click|hover|right-click]
+                    [--script JS|@file] [--html H|@file] [--studio JSON|@file] [--public | --authenticated | --role-group G …]
+                    [--icon-color automatic|primary|…|dark|custom [--icon-background #rrggbb --icon-foreground #rrggbb]]
+                    [--icon-style automatic|soft|solid|outline|plain] [--icon-shape circle|rounded|square]
+                    [--icon-size small|medium|large] [--show-title | --no-show-title] [--pulse | --no-pulse]
+                    [--badge none|dot|text [--badge-text T] [--badge-text-loc hy_AM=…] [--badge-color …]]
+                    [--id UUID]
   headerfooter add  --area footer --scope global|page [--page P] --name N [--side left|right] [--edge top|bottom]
                     [--positioning absolute|fixed] [--html …] [--studio …] [audience flags] [--id UUID]
   headerfooter set  --area A --id ID [--page P] (any add option — only what is given changes; --scope moves it)
+Every choice is taken in any case, `_` or `-` between words (double-click = DOUBLE_CLICK); an option that does nothing
+for the item's kind is kept, and said.
   headerfooter rm   --area A --id ID [--page P]
   headerfooter mv   --area A --id ID --index N [--page P]
 """
 
+import argparse
 import copy
 import re
 
@@ -46,8 +64,30 @@ AREAS = {
     "footer": {"plugin": "site.footer.plugin", "shared": "Nct footer popups", "property": "footerPopups",
                "shared_identifier": "footer-popups"},
 }
-KINDS = ("POPUP", "PAGE")
+KINDS = ("POPUP", "PAGE", "SCRIPT", "HTML")
 SIZES = ("SMALL", "MEDIUM", "LARGE")
+# A header popup: under the icon, or a side panel — its top, bottom and height against the header and the footer.
+PLACEMENTS = ("UNDER_ICON", "LEFT", "RIGHT")
+PANEL_TOPS = ("BELOW_HEADER", "OVER_HEADER")
+PANEL_BOTTOMS = ("OVER_FOOTER", "ABOVE_FOOTER")
+PANEL_HEIGHTS = ("FULL", "CONTENT")
+ANIMATIONS = ("SLIDE", "FADE", "ZOOM", "NONE")
+# What a SCRIPT action's icon runs its script on; Enter / Space run it too.
+EVENTS = ("CLICK", "DOUBLE_CLICK", "HOVER", "RIGHT_CLICK")
+# A standard icon's look: the theme's palette (each theme's own tone of it) or the author's own two colors.
+PALETTE = ("PRIMARY", "SECONDARY", "SUCCESS", "INFO", "WARNING", "DANGER", "FOCUS", "ALTERNATE", "DARK")
+ICON_COLORS = PALETTE + ("CUSTOM",)
+ICON_STYLES = ("SOFT", "SOLID", "OUTLINE", "PLAIN")
+ICON_SHAPES = ("CIRCLE", "ROUNDED", "SQUARE")
+ICON_SIZES = ("SMALL", "MEDIUM", "LARGE")
+BADGES = ("DOT", "TEXT")
+# The author's own colors are drawn into a style attribute — only ever a color.
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+# The header's choice fields, each with the values the platform reads (in that case, `_` between words).
+HEADER_CHOICES = (("popupSize", SIZES), ("popupPlacement", PLACEMENTS), ("panelTop", PANEL_TOPS),
+                  ("panelBottom", PANEL_BOTTOMS), ("panelHeight", PANEL_HEIGHTS), ("popupAnimation", ANIMATIONS),
+                  ("event", EVENTS), ("iconColor", ICON_COLORS), ("iconStyle", ICON_STYLES), ("iconShape", ICON_SHAPES),
+                  ("iconSize", ICON_SIZES), ("badge", BADGES), ("badgeColor", PALETTE))
 SIDES = ("LEFT", "RIGHT")
 EDGES = ("TOP", "BOTTOM")
 POSITIONINGS = ("ABSOLUTE", "FIXED")
@@ -62,12 +102,35 @@ PAGE_PLUGIN = "siteMapPage"
 SAFE_LINK_RE = re.compile(r"(?i)^(https?://|mailto:|tel:|/[^/\\])")
 # What may follow a page's address — appended as written: a query, a fragment, more of the path; never //host.
 SAFE_PARAMS_RE = re.compile(r"^(|[?#&].*|/[^/\\].*)$", re.S)
-TEXT_FIELDS = ("icon", "html", "params", "link", "identifier", "name")
+TEXT_FIELDS = ("icon", "html", "params", "link", "identifier", "name", "script", "iconBackground", "iconForeground")
 
 
 # ---------------------------------------------------------------------------
 # the rules — the platform editor's own refusals, shared with `validate`
 # ---------------------------------------------------------------------------
+
+
+def choice(value):
+    """A choice as the platform reads it: in any case, `-` or a space for `_` — `double-click` is DOUBLE_CLICK."""
+    return value.strip().upper().replace("-", "_").replace(" ", "_") if isinstance(value, str) else value
+
+
+def kind_of(item):
+    return choice(item.get("kind"))
+
+
+def closes_its_brackets(js):
+    """Whether every (, [ and { of the code closes, and nothing it did not open does — strings, templates, comments and
+    regular expressions read as the text they are (the platform's own lexer). A SCRIPT action's script is the body of a
+    function: one that closes what it did not open ends the function early, and its rest would run on its own."""
+    from .validate_cmds import _js_code_only
+    pairs, open_ = {")": "(", "]": "[", "}": "{"}, []
+    for c in _js_code_only(js or ""):
+        if c in "([{":
+            open_.append(c)
+        elif c in pairs and (not open_ or open_.pop() != pairs[c]):
+            return False
+    return not open_
 
 
 def item_problems(area, item, page_exists):
@@ -77,9 +140,12 @@ def item_problems(area, item, page_exists):
     for field in TEXT_FIELDS:
         if item.get(field) is not None and not isinstance(item.get(field), str):
             problems.append("%s must be text, not %s" % (field, type(item.get(field)).__name__))
-    for field in ("titles", "roleAccess"):
+    for field in ("titles", "badgeTexts", "roleAccess"):
         if item.get(field) is not None and not isinstance(item.get(field), dict):
             problems.append("%s must be an object, not %s" % (field, type(item.get(field)).__name__))
+    for field in ("showTitle", "pulse"):
+        if item.get(field) is not None and not isinstance(item.get(field), bool):
+            problems.append("%s must be true or false, not %r" % (field, item.get(field)))
     if item.get("studioModel") is not None and not isinstance(item.get("studioModel"), dict):
         problems.append("studioModel is a JSON string or another non-object — the platform reads an object")
     if item.get("internal") is not None and not isinstance(item.get("internal"), bool):
@@ -90,11 +156,23 @@ def item_problems(area, item, page_exists):
         titles = item.get("titles") or {}
         if not any(isinstance(v, str) and v.strip() for v in titles.values()):
             problems.append("no title (titles) — it is the icon's tooltip and what a screen reader says")
-        if not (item.get("icon") or "").strip():
+        kind = kind_of(item)
+        if not (item.get("icon") or "").strip() and kind != "HTML":
             problems.append("no icon")
-        kind = item.get("kind")
+        if kind != "HTML":
+            problems += look_problems(item)
         if kind not in KINDS:
-            problems.append("kind must be one of %s, not %r" % (list(KINDS), kind))
+            problems.append("kind must be one of %s, not %r" % (list(KINDS), item.get("kind")))
+        elif kind == "HTML":
+            if not (item.get("html") or "").strip():
+                problems.append("no html — an HTML action is its own html, what the header shows")
+        elif kind == "SCRIPT":
+            if not (item.get("script") or "").strip():
+                problems.append("no script — the JavaScript the icon runs")
+            elif not closes_its_brackets(item.get("script")):
+                problems.append("the script's brackets do not match — every (, [ and { it opens must close, and none "
+                                "it did not open (it is the body of a function: a } too many would end it, and run "
+                                "the rest as every page is drawn)")
         elif kind == "PAGE":
             if item.get("internal") is False:
                 if not SAFE_LINK_RE.match((item.get("link") or "").strip()):
@@ -107,20 +185,58 @@ def item_problems(area, item, page_exists):
                     problems.append("the page %r it opens does not exist" % item.get("identifier"))
                 if not SAFE_PARAMS_RE.match((item.get("params") or "").strip()):
                     problems.append("params %r must start with ? (or #, &, /more/of/the/path)" % item.get("params"))
-        if item.get("popupSize") is not None and item.get("popupSize") not in SIZES:
-            problems.append("popupSize must be one of %s" % list(SIZES))
+        for field, allowed in HEADER_CHOICES:
+            if item.get(field) is not None and choice(item.get(field)) not in allowed:
+                problems.append("%s must be one of %s, not %r" % (field, list(allowed), item.get(field)))
     else:
         if not (item.get("name") or "").strip():
             problems.append("no name — only authors see it, in the list of popups")
         for field, allowed in (("side", SIDES), ("edge", EDGES), ("positioning", POSITIONINGS)):
-            if item.get(field) is not None and item.get(field) not in allowed:
+            if item.get(field) is not None and choice(item.get(field)) not in allowed:
                 problems.append("%s must be one of %s, not %r" % (field, list(allowed), item.get(field)))
     return problems
 
 
+def look_problems(item):
+    """A standard icon's look the platform would refuse: its own colors not both a color, a text badge with no text."""
+    problems = []
+    if choice(item.get("iconColor")) == "CUSTOM" and not all(
+            isinstance(item.get(f), str) and HEX_COLOR_RE.match(item[f].strip())
+            for f in ("iconBackground", "iconForeground")):
+        problems.append("iconColor CUSTOM needs iconBackground and iconForeground, each #rgb or #rrggbb")
+    texts = item.get("badgeTexts") if isinstance(item.get("badgeTexts"), dict) else {}
+    if choice(item.get("badge")) == "TEXT" and not any(isinstance(v, str) and v.strip() for v in texts.values()):
+        problems.append("badge TEXT with no badgeTexts — write its text, or choose DOT")
+    return problems
+
+
 def draws_component(area, item):
-    """A popup action and every footer popup draw their component; a page action is an icon and a link."""
-    return area == "footer" or item.get("kind") == "POPUP"
+    """A popup action, an action of its own html and every footer popup draw their component; a page action is an icon
+    and a link."""
+    return area == "footer" or kind_of(item) in ("POPUP", "HTML")
+
+
+def mounts_component(area, item):
+    """What has a component on its node: one that draws it, and a SCRIPT action — its script runs in one (ctx)."""
+    return draws_component(area, item) or (area == "header" and kind_of(item) == "SCRIPT")
+
+
+def component_scripts(area, item):
+    """(name, code) of what runs as `item` is shown: its component's enabled studio scripts — or a SCRIPT action's
+    script alone (the component it keeps from being a popup draws nothing)."""
+    if area == "header" and kind_of(item) == "SCRIPT":
+        return [("script", item.get("script") if isinstance(item.get("script"), str) else "")]
+    if not draws_component(area, item):
+        return []
+    studio = item.get("studioModel") if isinstance(item.get("studioModel"), dict) else {}
+    return [(str(s.get("name") or "?"), s.get("code") if isinstance(s.get("code"), str) else "")
+            for s in studio.get("scripts") or [] if isinstance(s, dict) and s.get("enabled") is not False]
+
+
+def seen_by_everyone(item):
+    """Whether an anonymous visitor of a public page is shown `item` — everyone is, unless its access says otherwise."""
+    access = item.get("roleAccess")
+    return not isinstance(access, dict) or access.get("publicReadAccess") is not False
 
 
 def plugin_tags(item):
@@ -352,9 +468,16 @@ def cmd_list(args):
         return 0
     for i, (it, scope) in enumerate(pairs):
         if args.area == "header":
-            what = it.get("kind") or "?"
-            if it.get("kind") == "PAGE":
+            kind = kind_of(it)
+            what = kind or "?"
+            if kind == "PAGE":
                 what += " -> " + (it.get("link") if it.get("internal") is False else "page %s" % it.get("identifier"))
+            elif kind == "POPUP" and (choice(it.get("popupPlacement")) or "UNDER_ICON") != "UNDER_ICON":
+                what += " " + choice(it["popupPlacement"]).lower() + " panel"
+            elif kind == "SCRIPT":
+                what += " on " + (choice(it.get("event")) or "CLICK").lower().replace("_", "-")
+            elif kind == "HTML":
+                what += " — its own html in the header"
             title = next((v for v in (it.get("titles") or {}).values() if v), "")
             core.out("%d. %s  %-6s %-14s %s  [%s]" % (i, it.get("uuid"), scope, it.get("icon") or "-", title, what))
         else:
@@ -384,10 +507,10 @@ def cmd_add(args):
 def cmd_set(args):
     p = core.Project(args.project)
     where = _Where(p, args)
-    item, scope = _find(p, args.area, where, args.id)
-    item = copy.deepcopy(item)
+    previous, scope = _find(p, args.area, where, args.id)
+    item = copy.deepcopy(previous)
     _apply(p, args, item)
-    _store(p, args.area, where, item, args.scope or scope, scope)
+    _store(p, args.area, where, item, args.scope or scope, scope, previous)
     _save(p, "updated %s item %s%s" % (args.area, args.id,
                                        " (now %s)" % args.scope if args.scope and args.scope != scope else ""))
 
@@ -456,9 +579,9 @@ def _between(before, after, first, last):
     return before + (after - before) // 2
 
 
-def _store(project, area, where, item, scope, previous_scope):
+def _store(project, area, where, item, scope, previous_scope, previous=None):
     """`item` stored in `scope`, moved there from `previous_scope` (None for a new one) with the plugins only its
-    component placed — refused with the platform's reasons when the platform would refuse it."""
+    component placed as it was (`previous`) — refused with the platform's reasons when the platform would refuse it."""
     if scope == "page":
         node = where.require_node(area)
         beside = [it for it in read_items(node, area) if it.get("uuid") != item["uuid"]]
@@ -494,9 +617,11 @@ def _store(project, area, where, item, scope, previous_scope):
         else:
             globals_[at] = item
         _write_globals(project, area, globals_)
-        new_node = _ensure_shared_node(project, area) if draws_component(area, item) else None
+        shared = shared_virtual_plugin(project, area)
+        new_node = (_ensure_shared_node(project, area) if mounts_component(area, item)
+                    else shared["content"] if shared else None)
     if previous_scope is not None and previous_scope != scope and old_node is not None and new_node is not None:
-        _move_children(old_node, new_node, area, item, rest, scope)
+        _move_children(old_node, new_node, area, previous or item, rest, beside, scope)
     project.mark(core.F_BRANCHES)
 
 
@@ -519,10 +644,12 @@ def _not_found(area, item_id, where):
 
 
 def _children_only_placed_by(node, area, item, others):
-    ids = set(plugin_tags(item)) if draws_component(area, item) else set()
+    """The children of `node` that `item`'s html places and none of `others`' — drawn now or not, as the platform
+    reads it: an item that draws nothing for the moment (a popup made a page or a script action) keeps its html for
+    when it draws again, and the children it placed with it."""
+    ids = set(plugin_tags(item))
     for other in others:
-        if draws_component(area, other):
-            ids -= set(plugin_tags(other))
+        ids -= set(plugin_tags(other))
     return [c for c in node.get("children") or [] if c.get("identifier") in ids and not c.get("isBehaviour")]
 
 
@@ -533,14 +660,23 @@ def _remove_children(node, area, item, others):
     node["children"] = [c for c in node.get("children") or [] if c not in gone]
 
 
-def _move_children(old_node, new_node, area, item, still_on_old, scope):
-    """An item that changes sides takes the children only its component placed to the node it is drawn on now."""
-    there = {c.get("identifier") for c in new_node.get("children") or []}
-    moved = _children_only_placed_by(old_node, area, item, still_on_old)
+def _move_children(old_node, new_node, area, previous, still_on_old, drawn_on_new, scope):
+    """An item that changes sides takes the children only its component placed — as it was before the change — to the
+    node it is drawn on now. One the new node has already stays there when an item drawn there places it (or it is a
+    behaviour), and the moved copy goes; a leftover no item places gives way to the one that comes."""
+    placed_there = set()
+    for other in drawn_on_new:
+        if draws_component(area, other):
+            placed_there |= set(plugin_tags(other))
+    moved = _children_only_placed_by(old_node, area, previous, still_on_old)
     old_node["children"] = [c for c in old_node.get("children") or [] if c not in moved]
     for child in moved:
-        if child.get("identifier") in there:
-            continue  # the new node has its own — another item there places it
+        existing = next((c for c in new_node.get("children") or [] if c.get("identifier") == child.get("identifier")),
+                        None)
+        if existing is not None:
+            if child.get("identifier") in placed_there or existing.get("isBehaviour"):
+                continue
+            new_node["children"] = [c for c in new_node["children"] if c is not existing]
         for n, _p, _pt in core.iter_nodes(child):
             n["virtualContent"] = scope == "global"
         new_node.setdefault("children", []).append(child)
@@ -571,6 +707,41 @@ def _apply(project, args, item):
         _apply_footer(args, item)
 
 
+def _cli_choice(value):
+    """An option's choice as the CLI lists it — `DOUBLE_CLICK`, `Double-Click` → `double-click`."""
+    return value.strip().lower().replace("_", "-")
+
+
+# The options that do something only for one kind of header action — or, the panel's, for a popup at a side.
+_KIND_OPTIONS = {"POPUP": ("size", "placement", "panel_top", "panel_bottom", "panel_height", "animation"),
+                 "PAGE": ("target_page", "params", "link"),
+                 "SCRIPT": ("event", "script"),
+                 "HTML": ()}
+_PANEL_OPTIONS = ("panel_top", "panel_bottom", "panel_height")
+# A standard icon's: nothing for an action of its own html. Some need another choice to do anything.
+_LOOK_OPTIONS = ("icon", "icon_color", "icon_background", "icon_foreground", "icon_style", "icon_shape", "icon_size",
+                 "show_title", "pulse", "badge", "badge_text", "badge_text_loc", "badge_color")
+_LOOK_NEEDS = {"icon_background": ("iconColor", "CUSTOM"), "icon_foreground": ("iconColor", "CUSTOM"),
+               "badge_text": ("badge", "TEXT"), "badge_text_loc": ("badge", "TEXT"), "badge_color": ("badge", None)}
+
+
+def _idle_options(args, item):
+    """The options given that do nothing for the header action as it now is: another kind's, a side panel's on a popup
+    under the icon, a standard icon's look on an action of its own html, a look choice without the choice it needs —
+    kept, and used only if the action is made what they are for."""
+    kind = kind_of(item)
+    under_icon = kind == "POPUP" and (choice(item.get("popupPlacement")) or "UNDER_ICON") == "UNDER_ICON"
+    idle = [option for k, options in _KIND_OPTIONS.items() for option in options
+            if getattr(args, option) is not None and (k != kind or under_icon and option in _PANEL_OPTIONS)]
+    for option in _LOOK_OPTIONS:
+        if getattr(args, option, None) in (None, False, []):
+            continue
+        field, wanted = _LOOK_NEEDS.get(option, (None, None))
+        if kind == "HTML" or field and (choice(item.get(field)) != wanted if wanted else not item.get(field)):
+            idle.append(option)
+    return ["--" + option.replace("_", "-") for option in idle]
+
+
 def _apply_header(project, args, item):
     if args.name or args.side or args.edge or args.positioning:
         raise core.ToolError("--name/--side/--edge/--positioning are footer fields")
@@ -585,9 +756,18 @@ def _apply_header(project, args, item):
     if args.icon is not None:
         item["icon"] = args.icon
     if args.kind is not None:
-        item["kind"] = args.kind.upper()
-    if args.size is not None:
-        item["popupSize"] = args.size.upper()
+        item["kind"] = choice(args.kind)
+    for option, field in (("size", "popupSize"), ("placement", "popupPlacement"), ("panel_top", "panelTop"),
+                          ("panel_bottom", "panelBottom"), ("panel_height", "panelHeight"),
+                          ("animation", "popupAnimation"), ("event", "event")):
+        if getattr(args, option) is not None:
+            item[field] = choice(getattr(args, option))
+    # Automatic is no animation written: it slides in at a side, opens as the header's menus do under the icon — and
+    # follows a later change of placement.
+    if item.get("popupAnimation") == "AUTOMATIC":
+        del item["popupAnimation"]
+    if args.script is not None:
+        item["script"] = core.read_value_arg(args.script)
     if args.target_page is not None and args.link is not None:
         raise core.ToolError("pass --target-page or --link, not both")
     if args.target_page is not None:
@@ -599,20 +779,57 @@ def _apply_header(project, args, item):
     if args.link is not None:
         item["link"] = args.link
         item["internal"] = False
+    _apply_look(project, args, item)
+    idle = _idle_options(args, item)
+    if idle:
+        core.out("note: %s do(es) nothing for this %s action%s — kept, and used only if it is made what they are for"
+                 % (", ".join(idle), kind_of(item) or "kind-less",
+                    " under the icon" if kind_of(item) == "POPUP" else ""))
+
+
+def _apply_look(project, args, item):
+    """A standard icon's look; `automatic` takes a choice back out — the theme's own look."""
+    for option, field in (("icon_color", "iconColor"), ("icon_style", "iconStyle"), ("icon_shape", "iconShape"),
+                          ("icon_size", "iconSize"), ("badge", "badge"), ("badge_color", "badgeColor")):
+        value = getattr(args, option)
+        if value is not None:
+            if value in ("automatic", "none"):
+                item.pop(field, None)
+            else:
+                item[field] = choice(value)
+    for option, field in (("icon_background", "iconBackground"), ("icon_foreground", "iconForeground")):
+        if getattr(args, option) is not None:
+            item[field] = getattr(args, option)
+    for field in ("show_title", "pulse"):
+        if getattr(args, field) is not None:
+            item["showTitle" if field == "show_title" else "pulse"] = getattr(args, field)
+    texts = item.get("badgeTexts") if isinstance(item.get("badgeTexts"), dict) else {}
+    if args.badge_text is not None:
+        texts[project.default_locale()] = args.badge_text
+    for pair in args.badge_text_loc or []:
+        if "=" not in pair:
+            raise core.ToolError("--badge-text-loc takes locale=text, got %r" % pair)
+        loc, text = pair.split("=", 1)
+        texts[loc.strip()] = text
+    if texts:
+        item["badgeTexts"] = texts
 
 
 def _apply_footer(args, item):
     if any(v is not None for v in (args.title, args.icon, args.kind, args.size, args.target_page, args.link,
-                                   args.params)) or args.title_loc:
-        raise core.ToolError("--title/--icon/--kind/--size/--target-page/--link/--params are header fields")
+                                   args.params, args.placement, args.panel_top, args.panel_bottom, args.panel_height,
+                                   args.animation, args.event, args.script, args.icon_color, args.icon_background,
+                                   args.icon_foreground, args.icon_style, args.icon_shape, args.icon_size,
+                                   args.show_title, args.pulse, args.badge, args.badge_text, args.badge_color)) \
+            or args.title_loc or args.badge_text_loc:
+        raise core.ToolError("--title/--icon/--kind/--size/--placement/--panel-*/--animation/--event/--script/"
+                             "--target-page/--link/--params and the icon's look (--icon-*, --show-title, --pulse, "
+                             "--badge*) are header fields")
     if args.name is not None:
         item["name"] = args.name
-    if args.side is not None:
-        item["side"] = args.side.upper()
-    if args.edge is not None:
-        item["edge"] = args.edge.upper()
-    if args.positioning is not None:
-        item["positioning"] = args.positioning.upper()
+    for option in ("side", "edge", "positioning"):
+        if getattr(args, option) is not None:
+            item[option] = choice(getattr(args, option))
 
 
 def page_ids(project):
@@ -651,17 +868,57 @@ def register(sub, add_project):
             sp.add_argument("--title", help="header: the title in the project's default language (the icon's tooltip)")
             sp.add_argument("--title-loc", action="append", metavar="LOCALE=TEXT", help="header: a title per locale")
             sp.add_argument("--icon", help="header: a pe-7s-* icon class, e.g. pe-7s-help1")
-            sp.add_argument("--kind", choices=["popup", "page", "POPUP", "PAGE"], help="header: what a click does")
-            sp.add_argument("--size", choices=["small", "medium", "large", "SMALL", "MEDIUM", "LARGE"],
+            sp.add_argument("--kind", type=_cli_choice, choices=["popup", "page", "script", "html"],
+                            help="header: what the icon does — opens a popup or a page, runs a script — or html: no "
+                                 "standard icon, its own --html drawn in the header, doing what its scripts do")
+            sp.add_argument("--size", type=_cli_choice, choices=["small", "medium", "large"],
                             help="header popup width (default medium)")
+            sp.add_argument("--placement", type=_cli_choice, choices=["under-icon", "left", "right"],
+                            help="header popup: under the icon (default) or a panel along that side of the screen")
+            sp.add_argument("--panel-top", type=_cli_choice, choices=["below-header", "over-header"],
+                            help="header side panel: its top under the header (default) or over it")
+            sp.add_argument("--panel-bottom", type=_cli_choice, choices=["over-footer", "above-footer"],
+                            help="header side panel: down to the screen's bottom (default) or the footer's top")
+            sp.add_argument("--panel-height", type=_cli_choice, choices=["full", "content"],
+                            help="header side panel: top to bottom (default) or as tall as its component")
+            sp.add_argument("--animation", type=_cli_choice, choices=["automatic", "slide", "fade", "zoom", "none"],
+                            help="header popup: how it comes into view — automatic (the default; nothing written): "
+                                 "slides in at a side, opens as the header's menus do under the icon")
+            sp.add_argument("--event", type=_cli_choice, choices=["click", "double-click", "hover", "right-click"],
+                            help="header SCRIPT: what runs the script (default click; Enter / Space run it too)")
+            sp.add_argument("--script", help="header SCRIPT: the JavaScript — the body of an async function of event "
+                                             "(this = ctx) — or @file")
             sp.add_argument("--target-page", help="header PAGE: the page it opens (identifier, name or unique substring)")
             sp.add_argument("--params", help="header PAGE: appended to the page's address, e.g. ?status=open")
             sp.add_argument("--link", help="header PAGE: https://… (a new tab), mailto:…, tel:… or /a/path (in place)")
             sp.add_argument("--name", help="footer: the name authors know it by")
-            sp.add_argument("--side", choices=["left", "right", "LEFT", "RIGHT"], help="footer (default right)")
-            sp.add_argument("--edge", choices=["top", "bottom", "TOP", "BOTTOM"], help="footer (default bottom)")
-            sp.add_argument("--positioning", choices=["absolute", "fixed", "ABSOLUTE", "FIXED"],
+            sp.add_argument("--side", type=_cli_choice, choices=["left", "right"], help="footer (default right)")
+            sp.add_argument("--edge", type=_cli_choice, choices=["top", "bottom"], help="footer (default bottom)")
+            sp.add_argument("--positioning", type=_cli_choice, choices=["absolute", "fixed"],
                             help="footer: by the footer (absolute) or by the screen (fixed, default)")
+            sp.add_argument("--icon-color", type=_cli_choice,
+                            choices=["automatic"] + [c.lower() for c in ICON_COLORS],
+                            help="header icon: the theme's palette color, custom (+ --icon-background/--icon-foreground) "
+                                 "or automatic (the theme's own look, the default)")
+            sp.add_argument("--icon-background", help="header icon, --icon-color custom: the plate's color, #rrggbb")
+            sp.add_argument("--icon-foreground", help="header icon, --icon-color custom: the icon's color, #rrggbb")
+            sp.add_argument("--icon-style", type=_cli_choice, choices=["automatic"] + [c.lower() for c in ICON_STYLES],
+                            help="header icon: soft (tinted plate), solid, outline (a ring), plain (the icon alone)")
+            sp.add_argument("--icon-shape", type=_cli_choice, choices=[c.lower() for c in ICON_SHAPES],
+                            help="header icon: the plate's shape (default circle)")
+            sp.add_argument("--icon-size", type=_cli_choice, choices=[c.lower() for c in ICON_SIZES],
+                            help="header icon: its size (default medium, the bell's)")
+            sp.add_argument("--show-title", action=argparse.BooleanOptionalAction, default=None,
+                            help="header icon: the title written beside it")
+            sp.add_argument("--pulse", action=argparse.BooleanOptionalAction, default=None,
+                            help="header icon: pulses until each reader first uses it")
+            sp.add_argument("--badge", type=_cli_choice, choices=["none", "dot", "text"],
+                            help="header icon: a fixed mark on it — a dot or a short text (--badge-text); not a count")
+            sp.add_argument("--badge-text", help="header icon badge: its text in the project's default language")
+            sp.add_argument("--badge-text-loc", action="append", metavar="LOCALE=TEXT",
+                            help="header icon badge: its text per locale")
+            sp.add_argument("--badge-color", type=_cli_choice, choices=["automatic"] + [c.lower() for c in PALETTE],
+                            help="header icon badge: its color (default danger, as the bell's count)")
             sp.add_argument("--html", help="the component's main document, or @file")
             sp.add_argument("--studio", help="the component's studioModel JSON {libs, docs, scripts, css}, or @file")
             who = sp.add_mutually_exclusive_group()
