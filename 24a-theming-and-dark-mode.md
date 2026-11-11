@@ -19,7 +19,7 @@
 |---|---|
 | The skins | `Standard`, `Dracula`, `Forest`, `Dark`, `Dark Blue` |
 | How a skin is applied | whole-stylesheet swap (`base.css` → `theme-common.css` → `<skin>.css`). **No body class, no data-attribute** |
-| Which skin is active | user state → tenant state → `DARK` (the platform default); a **chart** resolves it the same way, a **studio component** resolves it itself from the **user** value only (else `Dark`) |
+| Which skin is active | the viewer's pick **in this project** (browser, then user state) → project state → `DARK` (the platform default); a **chart**, a per-theme **image** and a **studio component** all resolve it the same way |
 | Where authored CSS goes | `properties.studioModel.stringValue` → `css.byTheme`, a chart's `properties.Javascript.stringValue` → `cssByTheme` (+ the legacy `css` field, folded in as `"*"`), or an inline `<style>` in `properties.html.stringValue` (rendered **raw** by the HTML plugin) |
 | Scoping | every rule you author is prefixed with the instance's id — `#dokie-plug-<markupId>` for a studio component, `#<markupId>` for a chart. An inline `<style>` in an `html` property is **not** scoped |
 | `mrjun.py validate` coverage | **three WARNINGS, zero errors:** colour literals inside a studio `studioModel` → `css.byTheme["*"]` block (`_check_theme_safe_css` in `validate_cmds.py`), an inline `<style>` in an `nct.html.plugin`'s `properties.html`, and Plotly-without-`paper_bgcolor` on charts. Everything else in this doc — a colour in `style=`, a dead `html.dark …` selector, `badge-light`, `h-100`, unbalanced braces, a misspelled `byTheme` key, and **every line of a chart's per-theme CSS** — ships silently green. Exact gap list: §9. |
@@ -151,18 +151,21 @@ else is injected between them, so the last one always wins on equal specificity.
 > **The supported discriminator** is the `css.byTheme` key (§5) and nothing else. And even inside a
 > studio component `html.dark .foo` cannot work, because the scoper rewrites it onto the wrapper — §5.3.
 
-### 1.4 Which skin is active — per **user**, not per project
+### 1.4 Which skin is active — per **viewer**, and per **project**
 
 The active skin is resolved in a fixed order of precedence, and the **first** answer wins:
 
-1. the **signed-in user's** own stored skin preference;
+1. the skin **this viewer picked in this project** — remembered by their browser, else stored for the
+   signed-in user;
 2. otherwise the **project-level** stored value;
 3. otherwise the platform default, **`Dark`**.
 
-Any failure along the way (no user, unreadable state) falls through to that same default — so an
-anonymous visitor always lands on `Dark`.
+Step 1 is kept **per project**: the same person can run one project on `Standard` and another on
+`Dark`, in the same browser, side by side — picking a theme in one never re-themes the other. A project
+the viewer never picked a theme in shows steps 2–3, i.e. the default. Any failure along the way (no
+user, unreadable state) falls through to that same default.
 
-- There are **two** switchers, and both write the same per-user `skin` state value:
+- There are **two** switchers, and both write the same per-user, per-project `skin` state value:
   - the **switch in the application header** — Dark ⇄ Standard only. A skin that is neither (Dracula,
     Forest, Dark Blue) renders the switch in its *dark* state, and one click moves the user to
     Standard; the click after that lands on Dark, not back on the third skin. It is hidden for an
@@ -176,14 +179,11 @@ anonymous visitor always lands on `Dark`.
   so it is decided *at page render*. There is no client-side theme event
   to react to, and nothing in `ctx` tells author JS which skin is active
   (the mount payload carries no skin — see [24](24-html-component-studio.md)).
-- The two authored-CSS surfaces do **not** resolve the skin identically. A studio component
-  reads the **user** value only and returns `Dark` when there is no page user; a
-  chart resolves it the page's way (user → tenant → `Dark`).
-  ⚠️ **A public / anonymous page therefore renders your studio component's CSS as `Dark` no matter
-  what.** If you author a public landing screen and only ever preview it signed-in on `Standard`, you have
-  never seen what your visitors see.
+- Both authored-CSS surfaces — a studio component and a chart — resolve the skin exactly the way the
+  page does, so their per-theme CSS always matches the stylesheet on screen, for an anonymous visitor
+  too.
 - ⚠️ The tenant step of the skin resolution is inert in practice: the platform's own Appearance screen writes
-  only the per-**user** value, and nothing writes a tenant `skin` state value. Do not design
+  only the viewer's own per-project pick, and nothing writes a project `skin` state value. Do not design
   around a "project default theme" — there is none you can set from a `.mrjun`.
 
 **Business judgement.** Because the skin is a per-viewer preference you cannot pin, *"we will only

@@ -386,6 +386,27 @@ deleted. Send the rule as `nct_rule_findByIdentifier` returns it — `name`, `ru
 `description`, `contextIdentifiers` and the body in `executor` — and read it back. The same night `nct_rule_update` took
 the Groovy in `executor` (one probe rule written, read back and deleted first, as below).
 
+### 4d. A CRUD's data source over MCP — and the secrets the SQL tools keep back
+
+**Give a CRUD its connection with `nct_bl_setSourceFromExisting {crudId, sourceIdentifier}`.** Pass the `identifier`
+of a source the project already declares (`nct_repository_list_sources` — the one `rep-objects.json` `sources[]` names;
+its `id` works too). The server copies host, port, database, schema, user and password from that source onto the CRUD
+and re-registers it, exactly as the /bl page's «Change CRUD Source» dialog does; the response names the source, schema
+and host and never carries the password. Run it again after a source's credentials are rotated. The project's SYSTEM
+source is refused. `nct_bl_setSource` with explicit credentials is only for a connection no declared source has —
+never type a project source's password into a tool call. ⚠️ If the tool answers «NOT IMPLEMENTED», the platform
+predates the fix: the source is then set by a person on /bl (CRUD card → Source), not by a password over MCP.
+
+**`nct_repository_execute_query` never hands back a credential.** A statement naming `source_password` is refused
+(testing it with `source_password IS [NOT] NULL` is allowed); a result column whose name contains *password* comes back
+`[REDACTED]`; and a project source's password is masked wherever else it appears, in a cell or in an error.
+`SELECT * FROM dynamic_crud` stays usable for everything else.
+
+**`nct_form_findById` takes the form's UUID `id` or its `identifier`** — and so do `nct_form_update`, `_delete`,
+`_clone`, `_addHiddenConfig` and `_addActionValidator`. Before the fix the identifier answered
+`Error executing tool: null`. That string, from any tool, means the real error carried no message; a fixed platform
+names it instead (the exception's text, or its class).
+
 ---
 
 ---
@@ -396,7 +417,7 @@ the Groovy in `executor` (one probe rule written, read back and deleted first, a
 |---|---|---|
 | A page, a plugin on a page, plugin properties, page/plugin access | MCP CMS tools | available |
 | A Groovy rule (any of the three types) | MCP rule tools | available |
-| A dynamic CRUD: methods, parameters, DTO/filter fields | MCP `bl` tools | available |
+| A dynamic CRUD: methods, parameters, DTO/filter fields, its data source | MCP `bl` tools; the source with `nct_bl_setSourceFromExisting` (§4d) | available |
 | Who may RUN a rule / a dynamic CRUD / one method (execution access) | MCP `nct_rule_setAccess`, `nct_bl_setAccess`, `nct_bl_updateMethod` | available on a platform with execution access — see §5c. A Java CRUD's access is code (`@CrudAccess`): no channel |
 | Database structure (table, column, index, constraint, raw DDL) | MCP repository tools | available |
 | A saved query | MCP query tools | available |
@@ -602,7 +623,8 @@ requires a re-import (§7), and a re-import REPLACES the project.
   the import path, which replaces the whole set — including the system aliases the platform sends its own
   notifications with. So: edit a mail template live, never by re-importing a partial set.
 * **Data sources.** An export deliberately carries a source WITHOUT its password, so a source restored from an
-  archive cannot connect until someone re-enters the credential in the UI.
+  archive cannot connect until someone re-enters the credential in the UI. After that, `nct_bl_setSourceFromExisting`
+  (§4d) re-copies it onto each CRUD that uses it.
 * **Project locales and tenant-level settings.** No tool reads or writes them. Adding a language is not possible
   over this channel.
 * **Free-form enumerations** have no live channel. Their local half is `dynamic-cruds.json` → `enums[]`
@@ -841,7 +863,7 @@ Do not confuse the three things the top bar offers:
 | Control | Where | What it gates |
 |---|---|---|
 | «Ես հեղինակ եմ» | Site dropdown | Import/Export, Layout, Accesses, Developer in Settings |
-| «Խմբագրել կայքը» | Site dropdown | the page editor + the left-nav (kicker) editor |
+| «Խմբագրել կայքը» | Site dropdown | the page editor + the left-nav (kicker) editor — hover the sidebar → ≡ → «Edit left-nav»; adding a link live: [17 §On a running project](17-left-nav-quick-links.md#on-a-running-project--the-live-left-nav-editor) |
 | branch pill (`Արտադրական`…) | top bar, right | which branch the editors write to |
 
 ## 8. Live test — driving the running project in a real browser

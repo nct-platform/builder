@@ -251,6 +251,63 @@ To add a quick link to the left nav in an unpacked export:
 6. **Re-encode** the object back to a JSON string and write it into `properties.modelGroups.stringValue`.
 7. **Nothing to repeat** — that one shared node serves every page. Then `validate` and `pack`.
 
+## On a running project — the live left-nav editor
+
+Everything above edits an EXPORT. When the project is already live (support mode, [28](28-support-mode-over-mcp.md)) and
+the link must appear on the stand without a re-import, use the platform's own editor. It writes the shared
+`Nct left nav` node, exactly what `quicklink add` targets. *(Measured 2026-11-11 on a three-locale production tenant.)*
+
+**Path (an author account):**
+1. Top bar **Site / «Կայք»** → **«Edit site» / «Խմբագրել կայքը»** (edit-site mode, not author mode — doc 28 §the three switches).
+2. Hover the left nav: a **≡** button appears at its top-right corner. Click it → context menu **EDITOR**: «Edit left-nav»,
+   Behaviors, Settings, Role access, Save component, Save common component, **Detach from virtual template**.
+   ⛔ «Detach from virtual template» copies the shared nav into THIS page and clears its `linkContentIdentifier`: from then
+   on that one page has a private, frozen sidebar. Never press it to add a link.
+3. **«Edit left-nav»** opens the tree editor over the sidebar. Every group and item has **⋮** → «Create child item of X» /
+   «Edit X» / «Delete X»; groups also have «Create new group» at the top. Groups drag by their grip and items drag within
+   and between groups. The order is saved on drop, with no Save button.
+4. **«Create child item»** of a group opens a dialog with Label, Icon (the `pe-7s-*` list) and Link. The Link is «Choose
+   from existing pages», a picker listing `Home / <page name>` whose value is the page `identifier` (+ Parameters), or an
+   external link. The **flags** (am / us / ru) switch the locale of Label and Icon.
+   ⚠ Opening an EMPTY locale pre-fills it with a machine translation (asked for «Finished goods shipment», the en label
+   came as «Delivery of finished products»). Open every flag and check or correct its text before Save.
+5. The new item lands near the TOP of the group (2nd place), not at the end. Drag it to where it belongs.
+6. **Role access is not in «Create»**, and Create stores `publicReadAccess: true`, so the new link shows to everyone,
+   unlike its siblings. Open **«Edit»** on the new item and copy the access of a sibling (public view off, «all
+   authenticated» off, the same role groups), then Save. Menu access is NOT page access: the page keeps its own (see Page item ⛔).
+7. **Verify** after a reload: read the sidebar's `a[href]` in every locale, and check the item is highlighted on its own page.
+   To roll back, use the item's ⋮ → «Delete <label>».
+
+**Driving it from a script or a browser agent** (Playwright, Claude in Chrome). Each of these cost a failed attempt:
+- The ≡ overlay exists only while the pointer is OVER the sidebar. Its menu items are re-rendered by an ajax refresh within
+  ~1–3 s, so press the item promptly and with the pointer still inside the sidebar. A click at a point outside the sidebar
+  closes the overlay and does nothing.
+- The ⋮ menus are `ul.dropdown-context` elements appended to `<body>` and positioned for an UNSCROLLED editor. Once the
+  editor panel is scrolled, they open off-screen (measured at y = −1245), so a screenshot shows nothing and a coordinate
+  click misses. Instead, dispatch a `click` MouseEvent on the ⋮ `button` and then `.click()` the link of the
+  `ul.dropdown-context` that became visible.
+- The lists are jQuery UI sortables. One fast drag moves an item ONE place. Send `mousedown` on the item's `<a>`, about
+  30 `mousemove`s in steps to the target, then `mouseup`.
+- Never retype a non-Latin label. Take it from the DOM, e.g. the page picker's option text (`Home / <page name>`), or from
+  the page's own name.
+- ⛔ Never click «Settings» by its visible text on a page that holds a crud table: that opens the TABLE's «CRUD Table
+  Settings» panel, which autosaves on open.
+
+**Over MCP.** First check whether the stand has the left-nav tools: does `nct_ui_list_left_nav_items` exist in the tool list?
+- **With them** (nct-ui change of 2026-11-11, once deployed): `nct_ui_list_left_nav_items` → note the section's `uuid` →
+  `nct_ui_save_left_nav_item` with `parent`, `name` {every locale}, `targetPage`, `icon`, `index`, and
+  `accessConfig: {publicReadAccess: false, authenticatedUserAccess: false, roleGroups: {<group>: {view: true}}}` (copy a
+  sibling's `seenBy`; without it the new entry is seen by everyone, like the editor's) → list again to verify. Move with
+  `nct_ui_move_left_nav_item`, remove with `nct_ui_delete_left_nav_item`. The tools write the drawn shared node and say how
+  many placements show it. A missing locale is machine-translated and reported in the notes, so check it. The target page's
+  own access is separate (`nct_ui_set_page_access`): the editor's «Edit» syncs it, these tools do not.
+- **Without them** (older builds): `nct_ui_set_plugin_properties` on a page's `left-nav` node writes the per-page placement,
+  which is dead data (Gotcha 1). The only working write is replacing the whole `modelGroups` of the `Nct left nav` virtual
+  plugin (`nct_ui_set_virtual_plugin_root_properties`, passed as TEXT), and on a real project that value runs to tens of
+  thousands of characters. ⛔ Never retype it into a tool call; use the editor above. On the new build,
+  `nct_ui_set_plugin_properties` on a linked placement writes the shared node and says so, but for `modelGroups` use the
+  item tools anyway.
+
 ## Gotchas
 
 1. **The per-page `left-nav` nodes are DEAD DATA — the shared `Nct left nav` common plugin renders (see the ⛔
