@@ -767,6 +767,15 @@ Key facts (verified against the code):
    key via `attrs?.each` anyway, so `filterSettings` in `model` is OPTIONAL when a filter form is present —
    it only supplies inline defaults). Don't duplicate the two paths.
 
+> ⛔ **Choose the control by what the user types, never "text" by default (contract Operating Principle 5k).**
+> A filter whose value is one of the data's own values — a record's name or number, a person, a category, a
+> status — is PICKED: a small fixed set → dropdown (`dynaform.form.rimm.drop.down.field.plugin` + a choices
+> rule); a large or growing set → autocomplete (`dynaform.form.rimm.autocomplete.field.plugin`, its rule reads
+> `attrs.get('filterBy')`, queries the register scoped to the reader, and ends in
+> `toAutoCompleteOptions(list, "<field>")` — doc 02 §4) so the user picks a real value but may still type a
+> fragment; dates → a date picker / range. A plain text field is for genuinely free text (details, comments).
+> Changing an existing filter's kind means re-creating its node — a node keeps its `pluginName`.
+
 > ⚠️ **A dropdown/autocomplete filter control still needs an option SOURCE.** `filterKey` only binds the
 > *chosen* value into `filterValues`; it does **not** populate the options. A CRUD-backed filter dropdown needs
 > either an `enumValues` snapshot (for a static enum) or a **choices rule that ENDS in

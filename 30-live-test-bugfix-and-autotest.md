@@ -357,6 +357,28 @@ suite from a check of the PRD into a recording of the build's bugs, and nothing 
 tell the difference. A value may change only through rule 3 of the table: the scenario was wrong,
 it says why, and it was corrected first.
 
+**A stand outage is not a red to triage.** When every rule call fails at once (pages read «Rule not
+found: <rule>», MCP rule tools answer 500 while non-rule tools work), stop reading the reds: the run
+is measuring the platform. Let a destructive run finish or stop it with ONE Ctrl-C and wait — the
+session teardown removes the test accounts; a second Ctrl-C or a kill leaves them in the user list
+(and the user quota). Tests that failed half-way could not put back what they changed, so the
+tenant has drifted too.
+
+**Putting a drifted tenant back without an import** (when the user prefers that to `reset`):
+1. *Find* the drift by business columns, not whole rows (a dump's `created_at` differs from an
+   import's): per row `id || ':' || left(md5((to_jsonb(x) - '<columns defaulting to now()>')::text), 4)`,
+   computed on the local seed; embed that list in ONE query run on the stand that returns only the
+   ids that differ, per table. Self-test the query on the seed first — it must report nothing.
+2. *Write* through the platform's data-repair channel, `nct_repository_execute_ddl` with
+   `allowDataChange=true` (`allowUnfilteredDataChange` to empty a table the seed has empty) —
+   `nct_repository_execute_query` wraps every statement in `select … from (…)` and cannot write.
+   Seed rows go back from the local seed via `json_populate_record`; rows above the seed's max id
+   go in one data-modifying `WITH` (foreign keys are checked at the statement's end, so dependants
+   and the test accounts' rows can go together). Dry-run both statements on the seed in a
+   rolled-back transaction.
+3. *Verify*: count + aggregate checksum per table, seed vs stand, equal everywhere — then run the
+   whole suite from the top, not only the failures: chapters read each other's effects in order.
+
 ⛔ **And green is not "nothing to report".** A scenario that passed because it is `{manual}`, or
 because its test SKIPPED (no `PGDSN`, no `API_KEY`, no `--run-sends`), was not proven. `start.sh` counts the skips in its summary; the report names each one.
 
@@ -538,8 +560,21 @@ provoked (28 §8.8). Rewrite it until deleting the feature turns it red.
   session is shown; a test during which one carried an exception, a database constraint, a stack trace, a 500 or
   the platform's rule-failure wrapping fails — the action should have been hidden or explained (25 "An action that
   cannot run"). A test that provokes one on purpose says so: `@pytest.mark.technical_error_expected("<why>")`.
+  The watcher sees the platform's toasts, alerts and dialogs only. A custom (Studio) component answers in boxes of
+  its own (a message strip, the "empty"/error state drawn in place of its content); list every such class in
+  `pages/project_feedback.py` (`EXTRA_SELECTORS`, `EXTRA_ERROR_SELECTORS`) — an unlisted box is a blind spot where a
+  raw platform error («[com.…Response$Error@39dd6488]») passes every test. And a component never prints a rule
+  call's failure as it came: its shared error helper turns anything that reads like a class name, an object's
+  `toString`, a stack line or SQL into one plain sentence in the reader's language (the raw text to the console).
+  Every button a component publishes (a breadcrumb «Refresh» included) works in EVERY state of the page — or is not
+  offered in that state (a card page with no record chosen has nothing to refresh).
 * **`--run-destructive`** gates everything that writes to a real tenant; **`--run-sends`** everything that sends
   something out of it (`./start.sh all` does not imply it). Default runs are read-only.
+* **A checkbox may be a switch.** The platform restyles checkboxes ("nicelabel"): the native `<input>` stays but is
+  invisible and a generated `label[for=<id>]` is what a person clicks — `click()`/`check()` on the input times out
+  ("element is not visible"). Toggle every checkbox through `pages/base_page.set_checkbox(page, selector, on)`.
+  The same goes for the menu: read it from `.app-sidebar__inner` (one heading list and one link list per group,
+  plus the menu search's own lists), never from the first `ul.vertical-nav-menu`.
 * **Wait on content.** This is a Wicket application with async grids, dialogs, menus and charts: wait for a row,
   a heading, a toast — never `wait_for_navigation`. Give grids their own, larger timeout. Re-ask an empty
   enumeration before believing it.

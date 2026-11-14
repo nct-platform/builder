@@ -729,6 +729,42 @@ only warns.
 
 ---
 
+### 6.5 Redraw only the region an action changed (contract Operating Principle 5j)
+
+A component is a set of REGIONS — a header, a tab strip, a tab body, a list, a panel — and every user action has
+exactly one region it changes. Draw each region with its own function and redraw only that one:
+
+| Action | Redraw | Never |
+|---|---|---|
+| switch a tab whose data is already loaded | the tab strip (the `on` class) and the tab body — no rule call | re-fetch the component's data |
+| step a period / page arrow inside a tab, filter inside a tab | re-fetch, then the tab body only (and the strip if its counters changed) | the header and the other tabs |
+| open / close a row's panel, show a secret, start an inline edit | that row or that tab body | the whole component |
+| save a sub-record in a tab | re-fetch, then that tab | the header (unless the save changed what the header shows) |
+| a change that touches the header (a status, a total shown on top) | re-fetch, then the whole component — keeping scroll and open state | a blank "Loading…" |
+
+The idiom:
+
+```js
+// first load: a placeholder; every later load: keep the content, dim the region being refreshed, swap it in
+async function load(part) {
+  const first = !state.data || !state.data.ok;
+  const region = part === 'tab' && q('.x-tab') ? '.x-tab' : '.x-body';
+  if (first) { state.data = null; render(); } else dim(region, true);
+  state.data = await ctx.callRule('<Read rule>', state.args);
+  dim(region, false);
+  keepScroll(!first && region === '.x-tab' ? renderTab : render);   // keepScroll restores every scroll position
+}
+```
+
+* `dim(region, on)` = a visual busy state on that region only (opacity, `aria-busy`, no pointer events) — never
+  replacing its content. `keepScroll(fn)` records `scrollTop` of the component's ancestors and `window`, runs
+  `fn`, and restores them: an `innerHTML` swap otherwise jumps the page when the region's height changes.
+* Typed text survives a redraw only if the redraw does not own that input: keep the search box / form fields
+  OUTSIDE the redrawn region, or restore value, focus and caret after it.
+* A pattern to grep for in review: `state.data = null; render()` anywhere but the first load is this defect.
+* The test (doc 30): after the action, the header's DOM node is the SAME node as before (`isSameNode` / a marker
+  attribute set before the action is still there), and the scroll position is unchanged.
+
 ## 7 · Breadcrumb actions — page-level buttons declared from author JS
 
 ### 7.1 Where page actions belong

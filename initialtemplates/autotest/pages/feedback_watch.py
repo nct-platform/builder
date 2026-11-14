@@ -17,6 +17,7 @@ database's own phrasing, a 500 — so a refusal written in the business's words 
 """
 from __future__ import annotations
 
+import json
 import re
 
 # A stack frame; a qualified JVM class; the exceptions a rule or the database throws when nothing was checked first;
@@ -37,6 +38,11 @@ TECHNICAL = re.compile(
     # the platform's wrapping of a rule that threw during a FORM submission — 25 "Business preconditions belong
     # in a VALIDATION rule": the user's reason is buried behind rule uuids and reads like a crash
     r"|\bCould not execute rule\(s\)"
+    # the platform naming a rule it could not run — «Rule not found: <rule name>» — when the rule service is down
+    r"|\bRule not found:"
+    # a JVM object's default toString — «[com.example.Response$Error@39dd6488]»: a failure object printed instead of
+    # its message (a custom component that shows a rule call's error as it came)
+    r"|\b[a-z][\w]*(?:\.[\w$]+)+@[0-9a-f]{6,}\b"
 )
 
 # An identifier in an ERROR message is the platform talking about itself, not the business talking to a user.
@@ -47,9 +53,9 @@ _WATCH_JS = r"""
 (() => {
   if (window.__autotestFeedbackWatch) return;
   window.__autotestFeedbackWatch = true;
-  const SEL = "[class*='toast'],[class*='feedback'],[class*='alert'],[role='alert'],.modal-body";
+  const SEL = "[class*='toast'],[class*='feedback'],[class*='alert'],[role='alert'],.modal-body" + (window.__autotestFeedbackExtra || "");
   const last = new WeakMap();
-  const ERR = "[class*='error'],[class*='danger']";
+  const ERR = "[class*='error'],[class*='danger']" + (window.__autotestFeedbackErr || "");
   const report = (el) => {
     const t = ((el && el.innerText) || '').trim();
     if (!t || last.get(el) === t) return;
@@ -79,6 +85,15 @@ _WATCH_JS = r"""
 """
 
 
+def _project_selectors() -> tuple:
+    """(EXTRA_SELECTORS, EXTRA_ERROR_SELECTORS) of pages/project_feedback.py, or ("", "") without one."""
+    try:
+        from pages import project_feedback as pf          # optional, per project
+    except ImportError:
+        return "", ""
+    return (getattr(pf, "EXTRA_SELECTORS", "") or "").strip(" ,"), (getattr(pf, "EXTRA_ERROR_SELECTORS", "") or "").strip(" ,")
+
+
 def is_technical(text: str, kind: str = "") -> bool:
     """Does this message carry a technical signature? `kind` is "error" for an error-styled message."""
     text = text or ""
@@ -94,6 +109,15 @@ class FeedbackWatch:
     def install(self, context) -> None:
         context.expose_binding("__autotestFeedbackSink",
                                lambda _source, text, kind="": self.messages.append((kind or "", text or "")))
+        # A custom (Studio) component writes its answers into its OWN boxes — a message strip, an "empty"/error state
+        # in place of its content — which none of the platform selectors above reach. The project names them in
+        # pages/project_feedback.py: EXTRA_SELECTORS = ".my-msg, .my-empty" (an error-styled one matches
+        # [class*='error'] or [class*='danger'], or lists its own class in EXTRA_ERROR_SELECTORS). Unlisted boxes are
+        # blind spots: a raw platform error shown there passes every test.
+        extra, extra_err = _project_selectors()
+        if extra or extra_err:
+            context.add_init_script(script="window.__autotestFeedbackExtra = %s; window.__autotestFeedbackErr = %s;"
+                                    % (json.dumps("," + extra if extra else ""), json.dumps("," + extra_err if extra_err else "")))
         context.add_init_script(script=_WATCH_JS)
 
     def mark(self) -> int:

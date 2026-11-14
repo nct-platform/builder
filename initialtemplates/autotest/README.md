@@ -5,6 +5,11 @@ build time, from the PRD and the scenario file — before the project ran anywhe
 PRD's, not a screen's: where the build has a defect, the suite is red until the defect is fixed. That is its
 purpose.
 
+**It is the full test of the whole product, not a smoke test.** `tests/test_00_smoke.py` only proves the suite
+reaches the project and signs in. Every other file automates its chapter of the scenario file IN FULL — every
+scenario, every step as its role, every expected value and refusal, every "what else must change" — and a
+suite that holds only the smoke file, or only checks that pages render, is not finished.
+
 ## Quick start
 
 ```bash

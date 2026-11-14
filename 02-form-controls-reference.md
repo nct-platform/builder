@@ -75,6 +75,42 @@ Ask the meaning question FIRST, for every field, and fall through to the type ma
 | an input whose **interaction** no control above has — a star rating, a colour swatch, a signature, a point on a map, a grid of time slots | `dynaform.form.html.field.plugin`: a component you author, bound to one value of a declared type ([24e](24e-html-field-control.md)) | a text field holding a value typed in a format the rules then parse; a choice among server data (that is a dropdown / autocomplete) |
 | an ordinary scalar / number / boolean / FK / enum / date | the type map above | — |
 
+### ⛔ Field-by-field decisions — the control AND its settings (contract Operating Principle 5k)
+
+Walk EVERY field of EVERY form — create / edit forms, task forms, AND the filter forms of registers — through
+these questions. A field that skipped them is how a user ends up typing a name the system already knows, scrolling a
+300-entry list, or typing `#ff0000` into a text box.
+
+| Question | If yes | Settings to decide (platform class) |
+|---|---|---|
+| Does the value already exist in the data (a record, a person, a code, a category)? | PICK it — never a text field | see the next three rows |
+| …a short fixed list (statuses, types, yes/no, a handful of people)? | dropdown | `ruleIdentifier` (a choices rule ending in `toSelectOptions*`), `key` / `displayName`, `rowsInPage` (≤ 99, clamped), `showNav` when the list can exceed a page — `FormControlRimmDropDownFieldSettings` / `DropdownFilterControlSettings` |
+| …a long list, or the user knows a fragment of the name? | the dropdown with SEARCH ON | `searchEnabled` = true + `searchField` (the source field matched server-side on every keystroke; the platform swaps in a generated search rule and keeps the original as `prevRuleIdentifier`) |
+| …a large / growing set, or free text must remain possible? | autocomplete | `showChoicesOnClick` (list on focus — when browsing helps), `key` = `displayName` = the emitted field, the rule honours `filterBy` (§4) — `FormControlRimmAutoCompleteFieldSettings` |
+| …a hierarchy? | tree picker | `FormControlTreePickerSettings` |
+| A status, a flag, a yes/no? | dropdown or checkbox (`dataClass` Boolean) — never text | default value |
+| A date? | date picker; in a filter a RANGE | `dateFormat`; `between` + `betweenMapping` for a from–to filter — `DatePickerFormControlSettings` |
+| A number or an amount? | text field with a numeric `dataClass` — but know the trap: the browser drops non-digits BEFORE validation, so an amount typed with a unit or a separator (`50 000 <currency>`) arrives as digits only or empty and your validation never names the mistake; use `String` + a validation when the message matters | mandatory, conditional validations |
+| Free text? | text field (short) / text area (long) | `localized` when the value itself is per-language |
+| A discussion / an attachment / a hierarchy / document lines? | the special controls in the table above | file upload: `allowedFileTypes`, `maxFileSize`, `allowMultiple`, `uploadPath` — `FormControlFileUploadFieldSettings` |
+| An input no stock control draws — a colour, a rating, a signature, a map point, a time grid? | HTML field with its own component | its own settings section and value type (`HtmlFieldSettings`, doc 24e) |
+
+Then, for EVERY field, decide the base settings every control shares (`FormControlSettings`), deliberately:
+
+* **mandatory** — `alwaysMandatory` or `mandatoryPredicateIdentifier`, with `mandatoryValidationMessages` in
+  every locale of the project;
+* **read-only** — `alwaysProhibited` or `prohibitedPredicateIdentifier` (a predicate per role / state);
+  **hidden** — the form's `hiddenConfigs` (a whole section or single slots);
+* **default value** — `defaultValueEnabled` + static `defaultValue`, `defaultValueLocalized`, or
+  `defaultValueRuleIdentifier`;
+* **reactions** — `eventComponentMappings` (a dependent picker re-filtered when another field changes) and
+  `conditionalValidations`;
+* **binding** — `scope` / `contextIdentifier` / `crudAlias` / `fieldExpression` (forms) or `filterKey` (filter
+  forms) and the `dataClass` the control accepts (table below).
+
+The same questions hold for search boxes inside studio components (doc 24 §6.5): a search over records suggests
+them as the user types; a choice among a few values is a select, not a text input.
+
 Two traps that make the wrong choice look right offline:
 
 * **`dataClass` is part of the choice, not decoration.** Several controls accept

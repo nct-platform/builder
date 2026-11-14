@@ -259,3 +259,51 @@ class BasePage:
                  return true;
                }"""
         )
+
+
+def set_checkbox(page, selector: str, on: bool) -> bool:
+    """Tick (on=True) or untick a checkbox the way a person does — and return whether it changed.
+
+    The platform restyles some checkboxes (a "nicelabel" switch): the native <input> stays in the DOM but is not
+    visible, and a generated `label[for=<its id>]` is what the person clicks. Playwright's click()/check() on the
+    hidden input waits for visibility and times out — so this clicks the input when it is visible, else its visible
+    proxy label, else a label wrapping it (clicking a label toggles its input), and only as the last resort
+    dispatches the click on the input itself."""
+    box = page.locator(selector).first
+    box.wait_for(state="attached")
+    if box.is_checked() == on:
+        return False
+    if box.is_visible():
+        box.click()
+    else:
+        ident = box.get_attribute("id")
+        proxy = page.locator(f"label[for='{ident}']") if ident else None
+        if proxy is not None and proxy.count() and proxy.first.is_visible():
+            proxy.first.click()
+        else:
+            wrap = page.locator("label", has=page.locator(selector)).first
+            if wrap.count() and wrap.is_visible():
+                wrap.click()
+            else:
+                box.dispatch_event("click")
+    page.wait_for_function("([s, on]) => { const e = document.querySelector(s); return !!e && e.checked === on; }",
+                           arg=[selector, on], timeout=5000)
+    return True
+
+
+def press(locator) -> None:
+    """Click what `locator` points at as a person would. A checkbox or radio the platform has restyled into a switch
+    (its native input invisible, a generated `label[for=<id>]` drawn instead) is pressed through that visible label —
+    clicking the hidden input itself waits for visibility and times out. Anything else is clicked as it is."""
+    loc = locator.first
+    loc.wait_for(state="attached")
+    if not loc.is_visible() and loc.evaluate("(e) => e.tagName === 'INPUT' && (e.type === 'checkbox' || e.type === 'radio')"):
+        ident = loc.get_attribute("id")
+        page = loc.page
+        proxy = page.locator(f"label[for='{ident}']").first if ident else None
+        if proxy is not None and proxy.count() and proxy.is_visible():
+            proxy.click()
+            return
+        loc.dispatch_event("click")
+        return
+    loc.click()

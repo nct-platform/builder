@@ -274,6 +274,36 @@ a red flag, not an achievement.
       `validate` warns when an action's own rule refuses by role group while the action has no predicate; the
       suite proves every action is offered exactly to the roles and states the PRD says (family t), and fails any
       test during which a user was shown a technical error.
+   j. AN ACTION REDRAWS ONLY WHAT IT CHANGED. A user who switches a tab, steps a period arrow inside a tab, opens a
+      row's panel, ticks one mark or saves one sub-record must see THAT region change and nothing else: the page
+      header, the other tabs, open panels, typed-but-unsaved input, focus and the scroll position stay as they
+      were. Re-fetching the whole component and blanking it to "Loading…" for a local action — the whole card or
+      screen flashing and jumping to the top — is a defect, not an implementation detail. The placeholder belongs
+      to the FIRST load only; a reload keeps the current content on screen (dimmed or with a small busy mark on the
+      region being refreshed) and swaps in the new content when it arrives. Data already loaded is not fetched
+      again to switch a tab. Design every studio component as regions with their own redraw from the start
+      (doc 24 §6.5), and treat a platform screen the same way: an inline action must not reload the page.
+   k. DECIDE EVERY FIELD — ITS CONTROL AND ITS SETTINGS — IN EVERY FORM, FILTER FORMS INCLUDED. Never accept the
+      generator's type map silently. For each field ask what the user does there, then choose:
+      • a value that already exists in the data (a record, a person, a code, a category) is PICKED, never typed:
+        a dropdown for a short fixed list; the same dropdown with SEARCH ON (`searchEnabled`) when the list is
+        long or the user knows a fragment of the name; an AUTOCOMPLETE fed by the register when the set is large
+        or growing, or when free text must stay possible (`showChoicesOnClick` when browsing helps); a tree
+        picker for a hierarchy;
+      • a status / yes-no → a dropdown or a checkbox, never text; a date → a date picker (a RANGE in a filter);
+      • a number or an amount → think about what the user will type: a numeric `dataClass` makes the browser drop
+        anything else before your validation can name the mistake — pick it only when that is wanted;
+      • genuinely free text → a text field or a text area; a discussion → comments; an attachment → file upload
+        (allowed types, size, single or multiple);
+      • an input no stock control draws well — a colour, a rating, a signature, a point on a map, a time grid —
+        → an HTML field (`dynaform.form.html.field.plugin`) with its own component and settings (doc 24e).
+      Then decide its SETTINGS, every one, not by default: mandatory (always or by predicate) with its message in
+      every locale; read-only (always or by predicate) and hidden (form hiddenConfigs); the default value (static,
+      localized or from a rule); paging and navigation of a picker (`rowsInPage`, `showNav`); what it reacts to
+      (event mappings: a dependent picker re-filtered by another field) and the conditional validations. A text
+      box where the user should pick, a dropdown of 300 entries without search, or a colour typed as "#ff0000" is
+      a defect. The same thinking applies to search boxes inside studio components: a search over records
+      suggests them as the user types (doc 02 "Field-by-field decisions", doc 04 §filters, doc 24 §6.5).
 
 6. DIVIDE THE WORK BY ARTIFACT, NOT BY JOB TITLE. Do NOT role-play a team ("as the PM I will now…", a business
    analyst, four Groovy developers, a dashboard specialist). A title adds no capability, costs context you need
@@ -840,6 +870,12 @@ HOW TO WORK (do this for every task)
    least once. A scenario list shorter than the build is a gap in the testing, not brevity. Never write "etc.",
    "and so on", or "similar for the rest" — the tester cannot expand those.
 
+   ⛔ THE FULL PRODUCT, NEVER A SMOKE TEST. This file is the ACCEPTANCE TEST OF THE WHOLE PRODUCT: every page,
+   every action, every rule, every refusal, every role, every calculation and its ripple, every printout,
+   notification, scheduler and locale — the matrix above, walked to the end. "The app opens, the menu shows,
+   one record saves" is a smoke check, not this deliverable; a scenario file that only proves pages render and
+   happy paths succeed has NOT delivered step 7, however many scenarios it numbers.
+
    a. ONE SECTION PER ROLE — who logs in, what that role must see, and what it must NOT see. A role that can
       reach something it should not is a finding the tester can only make if you told them the boundary.
    b. EVERY PROCESS, END TO END, DOWN EVERY BRANCH. Approve AND reject AND return-for-revision AND timeout —
@@ -925,7 +961,9 @@ HOW TO WORK (do this for every task)
    r. EVERY CUSTOM HTML STUDIO COMPONENT, BY THE PRD, LIKE ANY SCREEN (doc 24): it renders real data, not an empty
       wrapper; every control does what the PRD says and its rule call returns what the screen then shows; the
       empty, loading and error states; paging, sorting and filtering across pages, not within one (24c); ONE
-      click = ONE effect, also after the component was re-mounted by an ajax re-render; every locale; every role
+      click = ONE effect, also after the component was re-mounted by an ajax re-render; every action redraws only
+      its region (Operating Principle 5j: the header and the other tabs keep their DOM, the scroll stays); every
+      field is the right control with deliberate settings (5k); every locale; every role
       it serves — and what it must hide from a role; every skin (24a); no console error.
    s. ACCESS — WHO SEES WHICH RECORD. For every process: which users and role groups see which cases at each
       step, and every rule that changes that — access granted, revoked, handed to a role group, a new owner —
@@ -985,6 +1023,16 @@ HOW TO WORK (do this for every task)
 7a. WRITE THE AUTOMATED SUITE — IN THE SAME SESSION, AND WITHOUT ASKING. `test-scenarios.md` tells a person
    what to check; `test/` checks it by command. It is the third deliverable of every build — not an offer, not a
    later phase, not a question. Do not ask whether to write it: write it, right after step 7.
+
+   ⛔ THE SUITE IS THE FULL PRODUCT TEST, NEVER A SMOKE TEST. The scaffold's `tests/test_00_smoke.py` only proves
+   the suite can reach the project and sign in — it is the harness's first file, not the deliverable. The
+   deliverable is one test per scenario of `test-scenarios.md`, EVERY scenario, each automating that scenario IN
+   FULL: its preconditions, every step as the role that performs it, every expected value (exact numbers, texts,
+   states), every "what else must change" check, every refusal provoked and its message asserted, every role's
+   boundary (offered where it must be, absent where it must not). A test that only opens the page, or asserts
+   "something rendered", or stops at the happy path, is a smoke check — it does not count as automating its
+   scenario. Never report step 7a done while `autotest check` lists a scenario without a test, and never
+   describe a suite that holds only the scaffold (or only smoke-level checks) as "the tests".
 
         python3 ./builder/tools/mrjun.py autotest scaffold --project ./work
 
