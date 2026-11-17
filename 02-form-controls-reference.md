@@ -494,6 +494,8 @@ Delta fields:
 | `prevRuleIdentifier` | String (UUID) | Snapshot of the original `ruleIdentifier` (for rollback when search is removed). | no | null |
 | `searchRuleIdentifier` | String (UUID) | Identifier of the generated `RIMM_FILT_<alias>_<field>` rule. | no | null |
 
+> ⛔ **An optional drop-down cannot be emptied once it holds a value** — the platform adds its empty placeholder only to an EMPTY field. And never add an empty choice with a NULL key to the options rule: the control maps option positions to keys and a null key shifts the mapping — seen live, the form preselected the next person and «not selected» was saved as another person. A «— not selected —» choice needs a real sentinel key (`0`, `'none'`) that the save path (the CRUD's create/update SQL: `NULLIF(CAST(:x AS integer), 0)`, the form's validation rules, any rule reading the field) turns into NULL.
+
 HTML:
 
 ```html
@@ -1468,8 +1470,17 @@ Delta (all with defaults):
 | `maxFileSize` | long | Max size (bytes). | no | `10485760` (10MB) |
 | `allowMultiple` | boolean | Multiple upload (**named `allowMultiple`, NOT `multiple`**). | no | `true` |
 | `showProgress` | boolean | Show progress. | no | `true` |
+| `accessLevel` | String | Who can open the files: `PUBLIC` (anyone with the link), `PROJECT` (users signed in to the project), `RESTRICTED` (the uploader + whoever a rule gives access with `service.files.grant` — 16 §2.19). | no | `"PUBLIC"` (absent = public) |
 
 The fields `maxFiles`/`showPreview`/`acceptedFileTypes` do **not** exist (fiction of old docs).
+
+> **Secure attachments.** With `accessLevel` `PROJECT` or `RESTRICTED` the bytes go to the project's secure area
+> (`t/<tenantId>/secure/<uploadPath>/<random>/<name>`) and the field stores THAT path; the browser opens it through the
+> project's own site, which checks who is signed in, and a file the user may not open is shown locked. A project that
+> keeps documents of its customers apart (each customer sees their own, staff see all) is: the field on
+> `RESTRICTED`, plus, in the execution rule that saves the record, `service.files.grant(roleGroups: ['<Staff Role
+> Group>'], access: 'READ')` — the uploader keeps their own files without a grant. The setting applies to files
+> uploaded from then on.
 
 > **Runtime — files live in the file-storage service, the field stores PATHS not bytes.** On upload the control
 > persists the bytes to the file-storage microservice (under `uploadPath + fileName`) and keeps the **returned

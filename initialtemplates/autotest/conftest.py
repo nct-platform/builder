@@ -29,6 +29,7 @@ Design notes that matter:
 """
 from __future__ import annotations
 
+import datetime
 import os
 import warnings
 
@@ -37,9 +38,33 @@ from playwright.sync_api import sync_playwright
 
 from helpers.accounts import TestAccounts
 from helpers.env import CONFIG
+from pages.base_page import keep_letter_case
 from pages.feedback_watch import FeedbackWatch
 from pages.login_page import LoginPage
 from pages.nav import Nav
+
+
+LIVE_FAILURES = os.path.join("test-results", "live-failures.txt")
+
+
+def pytest_sessionstart(session):
+    """A header in the live-failures file per pytest session (see pytest_runtest_logreport); a run split into one
+    session per file keeps every file's failures in the one file."""
+    os.makedirs("test-results", exist_ok=True)
+    with open(LIVE_FAILURES, "a", encoding="utf-8") as fh:
+        fh.write(f"##### session {datetime.datetime.now():%Y-%m-%d %H:%M:%S} {' '.join(session.config.args)}\n\n")
+
+
+def pytest_runtest_logreport(report):
+    """Each failure with its reason the moment it happens, in test-results/live-failures.txt — pytest prints the
+    reasons only when the whole run ends, and a long run is to be triaged while it runs."""
+    if report.failed:
+        try:
+            with open(LIVE_FAILURES, "a", encoding="utf-8") as fh:
+                fh.write(f"=== {datetime.datetime.now():%H:%M:%S} {report.nodeid} [{report.when}]\n"
+                         f"{report.longreprtext[-3000:]}\n\n")
+        except Exception:
+            pass
 
 
 def pytest_addoption(parser):
@@ -98,6 +123,9 @@ def context(browser, feedback):
         ignore_https_errors=True,
     )
     ctx.set_default_timeout(CONFIG.timeout_ms)
+    # a page of a stand under load can take longer than a click may: navigations get twice the time
+    ctx.set_default_navigation_timeout(2 * CONFIG.timeout_ms)
+    keep_letter_case(ctx)
     feedback.install(ctx)
     yield ctx
     ctx.close()
@@ -164,11 +192,24 @@ def at_locale(request, page, logged_in):
         lp.switch_locale(CONFIG.default_locale)
 
 
+_SESSION_ACCOUNTS: list = []        # the session's TestAccounts once created — for the trim between test files
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _trim_test_pages():
+    """Between test files only the OPEN_TEST_PAGES (default 6) most recently used test users keep a live browser
+    (helpers/accounts.py `trim`); the others sign in again when a later file asks for them."""
+    if _SESSION_ACCOUNTS:
+        _SESSION_ACCOUNTS[0].trim(int(os.environ.get("OPEN_TEST_PAGES", "6")))
+    yield
+
+
 @pytest.fixture(scope="session")
 def accounts(browser, context, logged_in, feedback) -> TestAccounts:
     """The session's test users — created through the application by the author account, on demand, and removed
     from the project when the session ends. See helpers/accounts.py."""
     factory = TestAccounts(browser, context, feedback)
+    _SESSION_ACCOUNTS.append(factory)
     yield factory
     left = factory.close()
     if left:

@@ -77,6 +77,8 @@ class TestAccounts:
         self.run = time.strftime("%m%d%H%M") + secrets.token_hex(2)
         self._users: dict = {}
         self._pages: dict = {}
+        self._used: dict = {}                 # email -> when its page was last asked for (trim)
+        self._tick = 0
         self._admin = None
 
     # ---------- users ----------
@@ -124,6 +126,7 @@ class TestAccounts:
         ⛔ Its own context: session, language and author mode live per user and per session, so sharing the author's
         page would make each identity inherit the other's state.
         """
+        from pages.base_page import keep_letter_case
         from pages.login_page import LoginPage
 
         pg = self._pages.get(account.email)
@@ -134,14 +137,33 @@ class TestAccounts:
                 ignore_https_errors=True,
             )
             ctx.set_default_timeout(CONFIG.timeout_ms)
+            ctx.set_default_navigation_timeout(2 * CONFIG.timeout_ms)   # as conftest's context
+            keep_letter_case(ctx)
             if self.feedback is not None:
                 self.feedback.install(ctx)
             pg = ctx.new_page()
             LoginPage(pg).login(account.email, account.password,
                                 who=f"the test user {account.name} ({', '.join(account.role_groups)})")
             self._pages[account.email] = pg
+        self._tick += 1
+        self._used[account.email] = self._tick
         LoginPage(pg).switch_locale(locale or CONFIG.default_locale)
         return pg
+
+    def trim(self, keep: int) -> int:
+        """Close the browsers of all but the `keep` most recently used test users; they sign in again when asked for.
+
+        ⛔ Seen live: every test user of a run holding a live browser grew into dozens of contexts that starved the
+        machine — pages took a minute, the Playwright driver hung. Call it BETWEEN test files only: a running test or
+        a module fixture may hold a page."""
+        old = sorted(self._pages, key=lambda e: self._used.get(e, 0), reverse=True)[max(keep, 0):]
+        for email in old:
+            pg = self._pages.pop(email)
+            try:
+                pg.context.close()
+            except Exception:
+                pass
+        return len(old)
 
     # ---------- the end of the session ----------
     def close(self) -> list[str]:

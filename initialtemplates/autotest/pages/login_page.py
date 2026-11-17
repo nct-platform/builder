@@ -68,7 +68,14 @@ class LoginPage(BasePage):
                 f"{who}: not set. Fill test/.env (copy from .env.example). "
                 "The suite never hard-codes a credential."
             )
-        self.page.goto(CONFIG.base_url, wait_until="domcontentloaded")
+        try:
+            self.page.goto(CONFIG.base_url, wait_until="domcontentloaded")
+        except Exception as exc:
+            # a stand under load can answer the first page slower than the navigation timeout: go again, once,
+            # with twice the time (the same rule as BasePage.goto)
+            if "Timeout" not in str(exc):
+                raise
+            self.page.goto(CONFIG.base_url, wait_until="domcontentloaded", timeout=2 * CONFIG.timeout_ms)
         if self.is_logged_in():
             return self
 
@@ -130,6 +137,18 @@ class LoginPage(BasePage):
                        if (!f) return '';
                        return [...f.classList].find(c => /^[A-Z]{2}$/.test(c)) || ''; }""")
 
+    def close_dialogs(self) -> None:
+        """Close every visible modal dialog (Escape, then its close button) — for a step that needs the page itself."""
+        for _ in range(3):
+            if not self.page.evaluate("() => [...document.querySelectorAll('.modal.show, .modal[style*=\"display: block\"]')]"
+                                      ".some((m) => m.offsetParent !== null || getComputedStyle(m).display === 'block')"):
+                return
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(400)
+            self.page.evaluate("() => document.querySelectorAll('.modal.show .btn-close, .modal.show [data-bs-dismiss=modal], "
+                               ".modal.show .close').forEach((b) => b.click())")
+            self.page.wait_for_timeout(400)
+
     def switch_locale(self, locale: str) -> "LoginPage":
         """Pick a language in the header's language menu — by its FLAG, not by its caption.
 
@@ -149,6 +168,9 @@ class LoginPage(BasePage):
         opener = self.page.locator("button:has(.language-icon)").first
         if not opener.count():
             raise AssertionError("the header has no language button — the page is not one of the project's")
+        # ⛔ Seen live: a dialog an earlier (failed) test left open lies over the header and swallows the click — every
+        # later language switch on that page failed. A language switch re-renders the page anyway: close it first.
+        self.close_dialogs()
         # ⛔ Seen live: right after a re-render the first click sometimes leaves the menu closed — click until its
         # items show, at most three times, and never on an open menu (a click would close it).
         items_shown = ".dropdown-menu .dropdown-item:has(.flag)"

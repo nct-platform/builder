@@ -450,6 +450,21 @@ theme, each drawn on that theme's own background so the author sees at once wher
 slot, then pick / upload / crop an image (or press the upload button on the slot itself); it goes to that slot, the
 editor stays open and the gallery lists the new upload. "×" on a slot sends that theme back to the default.
 
+### Who can see the image (`access`)
+
+One optional prop, `access` (STRING): absent = `PUBLIC`, anyone (every image made before the option existed).
+`PROJECT` — only users signed in to the project; `RESTRICTED` — only the user who uploaded the image and whoever an
+execution rule gives access (`service.files.grant('<path>', roleGroups: ['<Role Group>'])`, 16 §2.19). With a secure
+level the image files (`url` and every `urlByTheme` entry) live in the project's secure image library of that level —
+tenant-stripped like any image path: `secure/images/<project|restricted>/<w>-<h>/<name>`, with the file in
+`tenant-files/secure/...` — and a viewer who may not see the image gets nothing in its place. In the editor it is the
+**"Who can see this image"** row above the per-theme switch; for `RESTRICTED` it shows the rule call with every path
+of the image. Hand-built content: set `access`, put the file at `tenant-files/secure/images/<level>/<w>-<h>/<name>`
+(`<level>` = `project` or `restricted`, matching `access`) and its access record next to the area at
+`tenant-files/secure/.acl/images/<level>/<w>-<h>/<name>.json` = `{"level":"PROJECT"}` (or `"RESTRICTED"` with
+`"grants":[{"subject":"ROLE_GROUP","name":"<Role Group>","access":"READ"}]`) — the import hands the record to the
+storage, which makes it the importing project's. A secure file WITHOUT a record opens for nobody.
+
 ## 1.6 · `nct.link.plugin` — link · `nct.label.link.plugin` — link with a caption
 
 | | |

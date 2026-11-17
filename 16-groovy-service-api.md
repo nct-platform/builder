@@ -106,6 +106,7 @@ service
  ├─ workflow      → .start(id, ctx[, opts]) · .list / .actions / .startActions
  │                  .contextData / .complete
  ├─ store         → .session.get/put(...) · .user.get/put(...)
+ ├─ files         → .grant(...) · .revoke(...) · .find(...) · .access(...)   EXECUTION rules and CRUD GROOVY methods only
  ├─ rule(name)    → service.rule("Other Rule")
  ├─ redirectPage  → service.redirectPage("alias/page")          EXECUTION only
  ├─ actionName    → String | null                             (which action button was pressed — localized name)
@@ -1967,6 +1968,63 @@ message itself. Members the connection's messenger cannot do (`edit` on WhatsApp
 Slack's incoming webhook …) refuse with a sentence. **EXECUTION rules and CRUD GROOVY methods only**: in a predicate
 or a validation rule — and in any rule they call — every member refuses. A listener's rule reads
 `context.data.getAttr('message')` and `getAttr('messenger')`, and must be idempotent.
+
+### 2.19 `service.files.*` — who may open the project's secure files
+
+A File Upload field whose **Who can open the files** is *Project members* or *Restricted*, and an Image whose **Who can
+see this image** is one of those, store their files in the project's SECURE area (`t/<tenantId>/secure/...`). A
+*Project members* file opens for every user signed in to the project. A *Restricted* file opens for the user who
+uploaded it — and for whoever a rule gives access to. That is this namespace.
+
+```
+service.files
+    .grant(Map options)                     // roleGroups: [...], users: [...], access: 'READ' | 'EDIT', files: <what>
+    .grant(Object files, Map options)       // the same, with WHAT first: grant(<what>, roleGroups: [...])
+    .revoke(Map options)                    // roleGroups: [...], users: [...], files: <what>
+    .revoke(Object files, Map options)
+    .find()                                 // the secure files the rule's whole context refers to (nothing changes)
+    .find(Object value)                     // the secure files a value refers to
+    .access(Object files)                   // [[path:, level: 'PROJECT'|'RESTRICTED', owner:, grants: [[roleGroup:|user:, access:]]], …]
+```
+
+```groovy
+def record = context.<ctx>.<crud>.data.get()      // the row the form saves - a local variable, not a binding
+
+// the rule that saves a client's documents: the accountants may read the files of the upload field
+service.files.grant(record.<uploadField>, roleGroups: ['<Role Group>'], access: 'READ')
+
+// every secure file the form holds (whole context) - only where users cannot type paths into text fields
+service.files.grant(roleGroups: ['<Role Group>'], access: 'READ')
+
+// only the files of one record, for one person, with the right to remove them
+service.files.grant(context.<ctx>.<crud>, users: [record.ownerEmail], access: 'EDIT')
+
+// one file by its path (shown in the Image editor when the image is Restricted)
+service.files.grant('t/<tenantId>/secure/images/restricted/<w>-<h>/<name>', roleGroups: ['<Role Group>'])
+
+service.files.revoke(roleGroups: ['<Role Group>'], files: record.documents)
+```
+
+- **WHAT**: without `files`, every secure file the rule's WHOLE context refers to — every CRUD's data, every context's
+  and the global attributes, the browser session's store (in a CRUD GROOVY method the context holds only the session
+  store: pass the values, `grant(param.<x>, ...)`). With `files`: a path, a URL (the page's `/secure-file/...` link
+  included), a CRUD row, a list, a `service.store` value, `context`, `context.<ctx>`, `context.<ctx>.<crud>`,
+  `context.data` (the global attributes only). A File Upload value stored as a JSON list in a text field is read item by
+  item; free text (HTML) is searched. `files: null` (a value that turned out empty) means NONE — never the whole context.
+- **Prefer the upload field** (`context.<ctx>.<crud>.data.get().<uploadField>`) over a whole row or context wherever users write free text: a
+  secure path a user TYPED into a text field of the row is found and granted as much as an uploaded one.
+- **WHO**: `roleGroups` are this project's role group names (case ignored — but a renamed group loses its grants, as
+  everywhere in the platform); `users` are e-mails. At least one of the two.
+- **ACCESS**: `READ` opens and downloads (the default), `EDIT` also removes. A grant REPLACES what that role group or
+  user had; `revoke` removes it (it takes no `access:` — to leave READ, grant READ), and revoking the uploader ends their
+  ownership.
+- Only secure files OF THIS PROJECT are touched; another project's path is skipped, and a path or URL the rule NAMED
+  that is no secure file (a public one, a typo) is reported in `skipped`. Returns
+  `[changed: [...], unchanged: [...], skipped: [path: reason]]`. Up to 20000 files in one call.
+- **EXECUTION rules and CRUD GROOVY methods only**: in a predicate or a validation rule — and in any rule they call —
+  every member refuses.
+- The level itself (Public / Project members / Restricted) is the author's setting of the field or the image, not a
+  rule's: a rule decides WHO, on files that are already secure.
 
 ## Part 3 — `validation.*` (VALIDATION_RULE only)
 

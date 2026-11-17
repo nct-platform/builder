@@ -324,7 +324,7 @@ Beyond charts (above), these render one fixed string under every locale:
 | What | Where it comes from | Remedy |
 |---|---|---|
 | the breadcrumb's page name | the page's `name` field | derive it from the page's localized `<title>` / a generated alias→title map, in a global script |
-| a crud table's card title | the dynamic CRUD's `name` | it duplicates the breadcrumb or the tab label on a tabbed page — hide it |
+| a crud table's card title | the dynamic CRUD's `name` for the author — but its `alias` for every other role (platform 2026-11) | it duplicates the breadcrumb or the tab label on a tabbed page — hide it; a script that localizes it keys BOTH the name and the alias, and is checked signed in as a business role, not as the author |
 | the filter submit button | `settings.buttonName`, a plain STRING | swap the caption per `document.documentElement.lang` |
 | the row-actions column header | platform-rendered | same |
 | a process table's card title | the workflow's `name` | a name→caption table in the same script |

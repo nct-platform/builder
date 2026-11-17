@@ -61,7 +61,7 @@ class Driver:
           // declared the field missing, although it was on the form with the same label.
           const norm=t=>(t||'').replace(/[\s:*]+$/,'').trim().toLowerCase();
           const lbl=e=>{let p=e,l='';for(let k=0;k<6&&p;k++){p=p.parentElement;if(!p)break;
-            const q=p.querySelector('label'); if(q){l=q.innerText.trim();break;}} return l;};
+            const q=[...p.querySelectorAll('label')].find((x) => !x.classList.contains('nicelabel-generated') && (x.textContent || '').trim()); if(q){l=q.innerText.trim();break;}} return l;};
           return [...document.querySelectorAll('input,select,textarea')].filter(vis)
             .map(e=>({tag:e.tagName, type:e.type||'', label:lbl(e),
                       value:(e.value||'').slice(0,40),
@@ -93,7 +93,7 @@ class Driver:
           // declared the field missing, although it was on the form with the same label.
           const norm=t=>(t||'').replace(/[\s:*]+$/,'').trim().toLowerCase();
           const lbl=e=>{let p=e,l='';for(let k=0;k<6&&p;k++){p=p.parentElement;if(!p)break;
-            const q=p.querySelector('label'); if(q){l=q.innerText.trim();break;}} return l;};
+            const q=[...p.querySelectorAll('label')].find((x) => !x.classList.contains('nicelabel-generated') && (x.textContent || '').trim()); if(q){l=q.innerText.trim();break;}} return l;};
 
           // ⛔ `<input type=number>` SILENTLY drops a value it cannot parse:
           // `el.value = '33,5'` in an English session leaves the field EMPTY, and the
@@ -549,7 +549,7 @@ class Driver:
           // declared the field missing, although it was on the form with the same label.
           const norm=t=>(t||'').replace(/[\s:*]+$/,'').trim().toLowerCase();
           const lbl=e=>{let p=e,l='';for(let k=0;k<6&&p;k++){p=p.parentElement;if(!p)break;
-            const q=p.querySelector('label'); if(q){l=q.innerText.trim();break;}} return l;};
+            const q=[...p.querySelectorAll('label')].find((x) => !x.classList.contains('nicelabel-generated') && (x.textContent || '').trim()); if(q){l=q.innerText.trim();break;}} return l;};
 
           // ⛔ `<input type=number>` SILENTLY drops a value it cannot parse:
           // `el.value = '33,5'` in an English session leaves the field EMPTY, and the

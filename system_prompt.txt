@@ -1280,6 +1280,13 @@ says where the rule can bite you, and when in doubt a rule is tagged [BOTH], whi
   new case on every tick, forever.
   Full surface: 16-groovy-service-api.md. Do NOT use the stale `context.service.<alias>` form, and there is no
   `service.workflow.startProcess/getProcess/raiseMessage`.
+- [BOTH] `service.files.grant(roleGroups: [...], users: [...], access: 'READ'|'EDIT')` / `.revoke(...)` / `.find(...)` /
+  `.access(...)` — who may open the project's SECURE files (a File Upload field or an Image whose access is "Project
+  members" or "Restricted"). Without `files:` it acts on every secure file the rule's context refers to; with a value
+  (`grant(context.<ctx>.<crud>.data.get().<uploadField>, roleGroups: [...])`, a path, a list, `context.<ctx>.<crud>`) on the files that value
+  refers to - prefer the upload field where users type free text (a typed path is granted too); `files: null` = none.
+  A grant replaces the subject's access; only this project's secure files are touched. EXECUTION rules and CRUD
+  GROOVY methods only. 16 §2.19.
 - [BOTH] `service.store` is how a rule remembers something about the SESSION or the USER, and it has exactly
   TWO members, present in every rule type and in CRUD GROOVY methods: `service.store.session.*` (the browser
   session, per project) and `service.store.user.*` (a database row per user, outlives the session). Each has the

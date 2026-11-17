@@ -15,6 +15,21 @@ from playwright.sync_api import Page, expect
 from helpers.env import CONFIG
 
 
+# ⛔ Seen live (platform 2026-11): the theme uppercases table headers, form labels and card captions by CSS, and
+# `innerText` returns the TRANSFORMED text — «ԽՈՒՄԲ» where the project wrote «Խումբ». Captions are checked as the project
+# wrote them, so the test browsers switch the transform off; nothing is hidden, only the letter case is not restyled.
+NO_TEXT_TRANSFORM_JS = """(() => { const add = () => { if (document.getElementById('autotest-no-text-transform')) return;
+  const s = document.createElement('style'); s.id = 'autotest-no-text-transform';
+  s.textContent = '*, *::before, *::after { text-transform: none !important; }';
+  (document.head || document.documentElement).appendChild(s); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add(); })();"""
+
+
+def keep_letter_case(context) -> None:
+    """Install NO_TEXT_TRANSFORM_JS in a browser context (every page it opens)."""
+    context.add_init_script(script=NO_TEXT_TRANSFORM_JS)
+
+
 class BasePage:
     def __init__(self, page: Page):
         self.page = page
@@ -30,12 +45,19 @@ class BasePage:
         (a prohibition scenario opening an address its role may not reach) — the test then asserts the refusal."""
         for attempt in (1, 2):
             try:
-                self.page.goto(CONFIG.url(path), wait_until="domcontentloaded")
+                if attempt == 1:
+                    self.page.goto(CONFIG.url(path), wait_until="domcontentloaded")
+                else:
+                    self.page.goto(CONFIG.url(path), wait_until="domcontentloaded", timeout=2 * CONFIG.timeout_ms)
                 break
             except Exception as exc:
                 # ⛔ Seen live: a page the platform is still re-rendering — right after a language or author-mode
                 # switch — aborts the next navigation with net::ERR_ABORTED. Let it settle and go again, once.
-                if attempt == 2 or "ERR_ABORTED" not in str(exc):
+                # ⛔ And a stand under load answers a page slower than the navigation timeout (a new test person's
+                # first page provisions them): one module fixture's timeout turned a whole file into errors. Go
+                # again, once, with twice the time.
+                msg = str(exc)
+                if attempt == 2 or not ("ERR_ABORTED" in msg or "Timeout" in msg):
                     raise
                 self.page.wait_for_timeout(1500)
         if expect_chrome:

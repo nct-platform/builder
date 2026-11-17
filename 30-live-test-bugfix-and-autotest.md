@@ -364,6 +364,17 @@ session teardown removes the test accounts; a second Ctrl-C or a kill leaves the
 (and the user quota). Tests that failed half-way could not put back what they changed, so the
 tenant has drifted too.
 
+**A stand under load is slow in bursts** — a page that answers in 0.3 s may take 50–100 s a few
+minutes later. A run of `Page.goto: Timeout` reds, or one module fixture's timeout turning a whole
+file into `E`s, is that, not the product: the template gives navigations twice the click timeout
+(`set_default_navigation_timeout`) and `BasePage.goto` / `LoginPage.login` retry a timed-out
+navigation once. Re-run those reds before reading them. **Check the machine first** (`uptime`,
+`curl -w %{time_total}` the stand): if curl answers in a second while the browser waits a minute,
+the bottleneck is local — a run whose test users each keep a live browser grows into dozens of
+contexts; the template closes all but the `OPEN_TEST_PAGES` (default 6) most recent between test
+files (`TestAccounts.trim`). A hung run is diagnosed with `kill -ABRT <pid>`: pytest's faulthandler
+prints every thread's stack before it dies.
+
 **Putting a drifted tenant back without an import** (when the user prefers that to `reset`):
 1. *Find* the drift by business columns, not whole rows (a dump's `created_at` differs from an
    import's): per row `id || ':' || left(md5((to_jsonb(x) - '<columns defaulting to now()>')::text), 4)`,
@@ -572,7 +583,11 @@ provoked (28 §8.8). Rewrite it until deleting the feature turns it red.
   something out of it (`./start.sh all` does not imply it). Default runs are read-only.
 * **A checkbox may be a switch.** The platform restyles checkboxes ("nicelabel"): the native `<input>` stays but is
   invisible and a generated `label[for=<id>]` is what a person clicks — `click()`/`check()` on the input times out
-  ("element is not visible"). Toggle every checkbox through `pages/base_page.set_checkbox(page, selector, on)`.
+  ("element is not visible"). Toggle every checkbox through `pages/base_page.set_checkbox(page, selector, on)` —
+  including the checkboxes of the project's own HTML components: the restyling reaches every checkbox on the page.
+  Read a table's column captions with `textContent`, not `innerText`: the theme uppercases `<th>` by CSS and
+  `innerText` returns the transformed text. Give Playwright event handlers a function (`lambda d: got.append(d)`),
+  never a builtin bound method (`got.append` — the wrapper cannot tag it and raises).
   The same goes for the menu: read it from `.app-sidebar__inner` (one heading list and one link list per group,
   plus the menu search's own lists), never from the first `ul.vertical-nav-menu`.
 * **Wait on content.** This is a Wicket application with async grids, dialogs, menus and charts: wait for a row,
