@@ -540,6 +540,30 @@ not design a rule around reading an uploaded file's path out of the context data
 
 ---
 
+## ⛔ Every database constraint has a validation in front of it
+
+The database is the last line of defence, never the source of the message. If a save can violate a constraint of
+the table it writes, the form stops it first, in the business's words, on the control at fault — otherwise the
+user reads "Form submission failed: … duplicate key value violates unique constraint uq_…" through two layers of
+platform wrapping, which is a defect even when the data stays correct. Decide the level by the constraint's shape:
+
+| constraint | the validation in front of it | level |
+|---|---|---|
+| `NOT NULL` without `DEFAULT`, written by a control | `alwaysMandatory` + `mandatoryValidationMessages` (`mandatoryPredicateIdentifier` when it is required only in some states) | field |
+| `NOT NULL` the user does not enter | the control is read-only or absent, and the persist rule stamps the value — never left to the database | — |
+| `CHECK (col IN (…))` | a dropdown over exactly those codes (the vocabulary), no free text | field |
+| `CHECK` range / length / format on one column, `VARCHAR(n)`, `NUMERIC(p,s)` | `numBetween` / `numGt` / `strLenMax n` / `strRegex` template (§2) — the bounds of the column, not looser | field |
+| `CHECK` across columns (`valid_from <= valid_to`, "one of a or b") | `conditionalValidations` reading the row (§2), or a global validator with `addFieldError` on the faulty control | field (cross-field) or global |
+| `UNIQUE` / unique index (partial ones too) over columns the user types or picks | a global `VALIDATION_RULE`: look the key up through the CRUD (`find`/a lookup method, the row's own id excluded on edit) and report `validation.addFieldError(<control name>, msg)` + `validation.addError(msg)` | global |
+| `FOREIGN KEY` | a dropdown fed by the parent's live (scoped) rows; never a typed id | field |
+| a business rule the database cannot express (a status that forbids the action, a period already closed) | a global validator ([this file's last section](#-business-preconditions-belong-in-a-validation-rule-never-in-the-execution-rule-alone)) | global |
+
+Keep the same guard inside the persist/EXECUTION rule as well (a direct action, a scheduler or another rule can
+reach the write without the form) — with the same self-contained message. Each row of this table becomes a
+negative case of the scenario and a negative test ([30 §7.0](30-live-test-bugfix-and-autotest.md)): provoke it,
+assert the form's message and that nothing was written. `validate` WARNs when a NOT NULL column is written by a
+control that is neither mandatory nor read-only, and when a UNIQUE key the user enters has no form-level validator.
+
 ## Decision guidance — which validation mechanism?
 
 From a PRD sentence, route to the **narrowest** mechanism that fits (top = prefer):

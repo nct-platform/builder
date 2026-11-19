@@ -560,6 +560,11 @@ for free. The toolkit stays **stdlib-only** ([23](23-distribution-and-known-gaps
 
 ## 8. Definition of done (the gate before you tell the user "done")
 
+- [ ] **Scenarios and tests are DEEP** ([30 §7.0](30-live-test-bugfix-and-autotest.md)): positive and negative
+      cases per scenario with exact values; every rule/predicate/validator/calculation/constraint proven on both
+      sides; every BPMN path walked; no permanent skip; `autotest check` green with its depth gates. Every
+      database constraint a form can violate has a form validation in front of it ([25](25-form-settings-validation-and-events.md)).
+
 - [ ] Language set, branding/logo, and scope were **asked** up front (Operating Principle 1), not assumed.
 - [ ] Every PRD noun/verb/actor/process/report/notification is a row in `plan.json` — **including a workflow for
       every multi-step process** and **branded templates for every notification/printout**.

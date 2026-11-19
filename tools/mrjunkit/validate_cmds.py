@@ -386,6 +386,8 @@ def cmd_validate(args):
     _check_bpmn_element_ids(p, r)
     # -- a dynamic CRUD declaring one dtoField name twice -> the import does not create the CRUD at all --
     _check_crud_duplicate_dto_fields(p, r)
+    # -- a database constraint a form can violate with no validation in front of it -> a DB error on screen --
+    _check_db_constraints_have_form_validation(p, r)
     # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
     _check_rule_context_binding(p, r)
     # -- execution access (who may RUN a rule / CRUD / method): shape, unknown role groups, ignored settings --
@@ -1101,6 +1103,108 @@ def _check_crud_duplicate_dto_fields(p, r):
             r.err("crud %r: dtoFields declares %s more than once — the import refuses the CRUD's graph and the CRUD "
                   "is not created ('N of M integration table(s) are present after the import'); keep one field per "
                   "name (11-business-logic-dynamic-crud.md §3)" % (c.get("alias"), sorted(dup)[:6]))
+
+
+def _check_db_constraints_have_form_validation(p, r):
+    """DATABASE ERROR INSTEAD OF A MESSAGE (WARN). Every constraint of a table that a form writes must have a
+    validation in front of it, so the user meets the form's own words and never the database's (25 "⛔ Every
+    database constraint has a validation in front of it"). Two of them can be checked mechanically:
+
+      * a NOT NULL column without DEFAULT, written by a form control that is neither mandatory nor read-only —
+        an empty field reaches the INSERT as NULL and the save dies with "null value in column … violates
+        not-null constraint", wrapped twice by the platform;
+      * a UNIQUE key (constraint or unique index, partial ones included) whose columns the user types or picks on a
+        form — every column of it — while no form writing that CRUD carries a form-level validator — a duplicate surfaces as
+        "duplicate key value violates unique constraint …".
+
+    A value the persist rule always stamps is not the user's to enter: take the control off the form, or make it
+    read-only. CHECK constraints are the vocabulary's job (a dropdown over exactly the allowed codes) and are not
+    re-checked here."""
+    try:
+        db = p.db
+    except Exception:
+        return
+    if not isinstance(db, dict):
+        return
+    notnull, uniques = {}, {}
+    for schema in (db.get("schemas") or []):
+        for t in (schema.get("tables") or []):
+            ddl, table = t.get("ddl") or "", t.get("name")
+            if not (ddl and table):
+                continue
+            for line in ddl[ddl.find("(") + 1:].split("\n"):
+                line = line.strip().rstrip(",")
+                cm = re.match(r'"(\w+)"\s+\S', line)
+                up = line.upper()
+                if cm and "NOT NULL" in up and " DEFAULT " not in up and cm.group(1) != "id":
+                    notnull.setdefault(table, set()).add(cm.group(1))
+        for stmt in list(schema.get("indexes") or []) + list(schema.get("uniqueConstraints") or []):
+            if not isinstance(stmt, str) or "UNIQUE" not in stmt.upper():
+                continue
+            m = re.search(r'(?:ON|TABLE)\s+(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?.*?\(([^()]*)\)', stmt, re.I | re.S)
+            if m:
+                cols = tuple(c.strip().strip('"') for c in m.group(2).split(",") if c.strip())
+                uniques.setdefault(m.group(1), set()).add(cols)
+    if not notnull and not uniques:
+        return
+    crud_file = p.cruds_file
+    tables = {}                                   # crud alias -> the tables its methods INSERT into
+    for c in ((crud_file.data.get("cruds", []) if crud_file else []) or []):
+        for m in (c.get("methods") or []):
+            for tm in re.finditer(r'INSERT\s+INTO\s+(?:"?\w+"?\.)?"?(\w+)"?', m.get("script") or "", re.I):
+                tables.setdefault(c.get("alias"), set()).add(tm.group(1))
+
+    def column_of(expr):
+        base = expr[:-3] if expr.endswith(".id") else expr
+        return re.sub(r"([A-Z])", lambda mm: "_" + mm.group(1).lower(), base) + ("_id" if expr.endswith(".id") else "")
+
+    def walk(node, anc):
+        yield node, anc
+        for ch in node.get("children") or []:
+            yield from walk(ch, anc + (node.get("identifier"),))
+
+    controls = {}                                 # alias -> {column: (mandatory_or_readonly, control name)}
+    form_of = {}                                  # identifier of a form's page -> aliases its controls write
+    for node, anc in walk(p.root_content, ()):
+        pn = node.get("pluginName") or ""
+        if not (pn.startswith("dynaform.form.") and pn.endswith(".plugin")):
+            continue
+        try:
+            st = core.get_inner_json(node, "settings")
+        except core.ToolError:
+            continue
+        if not isinstance(st, dict) or st.get("scope") != "CRUD" or not st.get("crudAlias") or not st.get("fieldExpression"):
+            continue
+        readonly = bool(st.get("alwaysProhibited") or st.get("prohibitedPredicateIdentifier"))
+        guarded = bool(st.get("alwaysMandatory") or st.get("mandatoryPredicateIdentifier") or readonly)
+        col = column_of(st["fieldExpression"])
+        prev = controls.setdefault(st["crudAlias"], {}).get(col)
+        controls[st["crudAlias"]][col] = (guarded or bool(prev and prev[0]), st.get("name") or st["fieldExpression"],
+                                          readonly and bool(prev is None or prev[2]))
+        for ident in anc:
+            if ident:
+                form_of.setdefault(ident, set()).add(st["crudAlias"])
+    validated = set()
+    for f in (p.rep.get("forms") or []):
+        if f.get("validators"):
+            validated |= form_of.get(f.get("contentIdentifier"), set())
+    for alias, cols in sorted(controls.items()):
+        for table in sorted(tables.get(alias, ())):
+            for col in sorted(notnull.get(table, ())):
+                if col in cols and not cols[col][0]:
+                    r.warn("crud %r: %s.%s is NOT NULL without a DEFAULT, and the form control %r that writes it is "
+                           "neither mandatory nor read-only — an empty field ends in a database error instead of the "
+                           "form's own message; make the control mandatory with its message, or take it off the form "
+                           "and stamp the value in the persist rule (25 'Every database constraint')"
+                           % (alias, table, col, cols[col][1]))
+            for key in sorted(uniques.get(table, ())):
+                user_cols = [c for c in key if c in cols and not cols[c][2]]           # entered, not read-only
+                if user_cols and len(user_cols) == len(key) and alias not in validated:   # a key the user fully controls
+                    r.warn("crud %r: %s has UNIQUE (%s) and the user enters %s on a form, but no form writing this "
+                           "CRUD has a form-level validator — a duplicate surfaces as a database error; add a "
+                           "VALIDATION_RULE that looks the key up (excluding the row's own id on edit) and reports it "
+                           "with addFieldError(<control name>) + addError (25 'Every database constraint')"
+                           % (alias, table, ", ".join(key), ", ".join(user_cols)))
 
 
 def _check_workflow_start_document_shape(p, r):

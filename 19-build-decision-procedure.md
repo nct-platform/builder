@@ -1406,7 +1406,12 @@ silent); **every workflow's worklist page is a quick link** (Phase 11).
    that proves it (the gate reads the Covers lines, not the table). Then:
    `mrjun.py autotest scaffold --project ./work`, one test file per chapter written from the scenarios' EXPECTED
    values (never from a screen — you have none), and `mrjun.py autotest check --project ./work` green. You do not
-   run it: there is no project during a build.
+   run it: there is no project during a build. ⛔ **Both are written DEEP** ([30 §7.0](30-live-test-bugfix-and-autotest.md)):
+   every scenario lists its positive AND negative cases with exact inputs and expected values (calculations
+   worked out), every rule, predicate, validator, calculation and database constraint is proven on both sides,
+   every BPMN path walked — and the gate refuses a scenario without its cases, a scenario covered only by
+   shallow tests and a test that always skips. Every database constraint a form can violate gets a form
+   validation first ([25](25-form-settings-validation-and-events.md) "⛔ Every database constraint").
 5b. ⚠️ **`mrjun.py livediff --db "<platform conninfo>" --tenant <alias>` is for the person who imported it, not
    for you** — put it in chapter 1 of `test-scenarios.md` as a `{manual: run by whoever imported — it needs the
    platform's database}` scenario, to run right after the import, before any clicking. It

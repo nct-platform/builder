@@ -486,6 +486,190 @@ def _norm_plan_id(pid):
     return re.sub(r"\s+", "-", str(pid).strip()).lower()
 
 
+
+# ---------------------------------------------------------------------------------------------------- depth
+# A scenario a test only VISITS is not automated: the page opened, no error page, a tab or a caption is there, at
+# least one row, the button was pressed. Every one of those stays green when the feature behind the screen is
+# deleted. These checks make "deep" a gate instead of a wish (doc 30 §7.0).
+_SHALLOW_CALLS = {"has_500", "content_is_blank", "has_chrome", "tab", "wait_modal", "is_visible", "wait_for_rows"}
+_PRESENCE_MARKERS = {"smoke", "nav", "i18n", "auth"}       # presence IS the expected result there
+_CITE = re.compile(r"§(\d+\.\d+)")
+_POS_LABEL = re.compile(r"^\s*[-*]\s+\*\*(?:Positive|Позитив|Դրական)[^*]*\*\*", re.I | re.M)
+_NEG_LABEL = re.compile(r"^\s*[-*]\s+\*\*(?:Negative|Негатив|Բացասական)[^*]*\*\*", re.I | re.M)
+
+
+def _marks(func):
+    out = set()
+    for d in func.decorator_list:
+        node = d.func if isinstance(d, ast.Call) else d
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "mark":
+            out.add(node.attr)
+    return out
+
+
+def _is_shallow_assert(test):
+    e = test.operand if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not) else test
+    if isinstance(e, ast.Call) and isinstance(e.func, ast.Attribute) and e.func.attr in _SHALLOW_CALLS:
+        return True                                  # page opened / no 500 / a tab exists / a dialog opened
+    if isinstance(e, (ast.Name, ast.Attribute, ast.ListComp, ast.Subscript)):
+        return True                                  # bare truthiness: "something is there"
+    if isinstance(e, ast.Compare) and len(e.ops) == 1:
+        op, right = e.ops[0], e.comparators[0]
+        if isinstance(op, (ast.Gt, ast.GtE)) and isinstance(right, ast.Constant) and right.value in (0, 1):
+            return True                              # "at least one row"
+        if isinstance(op, ast.Eq) and isinstance(right, ast.Constant) and right.value == "ok":
+            return True                              # the button was pressed — not what it did
+        if isinstance(op, ast.In) and isinstance(e.left, ast.Constant) and isinstance(right, ast.Call) \
+                and isinstance(right.func, ast.Attribute) and (
+                    right.func.attr == "content" or (right.func.attr == "inner_text" and right.args
+                                                     and isinstance(right.args[0], ast.Constant)
+                                                     and right.args[0].value in ("body", "html"))):
+            return True                              # a caption somewhere on the whole page
+    return False
+
+
+def _test_is_shallow(func):
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assert) and not _is_shallow_assert(node.test):
+            return False
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
+            if name.startswith("assert_") or name in ("raises", "fail"):
+                return False
+    return True
+
+
+def _unconditional_skip(func):
+    for st in func.body:
+        if isinstance(st, ast.Expr) and isinstance(st.value, ast.Call) and isinstance(st.value.func, ast.Attribute) \
+                and st.value.func.attr == "skip":
+            return True
+    return False
+
+
+def _depth_findings(tests_root, trees, warnings):
+    """ERROR for a scenario covered only by shallow tests and for a test that always skips (doc 30 §7.0)."""
+    root = os.path.abspath(os.path.join(tests_root, "tests")) + os.sep
+    by_scen, errors, cond_skips = {}, [], 0
+    for path, tree in trees.items():
+        if not os.path.abspath(path).startswith(root):
+            continue
+        funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+        funcs += [m for c in tree.body if isinstance(c, ast.ClassDef) for m in c.body
+                  if isinstance(m, ast.FunctionDef) and m.name.startswith("test_")]
+        rel = os.path.relpath(path, tests_root)
+        for func in funcs:
+            cited = _CITE.findall(ast.get_docstring(func) or "")
+            if not cited:
+                continue
+            if _unconditional_skip(func):
+                errors.append("%s::%s always skips — a skip is never a pass: build the data §%s needs and walk it "
+                              "(doc 30 §7.0)" % (rel, func.name, ", §".join(cited)))
+                continue
+            if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "skip"
+                   for n in ast.walk(func)):
+                cond_skips += 1
+            weak = _test_is_shallow(func) and not (_marks(func) & _PRESENCE_MARKERS)
+            for s in cited:
+                by_scen.setdefault(s, []).append(weak)
+    weak = sorted((s for s, flags in by_scen.items() if all(flags)),
+                  key=lambda x: tuple(int(p) for p in x.split(".")))
+    if weak:
+        errors.append("%d scenario(s) are covered only by SHALLOW tests — every assertion is 'the page opened / no "
+                      "error page / a tab or a caption is there / at least one row / the button was pressed', all of "
+                      "which stay green when the feature is deleted. Assert what the scenario says must happen: the "
+                      "exact values, the stored row, the refusal and its words, the ripple, both sides of every rule "
+                      "(doc 30 §7.0): §%s" % (len(weak), ", §".join(weak[:60]) + (" …" if len(weak) > 60 else "")))
+    if cond_skips:
+        warnings.append("%d test(s) skip on a condition — a skip is never a pass; where the condition holds on the "
+                        "seed, that scenario is not automated (doc 30 §7.0)" % cond_skips)
+    return errors
+
+
+def _scenario_depth_findings(scenarios):
+    """ERROR for a scenario (outside chapter 0) that does not list its positive AND negative cases (doc 30 §7.0)."""
+    with open(scenarios, encoding="utf-8") as fh:
+        text = fh.read()
+    chapter, missing = None, []
+    for block in re.split(r"(?m)^(?=#{2,3} )", text):
+        head = block.split("\n", 1)[0]
+        ch = re.match(r"^## (\d+)\.", head)
+        if ch:
+            chapter = int(ch.group(1))
+            continue
+        sc = re.match(r"^### (\d+\.\d+) · ", head)
+        if not sc or chapter == 0:
+            continue
+        lacks = [w for w, rx in (("positive", _POS_LABEL), ("negative", _NEG_LABEL)) if not rx.search(block)]
+        if lacks:
+            missing.append("%s (%s)" % (sc.group(1), "/".join(lacks)))
+    if missing:
+        return ["%d scenario(s) do not list their cases — every scenario carries `- **Positive cases:**` (what must "
+                "be accepted or must happen: the exact inputs and the expected values, rows, states, messages) and "
+                "`- **Negative cases:**` (what must be refused, hidden or must not happen, each with the refusal's "
+                "own words); `Позитивные случаи` / `Негативные случаи` read the same (doc 30 §7.0): %s"
+                % (len(missing), ", ".join(missing[:50]) + (" …" if len(missing) > 50 else ""))]
+    return []
+
+
+
+_CASE_LINE = re.compile(r"^\s*[-*]\s+(?:\*\*)?([PN]\d+)(?:\*\*)?\s*[:.)]", re.M)
+_CITE_CASES = re.compile(r"§(\d+\.\d+)\s*\[([^\]]*)\]")
+
+
+def _case_coverage_findings(scenarios, tests_root, trees, warnings):
+    """ERROR for a case of a scenario that no test implements (doc 30 §7.0): the scenario numbers its cases P1…/N1…
+    and the test that implements them cites them in its docstring as `§N.M [P1 P2 N1]` — not one scenario and not
+    one case may be left without a test. {manual} scenarios number their cases too, for the person who runs them."""
+    with open(scenarios, encoding="utf-8") as fh:
+        text = fh.read()
+    listed, unnumbered, chapter = {}, [], None
+    for block in re.split(r"(?m)^(?=#{2,3} )", text):
+        head = block.split("\n", 1)[0]
+        ch = re.match(r"^## (\d+)\.", head)
+        if ch:
+            chapter = int(ch.group(1))
+            continue
+        sc = re.match(r"^### (\d+\.\d+) · ", head)
+        if not sc or chapter == 0:
+            continue
+        ids = _CASE_LINE.findall(block)
+        if (_POS_LABEL.search(block) or _NEG_LABEL.search(block)) and not ids:
+            unnumbered.append(sc.group(1))
+        if len(ids) != len(set(ids)):
+            unnumbered.append(sc.group(1) + " (a case id repeats)")
+        if "{manual:" not in head:
+            listed[sc.group(1)] = set(ids)
+    cited = {}
+    root = os.path.abspath(os.path.join(tests_root, "tests")) + os.sep
+    for path, tree in trees.items():
+        if not os.path.abspath(path).startswith(root):
+            continue
+        funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
+        funcs += [m for c in tree.body if isinstance(c, ast.ClassDef) for m in c.body if isinstance(m, ast.FunctionDef)]
+        for func in funcs:
+            for m in _CITE_CASES.finditer(ast.get_docstring(func) or ""):
+                cited.setdefault(m.group(1), set()).update(re.findall(r"\b[PN]\d+\b", m.group(2)))
+    errors = []
+    if unnumbered:
+        errors.append("%d scenario(s) list their cases without ids — number every case `P1:` / `N1:` so a test can cite "
+                      "it (doc 30 §7.0): §%s" % (len(unnumbered), ", §".join(unnumbered[:40])))
+    order = lambda x: (x[0], int(x[1:]))  # noqa: E731
+    missing = ["§%s %s" % (num, ",".join(sorted(ids - cited.get(num, set()), key=order)))
+               for num, ids in sorted(listed.items(), key=lambda kv: tuple(int(p) for p in kv[0].split(".")))
+               if ids - cited.get(num, set())]
+    if missing:
+        errors.append("%d scenario(s) have cases NO test implements — the test that implements a case cites it in its "
+                      "docstring as `§N.M [P1 N2 …]` (doc 30 §7.0): %s"
+                      % (len(missing), "; ".join(missing[:40]) + (" …" if len(missing) > 40 else "")))
+    extra = ["§%s %s" % (num, ",".join(sorted(ids - listed[num], key=order))) for num, ids in cited.items()
+             if num in listed and ids - listed[num]]
+    if extra:
+        warnings.append("test(s) cite case ids their scenario does not list (renumbered scenario?): %s" % "; ".join(extra[:20]))
+    return errors
+
+
 def cmd_autotest_check(args):
     folder = _default_folder(args.project)
     tests_root = os.path.abspath(args.tests or os.path.join(folder, "test"))
@@ -506,6 +690,7 @@ def cmd_autotest_check(args):
         errors.append("test-scenarios.md has no numbered scenario: chapters are `## N. <title>`, scenarios "
                       "`### N.M · <title>` (see tools/coverage_map.py in the suite)")
     errors += cmap.failures(result)
+    errors += _scenario_depth_findings(scenarios)
     suite_map = os.path.join(tests_root, "tools", "coverage_map.py")
     if not os.path.isfile(suite_map):
         errors.append("the suite has no tools/coverage_map.py — start.sh prints the map after every run; "
@@ -581,6 +766,8 @@ def cmd_autotest_check(args):
                             "is the only reader of .env, and it ignores shell variables for identities)" % rel)
     errors += _import_findings(tests_root, trees)
     errors += _fixture_findings(tests_root, trees)
+    errors += _depth_findings(tests_root, trees, warnings)
+    errors += _case_coverage_findings(scenarios, tests_root, trees, warnings)
 
     # 4. the configuration
     gi = os.path.join(tests_root, ".gitignore")

@@ -535,6 +535,66 @@ strength (it cannot copy a bug from a screen) and its risk (every locator is a p
 first run's red is mostly the PRODUCT's: locate by what you authored, wait for content, assert what must change.
 Read [28](28-support-mode-over-mcp.md) §8.8 — the ways a UI assertion lies — before the first file.
 
+### 7.0 ⛔ The depth standard — every scenario and every test PROVES the behaviour (enforced)
+
+A suite that visits every screen and proves nothing is worse than no suite: it reports green over a product whose
+rules do not work. Shallow is not "a first pass" — it is a defect of the build, and `autotest check` refuses it.
+This holds for BOTH deliverables: `test-scenarios.md` is written deep, and every test in `test/` implements it deep.
+
+**The scenario (in `test-scenarios.md`)** names, besides its steps:
+
+* `- **Positive cases:**` — numbered `P1:`, `P2:` … — what must be ACCEPTED or must HAPPEN, each with its exact inputs (the seed codes, the
+  values typed, the role that acts) and its exact expected outcome: the value on the screen, the row stored, the
+  state the case moves to, the party it waits for, the number computed, the notification and to whom;
+* `- **Negative cases:**` — numbered `N1:`, `N2:` … — what must be REFUSED, HIDDEN or must NOT happen, each with the refusal's own words (or
+  the absence asserted: the action not offered, the row not listed, nothing written, nobody notified);
+* for a calculation, `- **Calculation:**` — the PRD formula, the inputs taken from the seed (or created by the
+  test) and the expected number worked out in the scenario itself;
+* `Позитивные случаи` / `Негативные случаи` / `Расчёт` read the same in a Russian file. A scenario without both
+  case lists is an ERROR of `autotest check`, `{manual}` ones included — a person needs them even more.
+
+**Not one scenario and not one case is left out — numbered and cited.** The automated suite is written FROM
+`test-scenarios.md`: every case of every scenario is numbered (`- P1: …`, `- N1: …` under the Positive / Negative
+lists) and the test that implements it cites it in its docstring as `§N.M [P1 P2 N1 N2]`. `autotest check` ERRORs on
+a scenario whose cases carry no ids and on any case of a non-`{manual}` scenario that no test cites — a scenario with
+a test but a case without one is as unautomated as a scenario without a test. A case the suite truly cannot automate
+moves the WHOLE scenario to `{manual: <reason>}`, never silently drops out of the test. And the citation is a claim the
+reviewer checks: the test's assertions must do what each cited case says (doc 28 §8.8 — the ways a UI assertion lies).
+
+**Each artefact the build authored is proven on both sides** (true positive = a valid input accepted; true
+negative = an invalid one refused; the false-positive guard = an invalid input must NOT slip through; the
+false-negative guard = a valid input must NOT be refused):
+
+| artefact | positive side | negative side |
+|---|---|---|
+| predicate (action, task, form mapping) | in the state and for the role that make it true, the action is offered | each condition it reads flipped alone — other state, other role, other party — the action is ABSENT (list, row action, direct URL) |
+| field validation / mandatory | a valid value saves and reads back after re-open | every mandatory field empty → refused by ITS OWN message, everything else filled; each boundary (min−1, min, max, max+1); a conditional mandatory both when its condition holds and when it does not |
+| form-level validator (VALIDATION_RULE) | the consistent combination saves | every inconsistent combination it guards → its message on the faulty control, nothing written (database witness) |
+| database constraint (NOT NULL, CHECK, UNIQUE, FK, cross-column) | the legal value saves | the illegal one is stopped by the FORM's validation with a business message — never by the database; a "duplicate key"/"violates … constraint" text on screen fails the test ([25](25-form-settings-validation-and-events.md) "⛔ Every database constraint") |
+| execution rule | its effects: rows written or changed (screen after re-open AND `helpers/db.py`), numbers moved, cases opened, notifications sent, log written — and run twice: still one effect | every refusal it owns, provoked by exactly its condition, with its words; the caller without the right is refused |
+| calculation | the number computed IN the test from the inputs with the PRD formula (`Decimal`), equal on the screen (`assert_number`) and in the database; each weight/setting/threshold changed → the result moves exactly as the formula says | zero, empty and excluded inputs (cancelled, deleted, out of period) do NOT count; rounding at the boundary |
+| workflow | EVERY path start → end event, every gateway value, every decision incl. objection/return/silence/cancel — at each step: the exact stage, status, awaited party, the stored form values, the log entry, who was notified | at each step the other parties' users do not get the task or the row action; a step without its mandatory input is refused |
+| access / scoping | each role sees its own rows | it does not see anybody else's — list, filter, direct URL, row action |
+| notification / mail | the right recipients get it, in their language | nobody else does; nothing is sent when the kind is switched off |
+| scheduler / automatic start | the case or row it must produce, from the trigger data the test creates | run again on the same data: still one; nothing for data outside its condition |
+
+**Banned as the ONLY assertions of a scenario** (`autotest check` ERRORs: "covered only by SHALLOW tests"): the page
+opened / no error page (`has_500`, `content_is_blank`, `has_chrome`), a tab or a dialog is there, a caption is
+somewhere on the page (`'…' in page.inner_text('body')` / `page.content()`), "at least one row" (`>= 1`, `> 0`, a
+bare truthy list), "the button was pressed" (`== 'ok'`). They may accompany the real assertions; they are never
+the proof. Exempt by marker only where presence IS the expected result: `smoke`, `nav`, `i18n`, `auth`.
+
+**No permanent skips.** A test that always skips (an unconditional `pytest.skip`) is an ERROR; a branch the
+default data does not reach is reached by CREATING the data that drives it (the intake value, the client's mode,
+the setting) — never skipped. Conditional skips (no `PGDSN`, no `API_KEY`) are reported, never counted as passes.
+
+**Database constraints have validations in front of them.** If the database would refuse a save (NOT NULL,
+CHECK, UNIQUE, FK, a cross-column rule), the FORM refuses it first — field-level when one control is the cause,
+form-level (`validators`) when the rule spans several — and the suite provokes each one ([25](25-form-settings-validation-and-events.md)
+"⛔ Every database constraint has a validation in front of it"; `validate` WARNs on the two it can see).
+
+### 7.1 One pattern per scenario family
+
 | family (contract step 7) | the test |
 |---|---|
 | front door, navigation | `test_00_smoke.py` (§1.1, §1.2) as the library ships it; then every page of the export's own page list opens with its menu and header (`has_chrome()`) and is not blank (`content_is_blank()`); the author-mode toggle shows and hides the inherited admin links. The chrome's PRESENCE is automated; whether it LOOKS right on every skin is a `{manual}` line |
