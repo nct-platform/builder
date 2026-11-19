@@ -1322,7 +1322,9 @@ The **Business logic** part, at step 15 or step 17 above:
    the same identifier exposed — minus only the aliases of dynamic CRUDs that are gone now (a static integration's
    CRUDs and `bl` itself always stay).
 10. Fewer CRUDs than the file declares → the integration is asked what it actually holds, and a real shortfall is
-    reported ("N of M integration table(s) are present after the import").
+    reported ("N of M integration table(s) are present after the import"). A CRUD whose graph the integration
+    refuses is simply absent: compare the Business Logic console with the file's aliases. A known cause is one
+    `dtoFields[].fieldName` declared twice ([11 §3](11-business-logic-dynamic-crud.md)); `validate` ERRORs on it.
 
 ### The hidden Groovy rule
 

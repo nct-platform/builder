@@ -951,6 +951,13 @@ The goal is to set `rep-objects.json.workflows[]` by hand so that after import y
 > `validate` now XML-parses `bpmnContent` and ERRORs on malformed XML / missing `<process>` / dangling flow refs —
 > but a green validate is still not import-proof; do a live import + read `log/ui.log`.
 
+> ⛔ **Every element `id` is an XML NCName** — a letter or `_` first, then letters, digits, `_`, `-`, `.`; the same
+> holds for every `sourceRef`/`targetRef`/`default`/`bpmnElement` that points at one, and no id may repeat. The XML
+> stays well-formed with `id="G_MODE?"`, but the importer validates against the BPMN schema and rejects THAT
+> workflow and its deployment with the same *"The workflow definition contains invalid XML"* text (the rest of the
+> archive imports, the report lists the rejected workflows). The usual cause is an id derived from a human step code
+> (`MODE?`, `Step 1`): map codes to safe ids (`MODE?` → `MODE_Q`) before writing the XML. `validate` ERRORs on it.
+
 > ⛔ **EXACTLY ONE `<startEvent>` per `<process>`.** The platform raises the ERROR
 > `MULTIPLE_START_EVENTS` (*"Your workflow has multiple start events, but only one start event is allowed"*) and the
 > save throws — aborting the import at the workflow step exactly like malformed XML above. (Zero start events is

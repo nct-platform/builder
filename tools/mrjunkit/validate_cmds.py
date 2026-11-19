@@ -382,6 +382,10 @@ def cmd_validate(args):
     _check_rule_sandbox(p, r)
     # -- a hand-built start document with the context/attrs at the ROOT -> dropped in silence, blank queues --
     _check_workflow_start_document_shape(p, r)
+    # -- a BPMN id that is not an XML NCName (or is declared twice) -> the import rejects the workflow ("invalid XML") --
+    _check_bpmn_element_ids(p, r)
+    # -- a dynamic CRUD declaring one dtoField name twice -> the import does not create the CRUD at all --
+    _check_crud_duplicate_dto_fields(p, r)
     # -- a rule using context.* while its own contextIdentifiers is empty -> null context, runtime throw --
     _check_rule_context_binding(p, r)
     # -- execution access (who may RUN a rule / CRUD / method): shape, unknown role groups, ignored settings --
@@ -1045,6 +1049,58 @@ def _check_rule_context_binding(p, r):
               "Attach the context: `rule add --context <ctxIdentifier>` (or set contextIdentifiers on the "
               "existing rule). (08-groovy-rules-and-context.md)"
               % (rule.get("name"), rule.get("ruleType"), ", ".join(used[:3])))
+
+
+_NCNAME = re.compile(r"^[^\W\d][\w.\-]*$")
+
+
+def _check_bpmn_element_ids(p, r):
+    """IMPORT REJECT (ERROR). Every `id` in a workflow's `bpmnContent` — and every reference to one (`sourceRef`,
+    `targetRef`, `default`, `attachedToRef`, the diagram's `bpmnElement`) — must be an XML NCName: a letter or `_`
+    first, then letters, digits, `_`, `-`, `.`. The importer validates the definition against the BPMN schema, and
+    one id outside that grammar (`Gateway_MODE?`, `Task 1`, `1st_step`) is not reported as a bad id: the WHOLE
+    workflow — and its deployment — is rejected as "The workflow definition contains invalid XML. Please check the
+    file format and try again.", while the rest of the archive imports. The XML is well-formed, so a parse check
+    passes; the usual cause is an id built from a human step code ("MODE?" -> "G_MODE?"). A duplicate id is rejected
+    the same way. (07-workflows-and-tasks.md "BPMN skeleton and namespaces")"""
+    for wf in (p.rep.get("workflows") or []):
+        xml = wf.get("bpmnContent") or ""
+        if not xml:
+            continue
+        name = wf.get("name") or wf.get("identifier")
+        ids = re.findall(r'\sid="([^"]*)"', xml)
+        refs = re.findall(r'\s(?:sourceRef|targetRef|default|attachedToRef|bpmnElement)="([^"]*)"', xml)
+        bad = sorted({i for i in ids + refs if not _NCNAME.match(i)})
+        if bad:
+            r.err("workflow %r: BPMN id(s) that are not XML NCNames %s — the importer rejects the whole workflow and "
+                  "its deployment as 'The workflow definition contains invalid XML'; use letters, digits, '_', '-', "
+                  "'.' only, starting with a letter or '_' (07-workflows-and-tasks.md)" % (name, bad[:6]))
+        seen, dup = set(), set()
+        for i in ids:
+            (dup if i in seen else seen).add(i)
+        if dup:
+            r.err("workflow %r: BPMN id(s) declared twice %s — the importer rejects the workflow as invalid XML "
+                  "(07-workflows-and-tasks.md)" % (name, sorted(dup)[:6]))
+
+
+def _check_crud_duplicate_dto_fields(p, r):
+    """IMPORT DROP (ERROR). A dynamic CRUD's `dtoFields[].fieldName` must be unique within the CRUD. The
+    business-logic import creates each CRUD with its whole graph in one call; a graph that declares one field name
+    twice is refused and the CRUD is simply not created. The import ends "with warnings" and says only
+    "N of M integration table(s) are present after the import" — no alias, no reason — and every page, rule and
+    workflow that reads the missing alias fails at runtime. The typical cause is a nested object declared twice:
+    once for the FK column (`request_id` -> `request`) and once more for joined columns of the same parent
+    (`"request__…"`); one ObjectNode field carries every `<ref>__*` column. (11-business-logic-dynamic-crud.md §3)"""
+    crud_file = p.cruds_file
+    for c in ((crud_file.data.get("cruds", []) if crud_file else []) or []):
+        seen, dup = set(), set()
+        for f in (c.get("dtoFields") or []):
+            n = f.get("fieldName")
+            (dup if n in seen else seen).add(n)
+        if dup:
+            r.err("crud %r: dtoFields declares %s more than once — the import refuses the CRUD's graph and the CRUD "
+                  "is not created ('N of M integration table(s) are present after the import'); keep one field per "
+                  "name (11-business-logic-dynamic-crud.md §3)" % (c.get("alias"), sorted(dup)[:6]))
 
 
 def _check_workflow_start_document_shape(p, r):

@@ -410,6 +410,12 @@ and `find` (real rule) — a fixed PageResult schema:
 | `fieldType` | String | The field's Java type. **Commonly seen in dtoFields**: `Integer`, `BigDecimal`, `Boolean`, `LocalDate`, `Instant`, `String`, `ObjectNode`. The mapper's full set also includes `Long`/`Float`/`Double`, and for pg_enum columns the field type is the **enum's name** (e.g. `OrderStatus`). Mapping from the DB type: `jsonb/json→ObjectNode`, `uuid→String`, `int4/smallint→Integer`, `int8→Long`, `numeric→BigDecimal`, `timestamp*→Instant`, `date→LocalDate`, default→String. | yes |
 | `fieldOrder` | Integer | 0-based order (= the table's column order). | yes |
 
+> ⛔ **`fieldName` is unique within a CRUD.** The import creates each CRUD with its whole graph in one call; a
+> `dtoFields[]` that names one field twice is refused and the CRUD is not created at all — the import report says
+> only *"N of M integration table(s) are present after the import"*. The classic way in: a nested object declared
+> once for its FK column (`request_id` → `request`) and again for joined columns of the same parent (`request__…`).
+> One `ObjectNode` field carries every `<ref>__*` column. `validate` ERRORs on a duplicate.
+
 `fieldCategory` (`DTO` or `FILTER`) is **not** written to the
 export; it is implicit from which array the field lies in. `filterFields[]` has the same structure; it differs in
 its origin: it is generated from the **parameters of `findAll`** (except `rowsInPage`/`pageNumber`). Most CRUDs carry `filterFields: []` — a filter field appears only where the
