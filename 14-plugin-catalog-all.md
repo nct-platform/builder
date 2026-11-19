@@ -463,7 +463,11 @@ of the image. Hand-built content: set `access`, put the file at `tenant-files/se
 (`<level>` = `project` or `restricted`, matching `access`) and its access record next to the area at
 `tenant-files/secure/.acl/images/<level>/<w>-<h>/<name>.json` = `{"level":"PROJECT"}` (or `"RESTRICTED"` with
 `"grants":[{"subject":"ROLE_GROUP","name":"<Role Group>","access":"READ"}]`) — the import hands the record to the
-storage, which makes it the importing project's. A secure file WITHOUT a record opens for nobody.
+storage, which makes it the importing project's. A secure file WITHOUT a record opens for nobody. The storage reads a
+record strictly: `level`, a grant's `subject` and `access` are those exact upper-case names, and one misspelt drops the
+WHOLE record. `access` itself is read in any letter case; any other value is `PUBLIC`. `validate` reads every record
+under `tenant-files/secure/.acl/` the way the storage does, and reports a secure file without one, an `access` that is
+no level, and a secure `access` over an image file that is not in the secure area (a public file stays public).
 
 ## 1.6 · `nct.link.plugin` — link · `nct.label.link.plugin` — link with a caption
 

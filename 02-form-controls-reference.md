@@ -1480,7 +1480,10 @@ The fields `maxFiles`/`showPreview`/`acceptedFileTypes` do **not** exist (fictio
 > keeps documents of its customers apart (each customer sees their own, staff see all) is: the field on
 > `RESTRICTED`, plus, in the execution rule that saves the record, `service.files.grant(roleGroups: ['<Staff Role
 > Group>'], access: 'READ')` — the uploader keeps their own files without a grant. The setting applies to files
-> uploaded from then on.
+> uploaded from then on. A secure path is 60–80 characters (tenant, `secure/`, upload path, a 16-character random
+> folder, the name): bind the field to a `text` column (or a `varchar` of 255 and more) — a narrow one
+> (`varchar(40)`) fails the save of the record. The level is read exactly as written: `Restricted`, `private` or a
+> typo is no level, and the field's files are then PUBLIC — `validate` reports it as an ERROR.
 
 > **Runtime — files live in the file-storage service, the field stores PATHS not bytes.** On upload the control
 > persists the bytes to the file-storage microservice (under `uploadPath + fileName`) and keeps the **returned

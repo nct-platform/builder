@@ -372,6 +372,11 @@ def cmd_validate(args):
     # -- service.messenger: the same - refused in a predicate / validation rule, a member or an alias that cannot exist,
     #    an all-named call of a member that takes positions, an option no messenger has --
     _check_rule_uses_messenger(p, r)
+    # -- service.files: refused in a predicate / validation rule, a member or an option that does not exist, a grant
+    #    to a role group the project does not have --
+    _check_rule_uses_files(p, r)
+    # -- the secure files the archive carries: each with an access record the storage reads, or it opens for nobody --
+    _check_secure_tenant_files(p, r)
     # -- what the rule sandbox refuses before a rule runs: inject(), annotations, reflection, processes, files, the
     #    environment, changes to what every project shares (doc 08 "The rule sandbox") --
     _check_rule_sandbox(p, r)
@@ -516,6 +521,9 @@ def cmd_validate(args):
         _check_studio_component(node, pn, props, locales, r)
         if pn == "nct.image.plugin":
             _check_image_per_theme(node, props, r)
+            _check_image_access(p, node, props, r)
+        elif pn == _FILE_UPLOAD_PLUGIN:
+            _check_file_upload_access_level(node, props, r)
         # localizedNames in inner config (column/action captions) should cover
         # tenant locales. Page meta title/description are intentionally EN-only in
         # the baseline, so we do NOT check LOCALIZED_STRING property slots here.
@@ -7317,6 +7325,134 @@ def _check_rule_uses_alias_namespace(p, r, ns):
                 check_options(call, "%s.%s.%s" % (space, name, member), after.end() - 1, member)
 
 
+# What `service.files` has (doc 16 §2.19): four members, and the options of grant / revoke. The runtime refuses every
+# other member and option with a message; these are the same names, repeated for a check that runs before the import.
+_FILES_MEMBERS = ("grant", "revoke", "find", "access")
+_FILES_OPTIONS = ("files", "roleGroups", "users", "access")
+_FILES_REF_RE = re.compile(r"\bservice\s*\.\s*files\b")
+_FILES_MEMBER_RE = re.compile(r"\bservice\s*\.\s*files\s*\.\s*([A-Za-z_]\w*)")
+# Read on the body WITHOUT the folding of `_fold_property_chain`, which turns a one-name list `['Accountants']` into
+# `.Accountants` - what the call's arguments are is read from what was written.
+_FILES_CHANGE_RE = re.compile(r"\bservice\s*\??\.\s*files\s*\??\.\s*(grant|revoke)\s*\(")
+_FILES_ACCESS_KEY_RE = re.compile(r"""(?<![\w.])access\s*:\s*(['"])""")
+_FILES_ROLE_GROUPS_KEY_RE = re.compile(r"(?<![\w.])roleGroups\s*:\s*\[")
+_BLANKED_LITERAL_RE = re.compile(r"""(['"])( *)\1""")
+_FILES_CALL = _OptionCall(1, call_keys=())   # grant(<what>, [options]) / grant([options]); every named key an option
+_FILES_DOC = "(16-groovy-service-api.md §2.19)"
+
+
+def _check_rule_uses_files(p, r):
+    """`service.files` - the ways a script goes wrong (doc 16 §2.19).
+
+    ERROR - a PREDICATE or a VALIDATION_RULE that uses it, or CALLS (`service.rule("X")`,
+    `service.crud.<alias>.<method>(...)`, literal names) a body that does: every member refuses there, because those
+    rules are evaluated for an answer, and who may open a file must not change as a side effect of drawing a button.
+    The author would only find out when the first user opens the page.
+
+    ERROR - a member that does not exist (`service.files.list()`, `.share(...)`): there are exactly grant, revoke, find
+    and access. ERROR - a literal option of grant / revoke that does not exist (`groups:`, `roles:`, `user:`), an
+    `access:` on a revoke, an `access:` that is neither READ nor EDIT: the runtime refuses each.
+
+    WARN - a grant to a literal role group name the project has no group of (case ignored, as the platform does): the
+    grant is kept under that name and opens the files for nobody until a group of that name exists.
+    WARN - a CRUD GROOVY method that grants or revokes without saying on WHAT: in a method the context holds only the
+    session store, so the call acts on the secure files the session store holds - pass the values.
+
+    Comments and string literals are blanked first. The limits of a text check: the namespace passed through a variable
+    (`def f = service.files`), a computed rule name, an options map built at run time."""
+    entries = _groovy_bodies(p)
+    code_of = {id(e): (lambda folded: (folded, _blank_strings(folded)))(_fold_property_chain(_strip_groovy_comments(e[1])))
+               for e in entries}
+    answer_only = ("PREDICATE", "VALIDATION_RULE")
+    refers = {id(e) for e in entries if _FILES_REF_RE.search(code_of[id(e)][1])}
+    uses = {id(e) for e in entries if id(e) in refers and e[2] not in answer_only}
+    by_rule = {e.rule_name: e for e in entries if e.rule_name}
+    by_method = {e.method_ref: e for e in entries if e.method_ref}
+    reaches = _reacher(uses, lambda entry: _literal_callees(*code_of[id(entry)], by_rule, by_method))
+    groups = {str(g.get("name") or "").strip().lower() for g in (getattr(p, "rep", {}) or {}).get("roleGroups", []) or []
+              if isinstance(g, dict)} - {""}
+
+    for entry in entries:
+        where, body, rule_type, _access, is_method = entry
+        code = code_of[id(entry)][1]
+
+        if rule_type in answer_only:
+            kind = "predicates" if rule_type == "PREDICATE" else "validation rules"
+            if id(entry) in refers:
+                r.err("%s is a %s and uses service.files - every member refuses there ('is not available in %s': "
+                      "those rules are evaluated for an answer, and who may open a file must not change as a side "
+                      "effect of one). Grant from the EXECUTION_RULE that saves the record, or a CRUD GROOVY method. %s"
+                      % (where, rule_type, kind, _FILES_DOC))
+            else:
+                target = reaches(entry)
+                if target is not None:
+                    r.err("%s is a %s and calls %s, which uses service.files - the refusal follows the call, so every "
+                          "member refuses there. Grant from the EXECUTION_RULE that saves the record, or a CRUD GROOVY "
+                          "method. %s" % (where, rule_type, target[0], _FILES_DOC))
+            continue
+        if id(entry) not in refers:
+            continue
+
+        reported = set()
+
+        def report_once(text, level=r.err):
+            if text not in reported:
+                reported.add(text)
+                level(text)
+
+        for m in _FILES_MEMBER_RE.finditer(code):
+            member = m.group(1)
+            if member not in _FILES_MEMBERS and member not in _OBJECT_MEMBERS:
+                report_once("%s calls service.files.%s, which does not exist - service.files has exactly grant, revoke, "
+                            "find and access. %s" % (where, member, _FILES_DOC))
+
+        written = _strip_groovy_comments(body)
+        written_code = _blank_strings(written)
+        unknown_groups = set()
+        for m in _FILES_CHANGE_RE.finditer(written_code):
+            member, open_at = m.group(1), m.end() - 1
+            close = _closing_paren(written_code, open_at)
+            if close is None:
+                continue
+            keys = [key for key, _is_option in _call_option_keys(written, written_code, open_at, _FILES_CALL)[0]]
+            for key in keys:
+                if key not in _FILES_OPTIONS:
+                    report_once("%s calls service.files.%s(...) with the option '%s', which does not exist - the call "
+                                "is refused at run time. The options are: files, roleGroups, users%s. %s"
+                                % (where, member, key, "" if member == "revoke" else ", access", _FILES_DOC))
+            if member == "revoke" and "access" in keys:
+                report_once("%s calls service.files.revoke(...) with access: - a revoke takes away ALL the access of "
+                            "whom it names and takes no access:, so the call is refused at run time; to leave them "
+                            "READ, grant READ. %s" % (where, _FILES_DOC))
+            for a in _FILES_ACCESS_KEY_RE.finditer(written_code, open_at, close):
+                quote_at = a.end() - 1
+                end = written.find(written[quote_at], quote_at + 1)
+                value = written[quote_at + 1:end].strip() if end > quote_at else ""
+                if value and value.upper() not in ("READ", "EDIT"):
+                    report_once("%s calls service.files.%s(...) with access: '%s' - access is 'READ' (open and "
+                                "download) or 'EDIT' (also remove), and anything else is refused at run time. %s"
+                                % (where, member, value, _FILES_DOC))
+            if member == "grant" and groups:
+                for g in _FILES_ROLE_GROUPS_KEY_RE.finditer(written_code, open_at, close):
+                    list_close = _closing_paren(written_code, g.end() - 1)
+                    for lit in _BLANKED_LITERAL_RE.finditer(written_code, g.end(), list_close or g.end()):
+                        name = written[lit.start() + 1:lit.end() - 1].strip()
+                        if name and name.lower() not in groups and name.lower() not in unknown_groups:
+                            unknown_groups.add(name.lower())
+                            report_once("%s grants to the role group '%s', which this project has none of (names are "
+                                        "compared ignoring case) - the grant is kept under that name and opens the "
+                                        "files for nobody until a role group of that name exists. %s"
+                                        % (where, name, _FILES_DOC), r.warn)
+            if is_method and "files" not in keys:
+                pieces = _split_top_level(written_code, open_at + 1, close)
+                if pieces and all(_named_key(written, written_code, start, end) for start, end in pieces) \
+                        and "*:" not in written_code[open_at:close].replace(" ", ""):
+                    report_once("%s is a CRUD GROOVY method and calls service.files.%s(...) without saying on what - "
+                                "in a method the context holds only the session store, so the call acts on the secure "
+                                "files that holds. Pass the values: service.files.%s(param.<x>, ...). %s"
+                                % (where, member, member, _FILES_DOC), r.warn)
+
+
 # `crudDataMap: [ <alias>: [ value: <row> ] ]` inside the document literal a rule hands to
 # `service.workflow.start(...)`. A rule-started case seeds the process's context data ITSELF, and every surface
 # that reads a process resolves against that document — a scope=CRUD process-table column reads
@@ -9634,6 +9770,26 @@ def _check_global_resources(p, r):
 _WEBASSET_SKINS = ("Standard", "Dracula", "Forest", "Dark", "Dark Blue")
 
 
+def _image_variants(by_theme):
+    """An image's `urlByTheme` as the platform reads it: (the skin -> path map, None), or ({}, why) when the platform
+    reads it as EMPTY because it is no JSON object. Absent or blank is ({}, None)."""
+    if not isinstance(by_theme, dict):
+        return {}, None
+    if isinstance(by_theme.get("localizedStringValue"), dict) and not by_theme.get("stringValue"):
+        return by_theme["localizedStringValue"], None   # what the MCP property setter stores for an object
+    raw = by_theme.get("stringValue")
+    if raw in (None, ""):
+        return {}, None
+    try:
+        variants = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        return {}, ("is not valid JSON (%s) — the platform reads it as EMPTY, so every theme shows the default url"
+                    % exc)
+    if not isinstance(variants, dict):
+        return {}, "must be a JSON object {skin name: image path}, got %s — read as EMPTY" % type(variants).__name__
+    return variants, None
+
+
 def _check_image_per_theme(node, props, r):
     """An image's own version per theme (doc 14 §1.5): `perTheme` + `urlByTheme`, a JSON object skin name -> path.
 
@@ -9642,24 +9798,9 @@ def _check_image_per_theme(node, props, r):
     imports clean and renders the default `url` under every theme — the very thing the author was trying to avoid.
     """
     name = node.get("name")
-    by_theme = props.get("urlByTheme")
-    if not isinstance(by_theme, dict):
-        return
-    if isinstance(by_theme.get("localizedStringValue"), dict) and not by_theme.get("stringValue"):
-        variants = by_theme["localizedStringValue"]   # what the MCP property setter stores for an object
-    else:
-        raw = by_theme.get("stringValue")
-        if raw in (None, ""):
-            return
-        try:
-            variants = json.loads(raw)
-        except (TypeError, ValueError) as exc:
-            r.err("image %r: urlByTheme is not valid JSON (%s) — the platform reads it as EMPTY, so every theme "
-                  "shows the default url (doc 14 §1.5)" % (name, exc))
-            return
-    if not isinstance(variants, dict):
-        r.err("image %r: urlByTheme must be a JSON object {skin name: image path}, got %s — read as EMPTY "
-              "(doc 14 §1.5)" % (name, type(variants).__name__))
+    variants, unreadable = _image_variants(props.get("urlByTheme"))
+    if unreadable:
+        r.err("image %r: urlByTheme %s (doc 14 §1.5)" % (name, unreadable))
         return
     for skin, path in variants.items():
         if skin not in _WEBASSET_SKINS:
@@ -9677,6 +9818,284 @@ def _check_image_per_theme(node, props, r):
         r.warn("image %r: urlByTheme is filled but perTheme is not true — the per-theme images are kept but "
                "NEVER shown; set perTheme {\"propertyType\":\"BOOLEAN\",\"booleanValue\":true} (doc 14 §1.5)"
                % name)
+
+
+# Who can open a file (doc 02 "Secure attachments", doc 14 §1.5 "Who can see the image", doc 16 §2.19). A secure file
+# lives in its project's secure area - tenant-stripped `secure/<path>`, in the archive `tenant-files/secure/<path>` -
+# and opens only for whom its access record `secure/.acl/<path>.json` names. The names mirror the platform's own: the
+# validator is stdlib-only and cannot read them, so this is the one place they are repeated.
+_FILE_LEVELS = ("PUBLIC", "PROJECT", "RESTRICTED")
+_SECURE_LEVELS = ("PROJECT", "RESTRICTED")
+_GRANT_SUBJECTS = ("ROLE_GROUP", "USER")
+_GRANT_ACCESS = ("NONE", "READ", "EDIT")          # what a record may spell; the import drops NONE
+_RECORD_KEYS = ("version", "level", "realm", "client", "owner", "createdAt", "updatedAt", "grants")
+_GRANT_KEYS = ("subject", "name", "access")
+_SECURE_AREA = "secure"
+_ACCESS_RECORDS = ".acl"
+_FILE_UPLOAD_PLUGIN = "dynaform.form.file.upload.field.plugin"
+_UPLOAD_ACCESS_DOC = "(02-form-controls-reference.md File Upload, \"Secure attachments\")"
+_IMAGE_ACCESS_DOC = "(14-plugin-catalog-all.md §1.5 \"Who can see the image\")"
+
+
+def _secure_rel(path):
+    """What follows `secure/` in a secure path (`secure/images/project/1-1/a.png` -> `images/project/1-1/a.png`), or
+    None for a path outside the secure area. A tenant prefix `t/<id>/` is looked through."""
+    parts = [s for s in (path or "").replace("\\", "/").split("/") if s]
+    if len(parts) > 2 and parts[0] == "t":
+        parts = parts[2:]
+    if len(parts) < 2 or parts[0] != _SECURE_AREA:
+        return None
+    return "/".join(parts[1:])
+
+
+def _image_paths(props):
+    """(where, path) of every image file an image node names: its `url` and each theme's `urlByTheme` entry."""
+    found = []
+    url = props.get("url")
+    if isinstance(url, dict) and isinstance(url.get("stringValue"), str) and url["stringValue"].strip():
+        found.append(("url", url["stringValue"].strip()))
+    variants, _unreadable = _image_variants(props.get("urlByTheme"))
+    for skin, path in variants.items():
+        if isinstance(path, str) and path.strip():
+            found.append(("urlByTheme[%r]" % skin, path.strip()))
+    return found
+
+
+def _check_image_access(p, node, props, r):
+    """Who can see an image (`access`, doc 14 §1.5), and whether its files are where that level keeps them.
+
+    ERROR - an `access` the platform does not read as a level. It reads the property's TEXT, trimmed, in any letter
+    case: anything but PUBLIC, PROJECT or RESTRICTED - and a value kept in another slot than the text - is PUBLIC, and
+    anyone with the link sees the image.
+
+    ERROR - a secure `access` whose image (`url`, or a theme's `urlByTheme` entry) is not a file of the project's
+    secure area: the page links it as it is, so anyone with its address opens it whatever `access` says. The editor
+    copies a picked image into the secure library of the level; hand-built content has to put it there itself.
+
+    WARN - a secure image in the library of the other level: the editor's gallery of this level does not list it,
+    and who may see it is decided by its access record, not by the `access` of a node that shows it.
+
+    WARN - a secure image the archive does not carry in tenant-files/: imported into a new project there is nothing
+    to show, and a secure image that is not there shows NOTHING, not a broken-image icon. Its access record is read
+    by `_check_secure_tenant_files`."""
+    name = node.get("name")
+    prop = props.get("access")
+    level = "PUBLIC"
+    if isinstance(prop, dict):
+        raw = prop.get("stringValue")
+        text = raw.strip() if isinstance(raw, str) else ""
+        localized = prop.get("localizedStringValue")
+        if text and text.upper() in _FILE_LEVELS:
+            level = text.upper()
+        elif text:
+            r.err("image %r: access %r is no level - the platform reads it as PUBLIC, so anyone with the link sees "
+                  "the image. One of %s %s" % (name, raw, ", ".join(_FILE_LEVELS), _IMAGE_ACCESS_DOC))
+        elif (isinstance(localized, dict) and any(isinstance(v, str) and v.strip() for v in localized.values())) \
+                or any(prop.get(slot) is not None for slot in ("booleanValue", "intValue", "longValue", "doubleValue")):
+            r.err("image %r: access is not kept as a text - the platform reads only {\"propertyType\":\"STRING\", "
+                  "\"stringValue\":\"<level>\"}, so the image is PUBLIC %s" % (name, _IMAGE_ACCESS_DOC))
+    for where, path in _image_paths(props):
+        rel = _secure_rel(path)
+        if rel is None:
+            if level in _SECURE_LEVELS:
+                r.err("image %r: access is %s, but its %s %r is not a file of the project's secure area - the page "
+                      "links it as it is, so anyone with its address opens it whatever access says. Put the file at "
+                      "secure/images/%s/<w>-<h>/<name> with its access record %s"
+                      % (name, level, where, path, level.lower(), _IMAGE_ACCESS_DOC))
+            continue
+        folders = rel.split("/")
+        if level in _SECURE_LEVELS and folders[0] == "images" and len(folders) > 2 and folders[1] != level.lower():
+            r.warn("image %r: access is %s, but its %s %r is in the %s library - the gallery of this level does not "
+                   "list it, and who may see it is its access record's level, not this node's %s"
+                   % (name, level, where, path, folders[1], _IMAGE_ACCESS_DOC))
+        if not os.path.isfile(os.path.join(p.root, "tenant-files", _SECURE_AREA, *folders)):
+            r.warn("image %r: its %s %r is not in tenant-files/%s/ - imported into a new project there is nothing to "
+                   "show, and a secure image that is not there shows NOTHING, not a broken-image icon %s"
+                   % (name, where, path, _SECURE_AREA, _IMAGE_ACCESS_DOC))
+
+
+def _check_file_upload_access_level(node, props, r):
+    """Who can open the files of a File Upload field (`settings.accessLevel`, doc 02).
+
+    The platform reads the field's settings with a JSON reader that knows the three level NAMES exactly as spelled:
+    anything else - `Restricted`, `PRIVATE`, a typo - is no level, and a field without one is PUBLIC. Every file
+    uploaded through it is then a public file that anyone with its link opens, while the author believes it closed.
+    A value that is not a text at all (true, a list, an object) is worse: the settings cannot be read, and EVERY
+    setting of the field falls back to its default. The platform says neither."""
+    settings = props.get("settings")
+    raw = settings.get("stringValue") if isinstance(settings, dict) else None
+    if not raw:
+        return
+    try:
+        inner = json.loads(raw)
+    except (TypeError, ValueError):
+        return                                   # reported as malformed inner JSON
+    if not isinstance(inner, dict) or inner.get("accessLevel") is None:
+        return
+    value = inner["accessLevel"]
+    if isinstance(value, (bool, list, dict)):
+        r.err("File Upload %r: accessLevel %s is not a text - the platform cannot read the field's settings at all, so "
+              "EVERY setting falls back to its default and the files are PUBLIC. One of %s %s"
+              % (node.get("name"), json.dumps(value, ensure_ascii=False), ", ".join(_FILE_LEVELS), _UPLOAD_ACCESS_DOC))
+    elif str(value) not in _FILE_LEVELS:
+        spelled = str(value).strip().upper()
+        r.err("File Upload %r: accessLevel %s is no level (the names are read exactly, upper case) - the files are "
+              "PUBLIC, anyone with the link opens them%s. One of %s %s"
+              % (node.get("name"), json.dumps(value, ensure_ascii=False),
+                 "; write \"%s\"" % spelled if spelled in _FILE_LEVELS else "", ", ".join(_FILE_LEVELS),
+                 _UPLOAD_ACCESS_DOC))
+
+
+def _numeric(value):
+    """A JSON value the storage reads as a number: a number, or a text of digits."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    return isinstance(value, str) and value.strip().lstrip("-").isdigit()
+
+
+def _access_record_problems(record):
+    """(errors, warnings) of one access record, read the way the storage reads it: a strict JSON reader, to which the
+    level, a grant's subject and its access are their exact upper-case names - one that is not throws the WHOLE record
+    away - and a key it does not know is nothing. The import then keeps the grants with a subject, a name and READ or
+    EDIT, and drops the others."""
+    errors, warnings = [], []
+    if not isinstance(record, dict):
+        return ["is no JSON object"], []
+    unknown = sorted(key for key in record if key not in _RECORD_KEYS)
+    if unknown:
+        warnings.append("has keys the storage ignores: %s (it knows %s)" % (", ".join(unknown), ", ".join(_RECORD_KEYS)))
+    level = record.get("level")
+    if level is None:
+        errors.append("has no level")
+    elif not isinstance(level, str) or level not in _FILE_LEVELS:
+        spelled = level.strip().upper() if isinstance(level, str) else ""
+        errors.append("level %s is no level (the names are read exactly, upper case)%s"
+                      % (json.dumps(level, ensure_ascii=False),
+                         "; write \"%s\"" % spelled if spelled in _SECURE_LEVELS else ""))
+    elif level not in _SECURE_LEVELS:
+        errors.append("is PUBLIC - a secure file is PROJECT or RESTRICTED (a public file belongs outside secure/)")
+    for key in ("version", "createdAt", "updatedAt"):
+        if record.get(key) is not None and not _numeric(record[key]):
+            errors.append("%s %s is not a number" % (key, json.dumps(record[key], ensure_ascii=False)))
+    for key in ("realm", "client", "owner"):
+        if isinstance(record.get(key), (dict, list)):
+            errors.append("%s is not a text" % key)
+    grants = record.get("grants")
+    if grants is not None and not isinstance(grants, list):
+        errors.append("grants is not a list")
+    kept = 0
+    for number, grant in enumerate(grants if isinstance(grants, list) else [], 1):
+        if not isinstance(grant, dict):
+            errors.append("grant %d is no JSON object" % number)
+            continue
+        unknown = sorted(key for key in grant if key not in _GRANT_KEYS)
+        if unknown:
+            warnings.append("grant %d has keys the storage ignores: %s (it knows %s)"
+                            % (number, ", ".join(unknown), ", ".join(_GRANT_KEYS)))
+        subject, access, name = grant.get("subject"), grant.get("access"), grant.get("name")
+        unreadable = False
+        if subject is not None and subject not in _GRANT_SUBJECTS:
+            errors.append("grant %d: subject %s is not %s (exact)"
+                          % (number, json.dumps(subject, ensure_ascii=False), " or ".join(_GRANT_SUBJECTS)))
+            unreadable = True
+        if access is not None and access not in _GRANT_ACCESS:
+            errors.append("grant %d: access %s is not READ or EDIT (exact)"
+                          % (number, json.dumps(access, ensure_ascii=False)))
+            unreadable = True
+        if isinstance(name, (dict, list)):
+            errors.append("grant %d: name is not a text" % number)
+            unreadable = True
+        if unreadable:
+            continue
+        if subject is None or access in (None, "NONE") or name is None or not str(name).strip():
+            warnings.append("grant %d is dropped by the import - a grant needs a subject, a name and access READ or "
+                            "EDIT" % number)
+            continue
+        if subject == "USER" and "@" not in str(name):
+            warnings.append("grant %d names the user %r, which is no e-mail - a user is named by the e-mail they sign "
+                            "in with" % (number, name))
+        kept += 1
+    owner = record.get("owner")
+    if level == "RESTRICTED" and not errors and kept == 0 and not (isinstance(owner, str) and owner.strip()):
+        warnings.append("is RESTRICTED with neither an owner nor a grant - the file opens for nobody")
+    return errors, warnings
+
+
+def _check_secure_tenant_files(p, r):
+    """The secure files the archive carries (`tenant-files/secure/`, doc 02 "Secure attachments", doc 14 §1.5).
+
+    The import uploads every file and hands each access record (`tenant-files/secure/.acl/<path>.json`) to the
+    storage, which makes it a record of the importing project. A file whose record is missing or unreadable opens for
+    NOBODY - the author included - and nothing says so but a line in the storage's log.
+
+    ERROR - a secure file without its record; a record the storage cannot read (`_access_record_problems`) or one that
+    is PUBLIC; a case variant of the area (`Secure/`) or of its records (`.ACL/`): the storage refuses those paths, so
+    the import loses what is in them.
+    WARN - a record without its file and an entry of `.acl/` that is no `<file>.json` (both left out); a grant the
+    import drops; a RESTRICTED record with neither an owner nor a grant; keys the storage does not know."""
+    base = os.path.join(p.root, "tenant-files")
+    if not os.path.isdir(base):
+        return
+    names = sorted(os.listdir(base))
+    for entry in names:
+        if entry != _SECURE_AREA and entry.casefold() == _SECURE_AREA:
+            r.err("tenant-files/%s/: the secure area is spelled `%s`, in lower case - the storage refuses a case "
+                  "variant, so the import loses every file in it %s" % (entry, _SECURE_AREA, _IMAGE_ACCESS_DOC))
+    # the name as it is on the disk: on a case-insensitive one (macOS) `secure` also opens a folder named `Secure`
+    if _SECURE_AREA not in names:
+        return
+    area = os.path.join(base, _SECURE_AREA)
+    if not os.path.isdir(area):
+        return
+    files, records = set(), {}
+    for dirpath, dirnames, filenames in os.walk(area):
+        if dirpath == area:
+            for entry in sorted(dirnames):
+                if entry != _ACCESS_RECORDS and entry.casefold() == _ACCESS_RECORDS:
+                    r.err("tenant-files/%s/%s/: access records live in `%s`, in lower case - the storage refuses a "
+                          "case variant, so the import loses these records and their files open for nobody %s"
+                          % (_SECURE_AREA, entry, _ACCESS_RECORDS, _IMAGE_ACCESS_DOC))
+            dirnames[:] = [d for d in dirnames if d == _ACCESS_RECORDS or d.casefold() != _ACCESS_RECORDS]
+        rel_dir = os.path.relpath(dirpath, area).replace(os.sep, "/")
+        for filename in filenames:
+            if filename == ".DS_Store":
+                continue
+            rel = filename if rel_dir == "." else rel_dir + "/" + filename
+            if rel.startswith(_ACCESS_RECORDS + "/"):
+                records[rel[len(_ACCESS_RECORDS) + 1:]] = os.path.join(dirpath, filename)
+            else:
+                files.add(rel)
+    recorded = set()
+    for rel in sorted(records):
+        shown = "tenant-files/%s/%s/%s" % (_SECURE_AREA, _ACCESS_RECORDS, rel)
+        if not rel.endswith(".json"):
+            r.warn("%s is no access record (a record is <file>.json) - the storage refuses it, and the import loses it "
+                   "%s" % (shown, _IMAGE_ACCESS_DOC))
+            continue
+        target = rel[:-len(".json")]
+        recorded.add(target)
+        try:
+            with open(records[rel], encoding="utf-8") as handle:
+                record = json.load(handle)
+        except (OSError, ValueError) as exc:
+            r.err("%s cannot be read as JSON (%s) - the import leaves it out, so %s/%s opens for NOBODY %s"
+                  % (shown, exc, _SECURE_AREA, target, _IMAGE_ACCESS_DOC))
+            continue
+        errors, warnings = _access_record_problems(record)
+        for problem in errors:
+            r.err("access record %s %s - the import leaves the record out, so %s/%s opens for NOBODY %s"
+                  % (shown, problem, _SECURE_AREA, target, _IMAGE_ACCESS_DOC))
+        for problem in warnings:
+            r.warn("access record %s %s %s" % (shown, problem, _IMAGE_ACCESS_DOC))
+        if target not in files:
+            r.warn("access record %s has no file %s/%s in tenant-files/ - the import leaves it out %s"
+                   % (shown, _SECURE_AREA, target, _IMAGE_ACCESS_DOC))
+    for rel in sorted(files - recorded):
+        r.err("tenant-files/%s/%s has no access record (tenant-files/%s/%s/%s.json) - after the import it opens for "
+              "NOBODY, the author included. A hand-built record: {\"level\":\"PROJECT\"} %s"
+              % (_SECURE_AREA, rel, _SECURE_AREA, _ACCESS_RECORDS, rel, _IMAGE_ACCESS_DOC))
 
 
 def _globalresource_kind_of(name):

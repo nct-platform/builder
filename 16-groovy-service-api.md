@@ -2022,7 +2022,9 @@ service.files.revoke(roleGroups: ['<Role Group>'], files: record.documents)
   that is no secure file (a public one, a typo) is reported in `skipped`. Returns
   `[changed: [...], unchanged: [...], skipped: [path: reason]]`. Up to 20000 files in one call.
 - **EXECUTION rules and CRUD GROOVY methods only**: in a predicate or a validation rule — and in any rule they call —
-  every member refuses.
+  every member refuses. `validate` reports that as an ERROR, and so a member or an option that does not exist and an
+  `access:` other than READ / EDIT; a grant to a role group the project does not have is a WARNING (it is kept under
+  that name and opens the files for nobody).
 - The level itself (Public / Project members / Restricted) is the author's setting of the field or the image, not a
   rule's: a rule decides WHO, on files that are already secure.
 
